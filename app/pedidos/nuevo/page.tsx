@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,10 +13,12 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ArrowLeft, Plus, Trash2, FileText, ShoppingCart } from 'lucide-react'
 import Link from 'next/link'
+import { ClientSearch } from '@/components/client-search'
 
 interface Cliente {
   id: string
   nombre_comercial: string
+  email?: string
 }
 
 interface Producto {
@@ -45,6 +47,7 @@ interface Linea {
 
 export default function NuevoPedidoPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const supabase = createClient()
   
   const [loading, setLoading] = useState(true)
@@ -57,6 +60,7 @@ export default function NuevoPedidoPage() {
   const [presupuestos, setPresupuestos] = useState<Presupuesto[]>([])
   
   const [modo, setModo] = useState<'nuevo' | 'presupuesto'>('nuevo')
+  const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null)
   const [clienteId, setClienteId] = useState('')
   const [presupuestoId, setPresupuestoId] = useState('')
   const [prioridad, setPrioridad] = useState('normal')
@@ -94,6 +98,16 @@ export default function NuevoPedidoPage() {
       setClientes(clientesRes.data || [])
       setProductos(productosRes.data || [])
       setPresupuestos(presupuestosRes.data || [])
+      
+      // Pre-seleccionar cliente si viene por URL
+      const clienteIdParam = searchParams.get('cliente')
+      if (clienteIdParam && clientesRes.data) {
+        const cliente = clientesRes.data.find(c => c.id === clienteIdParam)
+        if (cliente) {
+          setSelectedCliente(cliente)
+          setClienteId(cliente.id)
+        }
+      }
     } catch (err) {
       console.error('Error cargando datos:', err)
       setError('Error cargando datos')
@@ -314,16 +328,14 @@ export default function NuevoPedidoPage() {
             ) : (
               <div>
                 <Label>Cliente *</Label>
-                <Select value={clienteId} onValueChange={setClienteId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecciona cliente" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {clientes.filter(c => c.id).map(c => (
-                      <SelectItem key={c.id} value={c.id}>{c.nombre_comercial}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <ClientSearch 
+                  onSelect={(cliente) => {
+                    setSelectedCliente(cliente.id ? cliente : null)
+                    setClienteId(cliente.id)
+                  }}
+                  selectedClient={selectedCliente}
+                  placeholder="Buscar cliente por nombre, email..."
+                />
               </div>
             )}
 

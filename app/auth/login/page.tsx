@@ -2,20 +2,14 @@
 
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
+import { Mail, Lock, ArrowRight, Package } from 'lucide-react'
 
-export default function Page() {
+export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -36,64 +30,155 @@ export default function Page() {
       if (error) throw error
       router.push('/dashboard')
     } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : 'An error occurred')
+      setError(error instanceof Error ? error.message : 'Error al iniciar sesion')
     } finally {
       setIsLoading(false)
     }
   }
 
   return (
-    <div className="flex min-h-svh w-full items-center justify-center p-6 md:p-10">
-      <div className="w-full max-w-sm">
-        <div className="flex flex-col gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-2xl">FinePath ERP</CardTitle>
-              <CardDescription>
-                Introduce tu email y contrasena para acceder
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleLogin}>
-                <div className="flex flex-col gap-6">
-                  <div className="grid gap-2">
-                    <Label htmlFor="email">Email</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="m@example.com"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="password">Password</Label>
-                    <Input
-                      id="password"
-                      type="password"
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                    />
-                  </div>
-                  {error && <p className="text-sm text-red-500">{error}</p>}
-                  <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading ? 'Iniciando sesion...' : 'Iniciar sesion'}
-                  </Button>
+    <div className="min-h-screen flex">
+      {/* Left Side - Decorative */}
+      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 relative overflow-hidden">
+        {/* Background Pattern */}
+        <div className="absolute inset-0 opacity-30">
+          <div className="absolute top-20 left-20 w-72 h-72 bg-blue-500 rounded-full blur-3xl" />
+          <div className="absolute bottom-20 right-20 w-96 h-96 bg-cyan-500 rounded-full blur-3xl" />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-purple-500 rounded-full blur-3xl" />
+        </div>
+        
+        {/* Content */}
+        <div className="relative z-10 flex flex-col justify-center px-16 text-white">
+          <div className="flex items-center gap-4 mb-8">
+            <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-cyan-400 rounded-2xl flex items-center justify-center shadow-xl shadow-blue-500/30">
+              <Package className="w-9 h-9 text-white" />
+            </div>
+            <div>
+              <h1 className="text-4xl font-bold">Turival</h1>
+              <p className="text-blue-300">ERP Lacados Industriales</p>
+            </div>
+          </div>
+          
+          <h2 className="text-3xl font-semibold mb-4 leading-tight">
+            Gestiona tu produccion<br />de forma inteligente
+          </h2>
+          
+          <p className="text-slate-300 text-lg max-w-md leading-relaxed">
+            Control total de presupuestos, pedidos, produccion y trazabilidad 
+            en una sola plataforma diseñada para la industria del lacado.
+          </p>
+          
+          <div className="mt-12 grid grid-cols-2 gap-6">
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4">
+              <div className="text-3xl font-bold text-blue-400">100%</div>
+              <div className="text-sm text-slate-300">Trazabilidad</div>
+            </div>
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4">
+              <div className="text-3xl font-bold text-cyan-400">QR</div>
+              <div className="text-sm text-slate-300">Por Pieza</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Right Side - Login Form */}
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-slate-50">
+        <div className="w-full max-w-md">
+          {/* Mobile Logo */}
+          <div className="lg:hidden flex items-center gap-3 mb-8 justify-center">
+            <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-400 rounded-xl flex items-center justify-center shadow-lg">
+              <Package className="w-7 h-7 text-white" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900">Turival</h1>
+              <p className="text-xs text-slate-500">ERP Lacados Industriales</p>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/50 p-8">
+            <div className="text-center mb-8">
+              <h2 className="text-2xl font-bold text-slate-900">Bienvenido</h2>
+              <p className="text-slate-500 mt-2">Introduce tus credenciales para acceder</p>
+            </div>
+
+            <form onSubmit={handleLogin} className="space-y-5">
+              <div className="space-y-2">
+                <Label htmlFor="email" className="text-slate-700 font-medium">
+                  Email
+                </Label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="tu@email.com"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="pl-11 h-12 bg-slate-50 border-slate-200 focus:bg-white focus:border-blue-500 focus:ring-blue-500/20 transition-all"
+                  />
                 </div>
-                <div className="mt-4 text-center text-sm">
-                  No tienes cuenta?{' '}
-                  <Link
-                    href="/auth/sign-up"
-                    className="underline underline-offset-4"
-                  >
-                    Registrarse
-                  </Link>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="password" className="text-slate-700 font-medium">
+                  Contrasena
+                </Label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="Tu contrasena"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="pl-11 h-12 bg-slate-50 border-slate-200 focus:bg-white focus:border-blue-500 focus:ring-blue-500/20 transition-all"
+                  />
                 </div>
-              </form>
-            </CardContent>
-          </Card>
+              </div>
+
+              {error && (
+                <div className="bg-red-50 text-red-600 px-4 py-3 rounded-lg text-sm border border-red-100">
+                  {error}
+                </div>
+              )}
+
+              <Button 
+                type="submit" 
+                className="w-full h-12 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white font-semibold rounded-xl shadow-lg shadow-blue-500/30 transition-all duration-200"
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <div className="flex items-center gap-2">
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Iniciando sesion...
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    Iniciar Sesion
+                    <ArrowRight className="w-5 h-5" />
+                  </div>
+                )}
+              </Button>
+            </form>
+
+            <div className="mt-6 text-center">
+              <p className="text-slate-500 text-sm">
+                No tienes cuenta?{' '}
+                <Link
+                  href="/auth/sign-up"
+                  className="text-blue-600 font-semibold hover:text-blue-700 transition-colors"
+                >
+                  Registrate aqui
+                </Link>
+              </p>
+            </div>
+          </div>
+
+          <p className="text-center text-slate-400 text-xs mt-6">
+            2024 Turival ERP. Todos los derechos reservados.
+          </p>
         </div>
       </div>
     </div>

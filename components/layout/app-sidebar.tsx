@@ -90,7 +90,7 @@ export function AppLayout({ children, title }: AppLayoutProps) {
               <Package className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-white">FinePath</h1>
+              <h1 className="text-xl font-bold text-white">Turival</h1>
               <p className="text-xs text-slate-400">ERP Lacados Industriales</p>
             </div>
           </div>

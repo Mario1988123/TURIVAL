@@ -191,6 +191,11 @@ export default function ClientesPage() {
                             >
                               Crear presupuesto
                             </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => router.push(`/pedidos/nuevo?cliente=${cliente.id}`)}
+                            >
+                              Crear pedido
+                            </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
