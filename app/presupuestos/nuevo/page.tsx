@@ -124,6 +124,8 @@ export default function NuevoPresupuesto() {
   }
 
   async function handleGuardar() {
+    console.log('[v0] handleGuardar iniciado - versión con numero_linea corregido')
+    
     if (!userId) {
       setError('Debes iniciar sesion')
       return
@@ -172,27 +174,28 @@ export default function NuevoPresupuesto() {
       if (presupuestoErr) throw presupuestoErr
       if (!presupuesto) throw new Error('No se creó el presupuesto')
 
+      // Insertar líneas del presupuesto con numero_linea obligatorio
       for (let i = 0; i < lineas.length; i++) {
         const linea = lineas[i]
+        const numeroLinea = i + 1
+        
         const { error: lineaErr } = await supabase
           .from('lineas_presupuesto')
           .insert({
             presupuesto_id: presupuesto.id,
             producto_id: linea.producto_id,
-            numero_linea: i + 1,
+            numero_linea: numeroLinea,
             cantidad: linea.cantidad,
             precio_unitario: linea.precio_unitario,
             subtotal: linea.subtotal,
             unidad: productos.find(p => p.id === linea.producto_id)?.unidad_tarificacion || 'm2',
           })
 
-        if (lineaErr) throw lineaErr
+        if (lineaErr) {
+          console.error('[v0] Error insertando linea:', numeroLinea, lineaErr)
+          throw lineaErr
+        }
       }
-
-      await supabase
-        .from('secuencias')
-        .update({ ultimo_numero: (secuencia?.ultimo_numero || 0) + 1 })
-        .eq('id', 'presupuesto')
 
       router.push(`/presupuestos/${presupuesto.id}`)
     } catch (err) {
