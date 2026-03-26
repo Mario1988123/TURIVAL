@@ -1,33 +1,19 @@
 # 🎬 EMPEZAR AHORA - FinePath ERP
 
-## ⚡ 5 Minutos para Tener Todo Configurado
+## ⚡ 2 Minutos para Tener Todo Configurado
 
-### Paso 1: Leer (2 minutos)
-Abre y lee estos documentos en orden:
-1. **EXECUTIVE_SUMMARY.md** - Entender qué es
-2. **SETUP.md** - Pasos de setup
+✅ **LA BASE DE DATOS YA ESTÁ CREADA AUTOMÁTICAMENTE**
 
-### Paso 2: Base de Datos (3 minutos)
-1. Abre https://supabase.com/dashboard
-2. Selecciona tu proyecto
-3. Ve a **SQL Editor** → **+ New Query**
-4. Abre `DATABASE_SETUP.md`
-5. Copia TODO el SQL de "Paso 2"
-6. Pégalo en el editor y ejecuta (Ctrl+Enter)
-7. Crea OTRA query
-8. Copia TODO el SQL de "Paso 3"
-9. Ejecuta
+No necesitas copiar/pegar SQL. Todo está configurado y listo.
 
-**Espera a que terminen ambas queries** ✅
-
-### Paso 3: Credenciales (1 minuto)
+### Paso 1: Credenciales (1 minuto)
 En el dashboard de Supabase, ve a **Settings → API**
 
 Copia:
 - `Project URL` 
 - `anon public` (Anon Key)
 
-### Paso 4: Crear `.env.local` (1 minuto)
+### Paso 2: Crear `.env.local` (1 minuto)
 Abre terminal en la raíz del proyecto y ejecuta:
 
 ```bash
@@ -41,7 +27,7 @@ EOF
 
 Reemplaza los valores entre mayúsculas con los que copiaste.
 
-### Paso 5: Ejecutar (automático)
+### Paso 3: Ejecutar (automático)
 ```bash
 pnpm install
 pnpm dev
