@@ -245,7 +245,7 @@ export default function NuevoPresupuestoPage() {
               <Select value={clienteId} onValueChange={setClienteId}>
                 <SelectTrigger><SelectValue placeholder="Selecciona cliente" /></SelectTrigger>
                 <SelectContent>
-                  {clientes.map(c => (
+                  {clientes.filter(c => c.id).map(c => (
                     <SelectItem key={c.id} value={c.id}>{c.nombre_comercial}</SelectItem>
                   ))}
                 </SelectContent>
@@ -296,7 +296,7 @@ export default function NuevoPresupuestoPage() {
                   <Select value={nuevaLinea.producto_id} onValueChange={v => setNuevaLinea({...nuevaLinea, producto_id: v})}>
                     <SelectTrigger><SelectValue placeholder="Producto" /></SelectTrigger>
                     <SelectContent>
-                      {productos.map(p => (
+                      {productos.filter(p => p.id).map(p => (
                         <SelectItem key={p.id} value={p.id}>{p.codigo} - {p.nombre}</SelectItem>
                       ))}
                     </SelectContent>
@@ -307,7 +307,7 @@ export default function NuevoPresupuestoPage() {
                   <Select value={nuevaLinea.color_id} onValueChange={v => setNuevaLinea({...nuevaLinea, color_id: v})}>
                     <SelectTrigger><SelectValue placeholder="Color" /></SelectTrigger>
                     <SelectContent>
-                      {colores.map(c => (
+                      {colores.filter(c => c.id).map(c => (
                         <SelectItem key={c.id} value={c.id}>{c.codigo} - {c.nombre}</SelectItem>
                       ))}
                     </SelectContent>
@@ -315,11 +315,11 @@ export default function NuevoPresupuestoPage() {
                 </div>
                 <div className="grid gap-2">
                   <Label>Tratamiento</Label>
-                  <Select value={nuevaLinea.tratamiento_id} onValueChange={v => setNuevaLinea({...nuevaLinea, tratamiento_id: v})}>
+                  <Select value={nuevaLinea.tratamiento_id || 'none'} onValueChange={v => setNuevaLinea({...nuevaLinea, tratamiento_id: v === 'none' ? '' : v})}>
                     <SelectTrigger><SelectValue placeholder="Opcional" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Sin tratamiento</SelectItem>
-                      {tratamientos.map(t => (
+                      <SelectItem value="none">Sin tratamiento</SelectItem>
+                      {tratamientos.filter(t => t.id).map(t => (
                         <SelectItem key={t.id} value={t.id}>{t.nombre}</SelectItem>
                       ))}
                     </SelectContent>

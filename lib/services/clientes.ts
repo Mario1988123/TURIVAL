@@ -213,42 +213,38 @@ export async function obtenerEstadisticasCliente(cliente_id: string) {
   const supabase = createClient()
 
   // Presupuestos
-  const { count: presupuestos_total } = await supabase
+  const { count: total_presupuestos } = await supabase
     .from('presupuestos')
-    .select('id', { count: 'exact' })
+    .select('*', { count: 'exact', head: true })
     .eq('cliente_id', cliente_id)
 
-  const { count: presupuestos_aceptados } = await supabase
-    .from('presupuestos')
-    .select('id', { count: 'exact' })
-    .eq('cliente_id', cliente_id)
-    .eq('estado', 'aceptado')
-
-  // Pedidos
-  const { count: pedidos_total } = await supabase
+  // Pedidos totales
+  const { count: total_pedidos } = await supabase
     .from('pedidos')
-    .select('id', { count: 'exact' })
+    .select('*', { count: 'exact', head: true })
     .eq('cliente_id', cliente_id)
 
-  const { count: pedidos_entregados } = await supabase
+  // Pedidos pendientes (no entregados)
+  const { count: pedidos_pendientes } = await supabase
     .from('pedidos')
-    .select('id', { count: 'exact' })
+    .select('*', { count: 'exact', head: true })
+    .eq('cliente_id', cliente_id)
+    .neq('estado', 'entregado')
+    .neq('estado', 'cancelado')
+
+  // Facturacion total (suma de pedidos entregados)
+  const { data: pedidos } = await supabase
+    .from('pedidos')
+    .select('total')
     .eq('cliente_id', cliente_id)
     .eq('estado', 'entregado')
 
-  // Ingresos
-  const { data: pagos } = await supabase
-    .from('pagos')
-    .select('importe, pedido_id')
-    .eq('pedido_id', cliente_id)
-
-  const total_ingresos = pagos?.reduce((sum, p) => sum + (p.importe || 0), 0) || 0
+  const facturacion_total = pedidos?.reduce((sum, p) => sum + Number(p.total || 0), 0) || 0
 
   return {
-    presupuestos_total: presupuestos_total || 0,
-    presupuestos_aceptados: presupuestos_aceptados || 0,
-    pedidos_total: pedidos_total || 0,
-    pedidos_entregados: pedidos_entregados || 0,
-    total_ingresos,
+    total_presupuestos: total_presupuestos || 0,
+    total_pedidos: total_pedidos || 0,
+    pedidos_pendientes: pedidos_pendientes || 0,
+    facturacion_total,
   }
 }

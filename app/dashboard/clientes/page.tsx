@@ -80,7 +80,7 @@ export default function ClientesPage() {
           <h1 className="text-3xl font-bold">Clientes</h1>
           <p className="text-slate-600 mt-1">Gestiona tu cartera de clientes</p>
         </div>
-        <Link href="/clientes/crear">
+        <Link href="/dashboard/clientes/crear">
           <Button>
             <Plus className="w-4 h-4 mr-2" />
             Nuevo Cliente
@@ -154,7 +154,7 @@ export default function ClientesPage() {
                     <TableRow key={cliente.id} className="hover:bg-slate-50">
                       <TableCell className="font-medium">
                         <Link
-                          href={`/clientes/${cliente.id}`}
+                          href={`/dashboard/clientes/${cliente.id}`}
                           className="text-blue-600 hover:underline"
                         >
                           {cliente.nombre_comercial}
@@ -177,17 +177,17 @@ export default function ClientesPage() {
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem
-                              onClick={() => router.push(`/clientes/${cliente.id}`)}
+                              onClick={() => router.push(`/dashboard/clientes/${cliente.id}`)}
                             >
                               Ver detalles
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                              onClick={() => router.push(`/clientes/${cliente.id}/editar`)}
+                              onClick={() => router.push(`/dashboard/clientes/${cliente.id}/editar`)}
                             >
                               Editar
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                              onClick={() => router.push(`/presupuestos/crear?cliente=${cliente.id}`)}
+                              onClick={() => router.push(`/presupuestos/nuevo?cliente=${cliente.id}`)}
                             >
                               Crear presupuesto
                             </DropdownMenuItem>
@@ -202,7 +202,7 @@ export default function ClientesPage() {
           ) : (
             <div className="text-center py-12">
               <p className="text-slate-500 mb-4">No hay clientes que coincidan con tu búsqueda</p>
-              <Link href="/clientes/crear">
+              <Link href="/dashboard/clientes/crear">
                 <Button variant="outline">
                   <Plus className="w-4 h-4 mr-2" />
                   Crear primer cliente
