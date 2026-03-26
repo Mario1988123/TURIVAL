@@ -52,7 +52,6 @@ export function ClientSearch({ onSelect, selectedClient, placeholder = "Buscar c
         const { data } = await supabase
           .from('clientes')
           .select('id, nombre_comercial, razon_social, email, telefono')
-          .eq('activo', true)
           .or(`nombre_comercial.ilike.%${query}%,razon_social.ilike.%${query}%,email.ilike.%${query}%`)
           .order('nombre_comercial')
           .limit(10)

@@ -172,12 +172,14 @@ export default function NuevoPresupuesto() {
       if (presupuestoErr) throw presupuestoErr
       if (!presupuesto) throw new Error('No se creó el presupuesto')
 
-      for (const linea of lineas) {
+      for (let i = 0; i < lineas.length; i++) {
+        const linea = lineas[i]
         const { error: lineaErr } = await supabase
           .from('lineas_presupuesto')
           .insert({
             presupuesto_id: presupuesto.id,
             producto_id: linea.producto_id,
+            numero_linea: i + 1,
             cantidad: linea.cantidad,
             precio_unitario: linea.precio_unitario,
             subtotal: linea.subtotal,
