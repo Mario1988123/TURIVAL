@@ -70,7 +70,7 @@ export default function DashboardLayout({
     }
 
     checkUser()
-  }, [])
+  }, [router, supabase])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
