@@ -35,30 +35,24 @@ export default function DashboardPage() {
 
       try {
         // Presupuestos pendientes
-        const { data: presupuestos } = await supabase
+        const { count: presupuestos_count } = await supabase
           .from('presupuestos')
-          .select('id')
+          .select('*', { count: 'exact', head: true })
           .eq('estado', 'borrador')
-          .limit(1)
-          .count('exact')
 
         // Pedidos en producción
-        const { data: pedidos_prod } = await supabase
+        const { count: pedidos_count } = await supabase
           .from('pedidos')
-          .select('id')
+          .select('*', { count: 'exact', head: true })
           .eq('estado', 'en_produccion')
-          .limit(1)
-          .count('exact')
 
         // Piezas completadas hoy
-        const { data: piezas_completadas } = await supabase
+        const { count: piezas_count } = await supabase
           .from('piezas')
-          .select('id')
-          .eq('estado', 'terminado')
+          .select('*', { count: 'exact', head: true })
+          .eq('estado', 'completada')
           .gte('updated_at', `${today}T00:00:00`)
           .lt('updated_at', `${today}T23:59:59`)
-          .limit(1)
-          .count('exact')
 
         // Ingresos del mes
         const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
@@ -68,28 +62,29 @@ export default function DashboardPage() {
         const { data: pagos } = await supabase
           .from('pagos')
           .select('importe')
-          .gte('fecha_pago', monthStart)
+          .eq('estado', 'pagado')
+          .gte('fecha', monthStart)
 
-        const total_pagos = pagos?.reduce((sum, p) => sum + (p.importe || 0), 0) || 0
+        const total_pagos = pagos?.reduce((sum, p) => sum + Number(p.importe || 0), 0) || 0
 
-        // Últimos presupuestos
+        // Ultimos presupuestos
         const { data: ultimos_presupuestos } = await supabase
           .from('presupuestos')
-          .select('numero, estado, total, created_at, clientes(nombre_comercial)')
+          .select('id, numero, estado, total, created_at, clientes(nombre_comercial)')
           .order('created_at', { ascending: false })
           .limit(5)
 
-        // Últimos pedidos
+        // Ultimos pedidos
         const { data: ultimos_pedidos } = await supabase
           .from('pedidos')
-          .select('numero, estado, total_estimado, created_at, clientes(nombre_comercial)')
+          .select('id, numero, estado, total, created_at, clientes(nombre_comercial)')
           .order('created_at', { ascending: false })
           .limit(5)
 
         setStats({
-          presupuestos_pendientes: presupuestos?.count || 0,
-          pedidos_en_produccion: pedidos_prod?.count || 0,
-          piezas_completadas_hoy: piezas_completadas?.count || 0,
+          presupuestos_pendientes: presupuestos_count || 0,
+          pedidos_en_produccion: pedidos_count || 0,
+          piezas_completadas_hoy: piezas_count || 0,
           ingresos_mes: total_pagos,
         })
 
@@ -266,7 +261,7 @@ export default function DashboardPage() {
                         {ped.estado}
                       </Badge>
                       <span className="font-semibold text-sm">
-                        {ped.total_estimado?.toFixed(2)}€
+                        {ped.total?.toFixed(2)}€
                       </span>
                     </div>
                   </div>
