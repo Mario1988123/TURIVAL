@@ -32,14 +32,9 @@ export default function Page() {
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
-        options: {
-          emailRedirectTo:
-            process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ||
-            `${window.location.origin}/protected`,
-        },
       })
       if (error) throw error
-      router.push('/protected')
+      router.push('/dashboard')
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : 'An error occurred')
     } finally {
@@ -53,9 +48,9 @@ export default function Page() {
         <div className="flex flex-col gap-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-2xl">Login</CardTitle>
+              <CardTitle className="text-2xl">FinePath ERP</CardTitle>
               <CardDescription>
-                Enter your email below to login to your account
+                Introduce tu email y contrasena para acceder
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -84,16 +79,16 @@ export default function Page() {
                   </div>
                   {error && <p className="text-sm text-red-500">{error}</p>}
                   <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading ? 'Logging in...' : 'Login'}
+                    {isLoading ? 'Iniciando sesion...' : 'Iniciar sesion'}
                   </Button>
                 </div>
                 <div className="mt-4 text-center text-sm">
-                  Don&apos;t have an account?{' '}
+                  No tienes cuenta?{' '}
                   <Link
                     href="/auth/sign-up"
                     className="underline underline-offset-4"
                   >
-                    Sign up
+                    Registrarse
                   </Link>
                 </div>
               </form>

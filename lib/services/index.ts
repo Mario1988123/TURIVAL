@@ -10,5 +10,5 @@ export * from './catalogo'
 export * from '../types/erp'
 
 // Supabase
-export { createClient } from './client'
-export { useSupabase } from './hooks'
+export { createClient } from '../supabase/client'
+export { useSupabase } from '../supabase/hooks'

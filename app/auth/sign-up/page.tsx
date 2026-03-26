@@ -30,7 +30,7 @@ export default function Page() {
     setError(null)
 
     if (password !== repeatPassword) {
-      setError('Passwords do not match')
+      setError('Las contrasenas no coinciden')
       setIsLoading(false)
       return
     }
@@ -42,7 +42,7 @@ export default function Page() {
         options: {
           emailRedirectTo:
             process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ||
-            `${window.location.origin}/protected`,
+            `${window.location.origin}/dashboard`,
         },
       })
       if (error) throw error
@@ -60,8 +60,8 @@ export default function Page() {
         <div className="flex flex-col gap-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-2xl">Sign up</CardTitle>
-              <CardDescription>Create a new account</CardDescription>
+              <CardTitle className="text-2xl">FinePath ERP</CardTitle>
+              <CardDescription>Crear una nueva cuenta</CardDescription>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSignUp}>
@@ -79,7 +79,7 @@ export default function Page() {
                   </div>
                   <div className="grid gap-2">
                     <div className="flex items-center">
-                      <Label htmlFor="password">Password</Label>
+                      <Label htmlFor="password">Contrasena</Label>
                     </div>
                     <Input
                       id="password"
@@ -91,7 +91,7 @@ export default function Page() {
                   </div>
                   <div className="grid gap-2">
                     <div className="flex items-center">
-                      <Label htmlFor="repeat-password">Repeat Password</Label>
+                      <Label htmlFor="repeat-password">Repetir Contrasena</Label>
                     </div>
                     <Input
                       id="repeat-password"
@@ -103,16 +103,16 @@ export default function Page() {
                   </div>
                   {error && <p className="text-sm text-red-500">{error}</p>}
                   <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading ? 'Creating an account...' : 'Sign up'}
+                    {isLoading ? 'Creando cuenta...' : 'Registrarse'}
                   </Button>
                 </div>
                 <div className="mt-4 text-center text-sm">
-                  Already have an account?{' '}
+                  Ya tienes cuenta?{' '}
                   <Link
                     href="/auth/login"
                     className="underline underline-offset-4"
                   >
-                    Login
+                    Iniciar sesion
                   </Link>
                 </div>
               </form>

@@ -7,8 +7,8 @@ const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
+  title: 'FinePath ERP - Gestion de Lacados',
+  description: 'Sistema de gestion empresarial para empresas de lacados industriales. Presupuestos, pedidos, produccion, trazabilidad y albaranes.',
   generator: 'v0.app',
   icons: {
     icon: [
