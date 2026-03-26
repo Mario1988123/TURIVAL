@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -40,6 +40,7 @@ interface Tarifa {
 
 export default function NuevoPresupuesto() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const supabase = createClient()
 
   const [userId, setUserId] = useState<string | null>(null)
@@ -84,6 +85,12 @@ export default function NuevoPresupuesto() {
       setClientes(clientesRes.data || [])
       setProductos(productosRes.data || [])
       setTarifas(tarifasRes.data || [])
+
+      // Pre-seleccionar cliente si viene desde URL
+      const clienteIdParam = searchParams.get('cliente')
+      if (clienteIdParam) {
+        setClienteId(clienteIdParam)
+      }
     } catch (err) {
       console.error('Error cargando datos:', err)
       setError('Error al cargar datos')
