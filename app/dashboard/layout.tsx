@@ -86,18 +86,61 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex h-screen bg-slate-50">
       {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-white shadow-lg transition-transform duration-300 md:relative md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 w-64 bg-gradient-to-b from-slate-900 to-slate-950 text-white shadow-2xl transition-transform duration-300 md:relative md:translate-x-0 flex flex-col ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="flex flex-col h-full">
-          {/* Logo */}
-          <div className="p-6 border-b border-slate-700">
-            <h1 className="text-2xl font-bold">FinePath</h1>
-            <p className="text-sm text-slate-400">ERP Lacados</p>
+        {/* Logo */}
+        <div className="p-6 border-b border-slate-700/50 flex-shrink-0">
+          <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">FinePath</h1>
+          <p className="text-xs text-slate-400 mt-1">ERP Lacados</p>
+        </div>
+
+        {/* Navigation - Scrollable */}
+        <nav className="flex-1 overflow-y-auto scrollbar-hide p-4 space-y-2">
+          {MENU_ITEMS.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 hover:bg-slate-800 text-slate-300 hover:text-white group"
+            >
+              <item.icon className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              <span className="text-sm font-medium">{item.label}</span>
+            </Link>
+          ))}
+        </nav>
+
+        {/* User Section */}
+        <div className="border-t border-slate-700/50 p-4 flex-shrink-0">
+          {user && (
+            <div className="mb-4 p-3 bg-slate-800/50 rounded-lg">
+              <p className="text-xs text-slate-400">Usuario</p>
+              <p className="text-sm font-medium text-white truncate">{user.nombre}</p>
+              <p className="text-xs text-slate-400 capitalize">{user.rol}</p>
+            </div>
+          )}
+          {user?.rol === 'admin' && (
+            <Link
+              href="/dashboard/admin"
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600/20 text-blue-300 hover:bg-blue-600/30 transition-colors text-sm font-medium mb-2 w-full"
+            >
+              <Settings className="w-4 h-4" />
+              Admin
+            </Link>
+          )}
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 hover:bg-red-600/20 text-slate-300 hover:text-red-300 transition-colors text-sm font-medium"
+          >
+            <LogOut className="w-4 h-4" />
+            Cerrar sesión
+          </button>
+        </div>
+      </aside>
           </div>
 
           {/* Navigation */}
