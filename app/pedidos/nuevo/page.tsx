@@ -178,23 +178,15 @@ export default function NuevoPedidoPage() {
       const impuestos = subtotal * 0.21
       const total = subtotal + impuestos
 
-      // Obtener y actualizar secuencia
-      const nuevoNumero = await (async () => {
-        const { data: secuencia } = await supabase
-          .from('secuencias')
-          .select('ultimo_numero')
-          .eq('id', 'pedido')
-          .single()
-        
-        const siguiente = (secuencia?.ultimo_numero || 0) + 1
-        
-        await supabase
-          .from('secuencias')
-          .update({ ultimo_numero: siguiente })
-          .eq('id', 'pedido')
-        
-        return siguiente
-      })()
+      // Obtener siguiente número de secuencia de forma atómica usando RPC
+      const { data: nuevoNumero, error: seqError } = await supabase
+        .rpc('get_next_sequence', { seq_id: 'pedido' })
+      
+      if (seqError || !nuevoNumero) {
+        setError('Error generando número de pedido')
+        setSaving(false)
+        return
+      }
 
       const numero = `PED-2026-${String(nuevoNumero).padStart(5, '0')}`
 
