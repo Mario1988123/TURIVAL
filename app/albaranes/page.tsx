@@ -99,10 +99,11 @@ export default function AlbaranesPage() {
   }
 
   async function loadPedidos() {
+    // Solo mostrar pedidos con produccion completada para generar albaranes
     const { data } = await supabase
       .from('pedidos')
       .select('id, numero, clientes(nombre_comercial)')
-      .in('estado', ['en_produccion', 'completado'])
+      .eq('estado', 'completado')
       .order('numero', { ascending: false })
     setPedidos(data || [])
   }

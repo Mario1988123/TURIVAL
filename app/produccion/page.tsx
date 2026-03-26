@@ -63,7 +63,7 @@ const ESTADOS_PIEZA = [
 export default function ProduccionPage() {
   const [lotes, setLotes] = useState<Lote[]>([])
   const [piezas, setPiezas] = useState<Pieza[]>([])
-  const [pedidos, setPedidos] = useState<{id: string; numero: string}[]>([])
+  const [pedidos, setPedidos] = useState<{id: string; numero: string; clientes?: {nombre_comercial: string}}[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filtroEstadoLote, setFiltroEstadoLote] = useState<string>('todos')
@@ -102,11 +102,11 @@ export default function ProduccionPage() {
       const { data: piezasData } = await queryPiezas
       setPiezas(piezasData || [])
 
-      // Cargar pedidos para el select
+      // Cargar pedidos en produccion para crear lotes
       const { data: pedidosData } = await supabase
         .from('pedidos')
-        .select('id, numero')
-        .in('estado', ['confirmado', 'en_produccion'])
+        .select('id, numero, clientes(nombre_comercial)')
+        .eq('estado', 'en_produccion')
         .order('numero', { ascending: false })
       setPedidos(pedidosData || [])
 
