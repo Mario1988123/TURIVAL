@@ -76,6 +76,7 @@ export default function NuevoPresupuestoPage() {
   const [tratamientos, setTratamientos] = useState<Tratamiento[]>([])
   const [tarifas, setTarifas] = useState<Tarifa[]>([])
   
+  const [userId, setUserId] = useState<string | null>(null)
   const [clienteId, setClienteId] = useState('')
   const [validezDias, setValidezDias] = useState(30)
   const [observaciones, setObservaciones] = useState('')
@@ -102,6 +103,15 @@ export default function NuevoPresupuestoPage() {
   async function loadCatalogos() {
     try {
       setLoading(true)
+      
+      // Obtener usuario autenticado
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        setError('Debes iniciar sesion para crear presupuestos')
+        return
+      }
+      setUserId(user.id)
+      
       const [clientesRes, productosRes, coloresRes, tratamientosRes, tarifasRes] = await Promise.all([
         supabase.from('clientes').select('id, nombre_comercial').order('nombre_comercial'),
         supabase.from('productos').select('id, nombre, categoria, unidad_tarificacion').eq('activo', true).order('nombre'),
@@ -209,8 +219,12 @@ export default function NuevoPresupuestoPage() {
   }
 
   async function handleGuardarPresupuesto() {
+    if (!userId) {
+      setError('Debes iniciar sesion para crear presupuestos')
+      return
+    }
     if (!clienteId || lineas.length === 0) {
-      setError('Selecciona un cliente y agrega al menos una línea')
+      setError('Selecciona un cliente y agrega al menos una linea')
       return
     }
 
@@ -237,6 +251,7 @@ export default function NuevoPresupuestoPage() {
         .insert({
           numero,
           cliente_id: clienteId,
+          user_id: userId,
           estado: 'borrador',
           subtotal,
           impuestos,
