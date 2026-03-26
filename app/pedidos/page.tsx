@@ -214,12 +214,12 @@ export default function PedidosPage() {
                     className="pl-8"
                   />
                 </div>
-                <Select value={filtroEstado} onValueChange={setFiltroEstado}>
+                <Select value={filtroEstado || 'all'} onValueChange={v => setFiltroEstado(v === 'all' ? '' : v)}>
                   <SelectTrigger className="w-32">
                     <SelectValue placeholder="Estado" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Todos</SelectItem>
+                    <SelectItem value="all">Todos</SelectItem>
                     {ESTADOS.map(e => (
                       <SelectItem key={e.value} value={e.value}>{e.label}</SelectItem>
                     ))}
