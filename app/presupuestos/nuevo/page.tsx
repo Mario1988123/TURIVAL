@@ -134,13 +134,25 @@ export default function NuevoPresupuesto() {
       const impuestos = subtotal * 0.21
       const total = subtotal + impuestos
 
-      const { data: secuencia } = await supabase
-        .from('secuencias')
-        .select('ultimo_numero')
-        .eq('id', 'presupuesto')
-        .single()
+      // Obtener y actualizar secuencia atómicamente
+      const nuevoNumero = await (async () => {
+        const { data: secuencia } = await supabase
+          .from('secuencias')
+          .select('ultimo_numero')
+          .eq('id', 'presupuesto')
+          .single()
+        
+        const siguiente = (secuencia?.ultimo_numero || 0) + 1
+        
+        await supabase
+          .from('secuencias')
+          .update({ ultimo_numero: siguiente })
+          .eq('id', 'presupuesto')
+        
+        return siguiente
+      })()
 
-      const numero = `PRES-2026-${String((secuencia?.ultimo_numero || 0) + 1).padStart(5, '0')}`
+      const numero = `PRES-2026-${String(nuevoNumero).padStart(5, '0')}`
 
       const { data: presupuesto, error: presupuestoErr } = await supabase
         .from('presupuestos')
