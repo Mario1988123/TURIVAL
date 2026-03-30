@@ -54,8 +54,8 @@ export default function LoginPage() {
               <Package className="w-9 h-9 text-white" />
             </div>
             <div>
-              <h1 className="text-4xl font-bold">Turival</h1>
-              <p className="text-blue-300">ERP Lacados Industriales</p>
+              <h1 className="text-4xl font-bold">Turiaval</h1>
+              <p className="text-blue-300">ERP lacados</p>
             </div>
           </div>
           
