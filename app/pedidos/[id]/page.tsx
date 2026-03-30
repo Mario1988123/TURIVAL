@@ -95,7 +95,9 @@ export default function PedidoDetalle() {
       if (pedidoErr) throw pedidoErr
       setPedido(pedidoData)
 
-      const { data: lineasData } = await supabase
+      console.log('[v0] Cargando líneas para pedido:', id)
+      
+      const { data: lineasData, error: lineasErr } = await supabase
         .from('lineas_pedido')
         .select(`
           *,
@@ -104,6 +106,7 @@ export default function PedidoDetalle() {
         .eq('pedido_id', id)
         .order('numero_linea')
 
+      console.log('[v0] Líneas encontradas:', lineasData, 'Error:', lineasErr)
       setLineas(lineasData || [])
     } catch (err) {
       console.error('Error cargando pedido:', err)
