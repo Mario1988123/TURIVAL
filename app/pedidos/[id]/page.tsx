@@ -9,7 +9,9 @@ import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { ArrowLeft, FileText, Factory, Truck, Printer } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { ArrowLeft, FileText, Factory, Truck, Printer, Phone, Mail } from 'lucide-react'
 import Link from 'next/link'
 
 interface Pedido {
@@ -234,7 +236,7 @@ export default function PedidoDetalle() {
               Datos del Pedido
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Cliente</p>
@@ -253,31 +255,64 @@ export default function PedidoDetalle() {
                   <p className="text-muted-foreground">Pedido directo</p>
                 )}
               </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Prioridad</p>
-                <p className="font-medium capitalize">{pedido.prioridad || 'Normal'}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Fecha de entrega</p>
-                <p className="font-medium">
-                  {pedido.fecha_entrega 
-                    ? new Date(pedido.fecha_entrega).toLocaleDateString('es-ES')
-                    : 'Sin definir'
-                  }
-                </p>
-              </div>
             </div>
 
+            {/* Contacto */}
             {pedido.clientes && (
-              <div className="pt-4 border-t">
-                <p className="text-sm text-muted-foreground mb-2">Contacto</p>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  {pedido.clientes.email && <p>Email: {pedido.clientes.email}</p>}
-                  {pedido.clientes.telefono && <p>Tel: {pedido.clientes.telefono}</p>}
-                  {pedido.clientes.direccion && <p className="col-span-2">Dir: {pedido.clientes.direccion}</p>}
+              <div className="bg-slate-50 p-4 rounded-lg">
+                <p className="text-sm font-medium text-muted-foreground mb-2">Contacto</p>
+                <div className="flex flex-wrap gap-4">
+                  {pedido.clientes.telefono && (
+                    <a href={`tel:${pedido.clientes.telefono}`} className="flex items-center gap-2 text-sm hover:text-blue-600">
+                      <Phone className="w-4 h-4" />
+                      {pedido.clientes.telefono}
+                    </a>
+                  )}
+                  {pedido.clientes.email && (
+                    <a href={`mailto:${pedido.clientes.email}`} className="flex items-center gap-2 text-sm hover:text-blue-600">
+                      <Mail className="w-4 h-4" />
+                      {pedido.clientes.email}
+                    </a>
+                  )}
                 </div>
               </div>
             )}
+
+            {/* Prioridad y Fecha de entrega - Editables */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Prioridad</Label>
+                <Select 
+                  value={pedido.prioridad || 'normal'} 
+                  onValueChange={async (value) => {
+                    await supabase.from('pedidos').update({ prioridad: value }).eq('id', pedido.id)
+                    setPedido({ ...pedido, prioridad: value })
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="baja">Baja</SelectItem>
+                    <SelectItem value="normal">Normal</SelectItem>
+                    <SelectItem value="alta">Alta</SelectItem>
+                    <SelectItem value="urgente">Urgente</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Fecha de entrega</Label>
+                <Input 
+                  type="date"
+                  value={pedido.fecha_entrega ? pedido.fecha_entrega.split('T')[0] : ''}
+                  onChange={async (e) => {
+                    const fecha = e.target.value || null
+                    await supabase.from('pedidos').update({ fecha_entrega: fecha }).eq('id', pedido.id)
+                    setPedido({ ...pedido, fecha_entrega: fecha })
+                  }}
+                />
+              </div>
+            </div>
 
             {pedido.observaciones && (
               <div className="pt-4 border-t">

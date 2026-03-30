@@ -163,9 +163,13 @@ export default function PedidosPage() {
         .select('*')
         .eq('presupuesto_id', presupuestoId)
 
+      console.log('[v0] Lineas encontradas en presupuesto:', lineasPresup)
+      
       for (let i = 0; i < (lineasPresup || []).length; i++) {
         const linea = lineasPresup![i]
-        await supabase
+        console.log('[v0] Insertando linea:', i + 1, linea)
+        
+        const { error: lineaErr } = await supabase
           .from('lineas_pedido')
           .insert({
             pedido_id: pedido.id,
@@ -174,8 +178,14 @@ export default function PedidosPage() {
             cantidad: linea.cantidad,
             precio_unitario: linea.precio_unitario,
             subtotal: linea.subtotal,
-            unidad: linea.unidad,
+            unidad: linea.unidad || 'm2',
           })
+        
+        if (lineaErr) {
+          console.log('[v0] Error insertando linea:', lineaErr)
+        } else {
+          console.log('[v0] Linea insertada correctamente')
+        }
       }
 
       console.log('[v0] Lineas copiadas:', (lineasPresup || []).length)
