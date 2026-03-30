@@ -49,7 +49,7 @@ interface LineaPedido {
   productos: {
     id: string
     nombre: string
-    codigo: string
+    categoria: string
   } | null
 }
 
@@ -95,18 +95,15 @@ export default function PedidoDetalle() {
       if (pedidoErr) throw pedidoErr
       setPedido(pedidoData)
 
-      console.log('[v0] Cargando líneas para pedido:', id)
-      
       const { data: lineasData, error: lineasErr } = await supabase
         .from('lineas_pedido')
         .select(`
           *,
-          productos (id, nombre, codigo)
+          productos (id, nombre, categoria)
         `)
         .eq('pedido_id', id)
         .order('numero_linea')
 
-      console.log('[v0] Líneas encontradas:', lineasData, 'Error:', lineasErr)
       setLineas(lineasData || [])
     } catch (err) {
       console.error('Error cargando pedido:', err)
@@ -418,8 +415,8 @@ export default function PedidoDetalle() {
                     <TableCell>
                       <div>
                         <p className="font-medium">{linea.productos?.nombre || 'Producto eliminado'}</p>
-                        {linea.productos?.codigo && (
-                          <p className="text-xs text-muted-foreground">{linea.productos.codigo}</p>
+                        {linea.productos?.categoria && (
+                          <p className="text-xs text-muted-foreground">{linea.productos.categoria}</p>
                         )}
                       </div>
                     </TableCell>
