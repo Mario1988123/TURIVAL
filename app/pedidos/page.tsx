@@ -100,13 +100,30 @@ export default function PedidosPage() {
 
   async function convertirPresupuestoAPedido(presupuestoId: string) {
     try {
+      console.log('[v0] Iniciando conversión de presupuesto:', presupuestoId)
+      
+      // Obtener usuario directamente aquí para evitar race conditions
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        setError('Debes iniciar sesión para convertir presupuestos')
+        console.log('[v0] No hay usuario autenticado')
+        return
+      }
+      
+      console.log('[v0] Usuario:', user.id)
+      
       const { data: presupuesto, error: presupErr } = await supabase
         .from('presupuestos')
         .select('*')
         .eq('id', presupuestoId)
         .single()
 
-      if (presupErr) throw presupErr
+      if (presupErr) {
+        console.log('[v0] Error obteniendo presupuesto:', presupErr)
+        throw presupErr
+      }
+      
+      console.log('[v0] Presupuesto encontrado:', presupuesto.numero)
 
       const { data: secuencia } = await supabase
         .from('secuencias')
@@ -115,11 +132,7 @@ export default function PedidosPage() {
         .single()
 
       const numero = `PED-2026-${String((secuencia?.ultimo_numero || 0) + 1).padStart(5, '0')}`
-
-      if (!userId) {
-        setError('Debes iniciar sesión para convertir presupuestos')
-        return
-      }
+      console.log('[v0] Número de pedido a crear:', numero)
 
       const { data: pedido, error: pedidoErr } = await supabase
         .from('pedidos')
@@ -127,7 +140,7 @@ export default function PedidosPage() {
           numero,
           cliente_id: presupuesto.cliente_id,
           presupuesto_id: presupuestoId,
-          user_id: userId,
+          user_id: user.id,
           estado: 'pendiente',
           subtotal: presupuesto.subtotal,
           impuestos: presupuesto.impuestos,
@@ -137,7 +150,12 @@ export default function PedidosPage() {
         .select()
         .single()
 
-      if (pedidoErr) throw pedidoErr
+      if (pedidoErr) {
+        console.log('[v0] Error creando pedido:', pedidoErr)
+        throw pedidoErr
+      }
+      
+      console.log('[v0] Pedido creado:', pedido.id)
 
       // Copiar lineas del presupuesto
       const { data: lineasPresup } = await supabase
@@ -160,6 +178,8 @@ export default function PedidosPage() {
           })
       }
 
+      console.log('[v0] Lineas copiadas:', (lineasPresup || []).length)
+      
       // Marcar presupuesto como convertido
       await supabase
         .from('presupuestos')
@@ -171,6 +191,7 @@ export default function PedidosPage() {
         .update({ ultimo_numero: (secuencia?.ultimo_numero || 0) + 1 })
         .eq('id', 'pedido')
 
+      console.log('[v0] Conversión completada exitosamente')
       setError('')
       loadPedidos()
     } catch (err) {
