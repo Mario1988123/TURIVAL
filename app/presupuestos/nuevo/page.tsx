@@ -99,6 +99,25 @@ export default function NuevoPresupuesto() {
     }
   }
 
+  // Al seleccionar producto, obtener precio de tarifa
+  function handleProductoChange(productoId: string) {
+    setNuevoProductoId(productoId)
+    
+    // Buscar precio en tarifas - usar primera tarifa disponible
+    if (tarifas.length > 0 && productoId) {
+      const producto = productos.find(p => p.id === productoId)
+      const tarifa = tarifas[0] // Usar tarifa por defecto
+      
+      if (producto && tarifa) {
+        // Usar precio según unidad de tarificacion del producto
+        const precio = producto.unidad_tarificacion === 'pieza' 
+          ? (tarifa.precio_pieza || 0) 
+          : (tarifa.precio_m2 || 0)
+        setNuevoPrecio(precio)
+      }
+    }
+  }
+
   function agregarLinea() {
     if (!nuevoProductoId || nuevaCantidad <= 0 || nuevoPrecio <= 0) {
       setError('Completa producto, cantidad y precio')
@@ -124,8 +143,6 @@ export default function NuevoPresupuesto() {
   }
 
   async function handleGuardar() {
-    console.log('[v0] handleGuardar iniciado - versión con numero_linea corregido')
-    
     if (!userId) {
       setError('Debes iniciar sesion')
       return
@@ -275,7 +292,7 @@ export default function NuevoPresupuesto() {
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label>Producto *</Label>
-                <Select value={nuevoProductoId} onValueChange={setNuevoProductoId}>
+                <Select value={nuevoProductoId} onValueChange={handleProductoChange}>
                   <SelectTrigger>
                     <SelectValue placeholder="Selecciona producto" />
                   </SelectTrigger>

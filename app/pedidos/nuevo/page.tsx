@@ -226,12 +226,14 @@ export default function NuevoPedidoPage() {
       if (!pedido) throw new Error('No se creo el pedido')
 
       // Insertar lineas
-      for (const linea of lineas) {
+      for (let i = 0; i < lineas.length; i++) {
+        const linea = lineas[i]
         await supabase
           .from('lineas_pedido')
           .insert({
             pedido_id: pedido.id,
             producto_id: linea.producto_id,
+            numero_linea: i + 1,
             cantidad: linea.cantidad,
             precio_unitario: linea.precio_unitario,
             subtotal: linea.subtotal,
