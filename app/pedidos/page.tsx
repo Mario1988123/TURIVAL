@@ -51,6 +51,7 @@ export default function PedidosPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [tab, setTab] = useState<'pedidos' | 'presupuestos'>('pedidos')
+  const [userId, setUserId] = useState<string | null>(null)
 
   useEffect(() => {
     loadPedidos()
@@ -59,6 +60,12 @@ export default function PedidosPage() {
   async function loadPedidos() {
     try {
       setLoading(true)
+
+      // Obtener usuario autenticado
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        setUserId(user.id)
+      }
 
       let query = supabase
         .from('pedidos')
@@ -109,12 +116,18 @@ export default function PedidosPage() {
 
       const numero = `PED-2026-${String((secuencia?.ultimo_numero || 0) + 1).padStart(5, '0')}`
 
+      if (!userId) {
+        setError('Debes iniciar sesión para convertir presupuestos')
+        return
+      }
+
       const { data: pedido, error: pedidoErr } = await supabase
         .from('pedidos')
         .insert({
           numero,
           cliente_id: presupuesto.cliente_id,
           presupuesto_id: presupuestoId,
+          user_id: userId,
           estado: 'pendiente',
           subtotal: presupuesto.subtotal,
           impuestos: presupuesto.impuestos,
@@ -132,18 +145,26 @@ export default function PedidosPage() {
         .select('*')
         .eq('presupuesto_id', presupuestoId)
 
-      for (const linea of lineasPresup || []) {
+      for (let i = 0; i < (lineasPresup || []).length; i++) {
+        const linea = lineasPresup![i]
         await supabase
           .from('lineas_pedido')
           .insert({
             pedido_id: pedido.id,
             producto_id: linea.producto_id,
+            numero_linea: i + 1,
             cantidad: linea.cantidad,
             precio_unitario: linea.precio_unitario,
             subtotal: linea.subtotal,
             unidad: linea.unidad,
           })
       }
+
+      // Marcar presupuesto como convertido
+      await supabase
+        .from('presupuestos')
+        .update({ estado: 'convertido' })
+        .eq('id', presupuestoId)
 
       await supabase
         .from('secuencias')
