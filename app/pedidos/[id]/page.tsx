@@ -259,20 +259,26 @@ export default function PedidoDetalle() {
   function handleDrop(dia: Date, hora: number) {
     if (!draggingProceso) return
 
-    // Validar orden: no puede colocar si hay procesos anteriores sin colocar
-    const procesosAnteriores = tareasProgramadas.filter(t => t.orden < draggingProceso.orden && !t.colocada)
-    if (procesosAnteriores.length > 0) {
-      setError(`Primero debes colocar: ${procesosAnteriores.map(p => p.proceso_nombre).join(', ')}`)
-      setDraggingProceso(null)
-      return
-    }
-
-    // Calcular fecha inicio y fin
     const fechaInicio = new Date(dia)
     fechaInicio.setHours(hora, 0, 0, 0)
-    
     const fechaFin = new Date(fechaInicio)
     fechaFin.setMinutes(fechaFin.getMinutes() + draggingProceso.tiempo_estimado)
+
+    // Validar orden estricto: todos los procesos anteriores deben estar colocados
+    // y su fecha_fin debe ser <= fechaInicio de la nueva tarea
+    const procesosAnteriores = tareasProgramadas.filter(t => t.orden < draggingProceso.orden)
+    for (const prev of procesosAnteriores) {
+      if (!prev.colocada || !prev.fecha_fin) {
+        setError(`Primero debes colocar "${prev.proceso_nombre}" (orden ${prev.orden})`)
+        setDraggingProceso(null)
+        return
+      }
+      if (prev.fecha_fin > fechaInicio) {
+        setError(`"${draggingProceso.proceso_nombre}" no puede ir antes de que termine "${prev.proceso_nombre}" (${prev.fecha_fin.toLocaleString('es-ES', { weekday:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })})`)
+        setDraggingProceso(null)
+        return
+      }
+    }
 
     // Verificar que no se salga del horario laboral
     if (fechaFin.getHours() > 17 || (fechaFin.getHours() === 17 && fechaFin.getMinutes() > 0)) {
@@ -281,28 +287,13 @@ export default function PedidoDetalle() {
       return
     }
 
-    // Verificar colision con tareas existentes
-    const hayColision = tareasExistentes.some(te => {
-      const teInicio = new Date(te.fecha_programada_inicio)
-      const teFin = new Date(te.fecha_programada_fin)
-      return (fechaInicio < teFin && fechaFin > teInicio)
-    })
-
-    if (hayColision) {
-      setError('Hay una tarea existente en ese horario')
-      setDraggingProceso(null)
-      return
-    }
-
-    // Actualizar la tarea
-    setTareasProgramadas(prev => prev.map(t => 
-      t.proceso_id === draggingProceso.proceso_id 
+    setError('')
+    setTareasProgramadas(prev => prev.map(t =>
+      t.proceso_id === draggingProceso.proceso_id
         ? { ...t, fecha_inicio: fechaInicio, fecha_fin: fechaFin, colocada: true }
         : t
     ))
-
     setDraggingProceso(null)
-    setError('')
   }
 
   // Programacion automatica
@@ -511,21 +502,42 @@ export default function PedidoDetalle() {
     )
   }
 
-  // Calcular posicion y tamaño de tarea en el calendario
-  function getTareaStyle(fechaInicio: Date, fechaFin: Date, diaIndex: number) {
+  // Calcular posicion vertical de tarea (top y height)
+  function getTareaVertical(fechaInicio: Date, fechaFin: Date) {
     const horaInicio = fechaInicio.getHours() + fechaInicio.getMinutes() / 60
     const horaFin = fechaFin.getHours() + fechaFin.getMinutes() / 60
     const duracion = horaFin - horaInicio
-
-    const top = (horaInicio - 8) * 60 // 60px por hora
-    const height = duracion * 60
-
     return {
-      top: `${top}px`,
-      height: `${height}px`,
-      left: `${diaIndex * 20}%`,
-      width: '19%'
+      top: (horaInicio - 8) * 60,
+      height: Math.max(duracion * 60, 18)
     }
+  }
+
+  // Detectar solapamiento entre dos rangos de tiempo
+  function seSuperponen(aIni: Date, aFin: Date, bIni: Date, bFin: Date) {
+    return aIni < bFin && aFin > bIni
+  }
+
+  // Calcular columnas para un conjunto de tareas en el mismo dia para evitar solapamientos visuales
+  function calcularColumnas(tareas: Array<{ fechaInicio: Date; fechaFin: Date; id: string }>) {
+    const cols: Array<Array<string>> = [] // cols[colIndex] = [taskId,...]
+    const tareaCol: Record<string, number> = {}
+    
+    for (const tarea of tareas) {
+      // Buscar la primera columna donde no hay solapamiento
+      let colAsignada = -1
+      for (let c = 0; c < cols.length; c++) {
+        const solapaCon = cols[c].some(id => {
+          const otra = tareas.find(t => t.id === id)!
+          return seSuperponen(tarea.fechaInicio, tarea.fechaFin, otra.fechaInicio, otra.fechaFin)
+        })
+        if (!solapaCon) { colAsignada = c; break }
+      }
+      if (colAsignada === -1) { colAsignada = cols.length; cols.push([]) }
+      cols[colAsignada].push(tarea.id)
+      tareaCol[tarea.id] = colAsignada
+    }
+    return { tareaCol, numCols: cols.length }
   }
 
   if (loading) {
@@ -696,45 +708,67 @@ export default function PedidoDetalle() {
                     </div>
                   ))}
 
-                  {/* Tareas existentes (grises) */}
-                  {tareasExistentes.map(tarea => {
-                    const fechaInicio = new Date(tarea.fecha_programada_inicio)
-                    const fechaFin = new Date(tarea.fecha_programada_fin)
-                    const diaIndex = dias.findIndex(d => d.toDateString() === fechaInicio.toDateString())
-                    if (diaIndex === -1) return null
+                  {/* Renderizar tareas por dia con deteccion de solapamiento */}
+                  {dias.map((dia, diaIndex) => {
+                    // Tamaño de cada columna de dia: 83.33% / 5 dias = 16.66% por dia
+                    const DIA_W = 83.33 / 5       // % del total del contenedor
+                    const DIA_LEFT = 16.67 + diaIndex * DIA_W  // % desde izquierda
 
-                    const style = getTareaStyle(fechaInicio, fechaFin, diaIndex)
-                    return (
-                      <div
-                        key={tarea.id}
-                        className="absolute bg-slate-300 rounded p-1 text-xs overflow-hidden"
-                        style={{ ...style, marginLeft: '16.66%' }}
-                      >
-                        <p className="font-medium truncate">{tarea.nombre}</p>
-                        <p className="text-slate-600 truncate">{tarea.piezas?.codigo_unico}</p>
-                      </div>
-                    )
-                  })}
+                    // Recopilar todas las tareas de este dia (existentes + programadas)
+                    const todasTareasDelDia: Array<{ fechaInicio: Date; fechaFin: Date; id: string; tipo: 'existente' | 'nueva' }> = []
 
-                  {/* Tareas programadas (coloreadas) */}
-                  {tareasColocadas.map(tarea => {
-                    if (!tarea.fecha_inicio || !tarea.fecha_fin) return null
-                    const diaIndex = dias.findIndex(d => d.toDateString() === tarea.fecha_inicio!.toDateString())
-                    if (diaIndex === -1) return null
+                    tareasExistentes.forEach(t => {
+                      const fi = new Date(t.fecha_programada_inicio)
+                      const ff = new Date(t.fecha_programada_fin)
+                      if (fi.toDateString() === dia.toDateString()) {
+                        todasTareasDelDia.push({ fechaInicio: fi, fechaFin: ff, id: `ex-${t.id}`, tipo: 'existente' })
+                      }
+                    })
+                    tareasColocadas.forEach(t => {
+                      if (!t.fecha_inicio || !t.fecha_fin) return
+                      if (t.fecha_inicio.toDateString() === dia.toDateString()) {
+                        todasTareasDelDia.push({ fechaInicio: t.fecha_inicio, fechaFin: t.fecha_fin, id: `nu-${t.proceso_id}`, tipo: 'nueva' })
+                      }
+                    })
 
-                    const style = getTareaStyle(tarea.fecha_inicio, tarea.fecha_fin, diaIndex)
-                    return (
-                      <div
-                        key={tarea.proceso_id}
-                        className={`absolute ${COLORES_PROCESOS[tarea.proceso_nombre] || 'bg-gray-400'} rounded p-1 text-xs text-white overflow-hidden shadow-sm`}
-                        style={{ ...style, marginLeft: '16.66%' }}
-                      >
-                        <p className="font-medium truncate">{tarea.proceso_nombre}</p>
-                        <p className="text-white/80 truncate">
-                          {tarea.fecha_inicio.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
-                        </p>
-                      </div>
-                    )
+                    const { tareaCol, numCols } = calcularColumnas(todasTareasDelDia)
+
+                    return todasTareasDelDia.map(item => {
+                      const col = tareaCol[item.id]
+                      const colW = DIA_W / Math.max(numCols, 1)
+                      const left = DIA_LEFT + col * colW
+                      const { top, height } = getTareaVertical(item.fechaInicio, item.fechaFin)
+
+                      if (item.tipo === 'existente') {
+                        const tarea = tareasExistentes.find(t => `ex-${t.id}` === item.id)!
+                        return (
+                          <div
+                            key={item.id}
+                            className="absolute bg-slate-300 rounded p-1 text-xs overflow-hidden border border-slate-400"
+                            style={{ top: `${top}px`, height: `${height}px`, left: `${left}%`, width: `${colW - 0.3}%` }}
+                          >
+                            <p className="font-medium truncate text-slate-700">{tarea.nombre}</p>
+                            <p className="text-slate-500 truncate">{tarea.piezas?.codigo_unico}</p>
+                          </div>
+                        )
+                      } else {
+                        const tarea = tareasColocadas.find(t => `nu-${t.proceso_id}` === item.id)!
+                        return (
+                          <div
+                            key={item.id}
+                            className={`absolute ${COLORES_PROCESOS[tarea.proceso_nombre] || 'bg-gray-400'} rounded p-1 text-xs text-white overflow-hidden shadow-sm`}
+                            style={{ top: `${top}px`, height: `${height}px`, left: `${left}%`, width: `${colW - 0.3}%` }}
+                          >
+                            <p className="font-semibold truncate">{tarea.proceso_nombre}</p>
+                            <p className="text-white/80 truncate">
+                              {tarea.fecha_inicio!.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                              {' - '}
+                              {tarea.fecha_fin!.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </div>
+                        )
+                      }
+                    })
                   })}
                 </div>
               </CardContent>
