@@ -3,19 +3,18 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { 
   ArrowLeft, FileText, Factory, Truck, Printer, Phone, Mail, 
   Calendar, CheckCircle, Clock, Play, Package, AlertTriangle,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, GripVertical, Zap
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -66,14 +65,6 @@ interface Proceso {
   tiempo_estimado_default: number
 }
 
-interface ProcesoProducto {
-  id: string
-  proceso_id: string
-  tiempo_estimado: number
-  orden: number
-  procesos_catalogo: Proceso
-}
-
 interface TareaExistente {
   id: string
   fecha_programada_inicio: string
@@ -87,18 +78,37 @@ interface TareaProgramada {
   proceso_id: string
   proceso_nombre: string
   tiempo_estimado: number
-  fecha_inicio: Date
-  fecha_fin: Date
+  fecha_inicio: Date | null
+  fecha_fin: Date | null
   orden: number
+  colocada: boolean
+}
+
+interface Carro {
+  id: string
+  codigo: string
+  descripcion: string
+  ubicacion: string
 }
 
 const HORAS_LABORALES = Array.from({ length: 10 }, (_, i) => i + 8) // 8:00 - 17:00
+
+// Colores para cada proceso
+const COLORES_PROCESOS: Record<string, string> = {
+  'Lijado 1': 'bg-yellow-400',
+  'Fondo 1': 'bg-blue-400',
+  'Lijado 2': 'bg-yellow-500',
+  'Fondo 2': 'bg-blue-500',
+  'Lacado': 'bg-green-500',
+  'Final': 'bg-purple-500',
+  'Revision': 'bg-orange-500',
+  'Picking': 'bg-red-500',
+}
 
 export default function PedidoDetalle() {
   const params = useParams()
   const router = useRouter()
   const supabase = createClient()
-  const id = params.id as string
 
   const [pedido, setPedido] = useState<Pedido | null>(null)
   const [lineas, setLineas] = useState<LineaPedido[]>([])
@@ -106,26 +116,29 @@ export default function PedidoDetalle() {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
-  // Gantt Modal
-  const [showGanttModal, setShowGanttModal] = useState(false)
-  const [procesosProducto, setProcesosProducto] = useState<ProcesoProducto[]>([])
-  const [tareasExistentes, setTareasExistentes] = useState<TareaExistente[]>([])
-  const [tareasProgramadas, setTareasProgramadas] = useState<TareaProgramada[]>([])
-  const [fechaGantt, setFechaGantt] = useState(new Date())
+  // Vista del Gantt
+  const [vistaGantt, setVistaGantt] = useState(false)
   const [lineaSeleccionada, setLineaSeleccionada] = useState<LineaPedido | null>(null)
-  const [carros, setCarros] = useState<{id: string, codigo: string}[]>([])
+  const [procesos, setProcesos] = useState<Proceso[]>([])
+  const [tareasProgramadas, setTareasProgramadas] = useState<TareaProgramada[]>([])
+  const [tareasExistentes, setTareasExistentes] = useState<TareaExistente[]>([])
+  const [semanaActual, setSemanaActual] = useState(new Date())
+  const [carros, setCarros] = useState<Carro[]>([])
+  
+  // Drag and drop
+  const [draggingProceso, setDraggingProceso] = useState<TareaProgramada | null>(null)
+  
+  // Modal carro
+  const [dialogCarro, setDialogCarro] = useState(false)
   const [carroSeleccionado, setCarroSeleccionado] = useState('')
-  const [showCarroModal, setShowCarroModal] = useState(false)
 
-  useEffect(() => {
-    loadPedido()
-    loadCarros()
-  }, [id])
+  const id = params.id as string
 
-  async function loadPedido() {
+  // Cargar datos del pedido
+  const loadPedido = useCallback(async () => {
+    setLoading(true)
     try {
-      setLoading(true)
-      const { data: pedidoData, error: pedidoErr } = await supabase
+      const { data: pedidoData, error: pedidoError } = await supabase
         .from('pedidos')
         .select(`
           *,
@@ -135,7 +148,7 @@ export default function PedidoDetalle() {
         .eq('id', id)
         .single()
 
-      if (pedidoErr) throw pedidoErr
+      if (pedidoError) throw pedidoError
       setPedido(pedidoData)
 
       const { data: lineasData } = await supabase
@@ -145,129 +158,239 @@ export default function PedidoDetalle() {
         .order('numero_linea')
 
       setLineas(lineasData || [])
-    } catch (err) {
-      console.error('Error cargando pedido:', err)
-      setError('Error al cargar pedido')
+    } catch {
+      setError('Error al cargar el pedido')
     } finally {
       setLoading(false)
     }
-  }
+  }, [id, supabase])
 
-  async function loadCarros() {
-    const { data } = await supabase.from('carros').select('id, codigo').eq('activo', true)
-    setCarros(data || [])
-  }
+  useEffect(() => {
+    loadPedido()
+  }, [loadPedido])
 
-  async function loadProcesosParaProducto(productoId: string) {
-    // Cargar procesos configurados para este producto
+  // Cargar procesos y tareas existentes cuando se abre Gantt
+  async function abrirGantt(linea: LineaPedido) {
+    setLineaSeleccionada(linea)
+    setVistaGantt(true)
+
+    // Cargar procesos del catalogo
     const { data: procesosData } = await supabase
-      .from('procesos_producto')
-      .select(`*, procesos_catalogo (id, nombre, orden, tiempo_estimado_default)`)
-      .eq('producto_id', productoId)
+      .from('procesos_catalogo')
+      .select('*')
+      .eq('activo', true)
       .order('orden')
 
-    if (procesosData && procesosData.length > 0) {
-      setProcesosProducto(procesosData)
-    } else {
-      // Si no hay procesos configurados, cargar los 8 por defecto
-      const { data: defaultProcesos } = await supabase
-        .from('procesos_catalogo')
-        .select('*')
-        .eq('activo', true)
-        .order('orden')
+    setProcesos(procesosData || [])
 
-      const procDefault = (defaultProcesos || []).map(p => ({
-        id: p.id,
-        proceso_id: p.id,
-        tiempo_estimado: p.tiempo_estimado_default,
-        orden: p.orden,
-        procesos_catalogo: p
-      }))
-      setProcesosProducto(procDefault)
-    }
+    // Inicializar tareas sin colocar
+    const tareasInit: TareaProgramada[] = (procesosData || []).map(p => ({
+      proceso_id: p.id,
+      proceso_nombre: p.nombre,
+      tiempo_estimado: p.tiempo_estimado_default,
+      fecha_inicio: null,
+      fecha_fin: null,
+      orden: p.orden,
+      colocada: false
+    }))
+    setTareasProgramadas(tareasInit)
 
-    // Cargar tareas existentes en el calendario para ver ocupacion
-    const startOfWeek = new Date(fechaGantt)
-    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay() + 1)
-    const endOfWeek = new Date(startOfWeek)
-    endOfWeek.setDate(endOfWeek.getDate() + 6)
+    // Cargar tareas existentes de la semana
+    await cargarTareasExistentes()
 
-    const { data: tareasData } = await supabase
+    // Cargar carros
+    const { data: carrosData } = await supabase
+      .from('carros')
+      .select('*')
+      .eq('activo', true)
+
+    setCarros(carrosData || [])
+  }
+
+  async function cargarTareasExistentes() {
+    const inicioSemana = getInicioSemana(semanaActual)
+    const finSemana = new Date(inicioSemana)
+    finSemana.setDate(finSemana.getDate() + 5)
+
+    const { data } = await supabase
       .from('tareas_produccion')
-      .select(`*, piezas (codigo_unico)`)
-      .gte('fecha_programada_inicio', startOfWeek.toISOString())
-      .lte('fecha_programada_inicio', endOfWeek.toISOString())
-      .not('fecha_programada_inicio', 'is', null)
+      .select('*, piezas(codigo_unico)')
+      .gte('fecha_programada_inicio', inicioSemana.toISOString())
+      .lte('fecha_programada_fin', finSemana.toISOString())
 
-    setTareasExistentes(tareasData || [])
+    setTareasExistentes(data || [])
   }
 
-  function abrirGanttParaLinea(linea: LineaPedido) {
-    setLineaSeleccionada(linea)
-    loadProcesosParaProducto(linea.producto_id)
-    
-    // Inicializar tareas programadas con hora de inicio del dia actual
-    const ahora = new Date()
-    ahora.setHours(8, 0, 0, 0)
-    
-    setTareasProgramadas([])
-    setShowGanttModal(true)
+  useEffect(() => {
+    if (vistaGantt) {
+      cargarTareasExistentes()
+    }
+  }, [semanaActual, vistaGantt])
+
+  // Utilidades de fecha
+  function getInicioSemana(fecha: Date): Date {
+    const d = new Date(fecha)
+    const day = d.getDay()
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1)
+    d.setDate(diff)
+    d.setHours(0, 0, 0, 0)
+    return d
   }
 
-  function programarTareasAutomaticas() {
-    if (procesosProducto.length === 0) return
+  function getDiasSemana(fecha: Date): Date[] {
+    const inicio = getInicioSemana(fecha)
+    return Array.from({ length: 5 }, (_, i) => {
+      const d = new Date(inicio)
+      d.setDate(d.getDate() + i)
+      return d
+    })
+  }
 
-    const tareas: TareaProgramada[] = []
-    let horaActual = new Date(fechaGantt)
-    horaActual.setHours(8, 0, 0, 0)
+  // Drag and drop handlers
+  function handleDragStart(tarea: TareaProgramada) {
+    if (tarea.colocada) return
+    setDraggingProceso(tarea)
+  }
 
-    for (const pp of procesosProducto) {
-      const duracionMinutos = pp.tiempo_estimado
-      const fechaInicio = new Date(horaActual)
-      const fechaFin = new Date(horaActual.getTime() + duracionMinutos * 60000)
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault()
+  }
 
-      // Si pasa de las 18:00, mover al dia siguiente
-      if (fechaFin.getHours() >= 18) {
-        horaActual.setDate(horaActual.getDate() + 1)
-        horaActual.setHours(8, 0, 0, 0)
-        fechaFin.setTime(horaActual.getTime() + duracionMinutos * 60000)
-      }
+  function handleDrop(dia: Date, hora: number) {
+    if (!draggingProceso) return
 
-      tareas.push({
-        proceso_id: pp.proceso_id,
-        proceso_nombre: pp.procesos_catalogo.nombre,
-        tiempo_estimado: duracionMinutos,
-        fecha_inicio: new Date(horaActual),
-        fecha_fin: fechaFin,
-        orden: pp.orden
-      })
-
-      horaActual = new Date(fechaFin)
+    // Validar orden: no puede colocar si hay procesos anteriores sin colocar
+    const procesosAnteriores = tareasProgramadas.filter(t => t.orden < draggingProceso.orden && !t.colocada)
+    if (procesosAnteriores.length > 0) {
+      setError(`Primero debes colocar: ${procesosAnteriores.map(p => p.proceso_nombre).join(', ')}`)
+      setDraggingProceso(null)
+      return
     }
 
-    setTareasProgramadas(tareas)
+    // Calcular fecha inicio y fin
+    const fechaInicio = new Date(dia)
+    fechaInicio.setHours(hora, 0, 0, 0)
+    
+    const fechaFin = new Date(fechaInicio)
+    fechaFin.setMinutes(fechaFin.getMinutes() + draggingProceso.tiempo_estimado)
+
+    // Verificar que no se salga del horario laboral
+    if (fechaFin.getHours() > 17 || (fechaFin.getHours() === 17 && fechaFin.getMinutes() > 0)) {
+      setError('La tarea se sale del horario laboral (hasta las 17:00)')
+      setDraggingProceso(null)
+      return
+    }
+
+    // Verificar colision con tareas existentes
+    const hayColision = tareasExistentes.some(te => {
+      const teInicio = new Date(te.fecha_programada_inicio)
+      const teFin = new Date(te.fecha_programada_fin)
+      return (fechaInicio < teFin && fechaFin > teInicio)
+    })
+
+    if (hayColision) {
+      setError('Hay una tarea existente en ese horario')
+      setDraggingProceso(null)
+      return
+    }
+
+    // Actualizar la tarea
+    setTareasProgramadas(prev => prev.map(t => 
+      t.proceso_id === draggingProceso.proceso_id 
+        ? { ...t, fecha_inicio: fechaInicio, fecha_fin: fechaFin, colocada: true }
+        : t
+    ))
+
+    setDraggingProceso(null)
+    setError('')
   }
 
-  function getFechaEntregaEstimada(): Date | null {
-    if (tareasProgramadas.length === 0) return null
-    const ultimaTarea = tareasProgramadas[tareasProgramadas.length - 1]
-    return ultimaTarea.fecha_fin
+  // Programacion automatica
+  function programarAutomatico() {
+    const dias = getDiasSemana(semanaActual)
+    let diaIndex = 0
+    let horaActual = 8
+    let minutosActuales = 0
+
+    const nuevasTareas = [...tareasProgramadas]
+
+    for (let i = 0; i < nuevasTareas.length; i++) {
+      const tarea = nuevasTareas[i]
+      if (tarea.colocada) continue
+
+      // Buscar hueco disponible
+      let encontrado = false
+      while (!encontrado && diaIndex < dias.length) {
+        const fechaInicio = new Date(dias[diaIndex])
+        fechaInicio.setHours(horaActual, minutosActuales, 0, 0)
+        
+        const fechaFin = new Date(fechaInicio)
+        fechaFin.setMinutes(fechaFin.getMinutes() + tarea.tiempo_estimado)
+
+        // Verificar que no se salga del horario
+        if (fechaFin.getHours() > 17 || (fechaFin.getHours() === 17 && fechaFin.getMinutes() > 0)) {
+          diaIndex++
+          horaActual = 8
+          minutosActuales = 0
+          continue
+        }
+
+        // Verificar colision
+        const hayColision = tareasExistentes.some(te => {
+          const teInicio = new Date(te.fecha_programada_inicio)
+          const teFin = new Date(te.fecha_programada_fin)
+          return fechaInicio.toDateString() === teInicio.toDateString() &&
+                 (fechaInicio < teFin && fechaFin > teInicio)
+        })
+
+        if (hayColision) {
+          minutosActuales += 30
+          if (minutosActuales >= 60) {
+            horaActual++
+            minutosActuales = 0
+          }
+          continue
+        }
+
+        // Asignar tarea
+        nuevasTareas[i] = {
+          ...tarea,
+          fecha_inicio: fechaInicio,
+          fecha_fin: fechaFin,
+          colocada: true
+        }
+
+        // Avanzar tiempo
+        horaActual = fechaFin.getHours()
+        minutosActuales = fechaFin.getMinutes()
+        encontrado = true
+      }
+    }
+
+    setTareasProgramadas(nuevasTareas)
   }
 
+  // Confirmar programacion
   async function confirmarProgramacion() {
-    if (!lineaSeleccionada || tareasProgramadas.length === 0) return
-
-    // Mostrar modal de seleccion de carro
-    setShowCarroModal(true)
+    const tareasNoColocadas = tareasProgramadas.filter(t => !t.colocada)
+    if (tareasNoColocadas.length > 0) {
+      setError(`Faltan por colocar: ${tareasNoColocadas.map(t => t.proceso_nombre).join(', ')}`)
+      return
+    }
+    setDialogCarro(true)
   }
 
   async function confirmarConCarro() {
-    if (!lineaSeleccionada || !pedido || !carroSeleccionado) return
+    if (!carroSeleccionado) {
+      setError('Selecciona un carro')
+      return
+    }
 
+    setSaving(true)
     try {
-      setSaving(true)
+      if (!pedido || !lineaSeleccionada) return
 
-      // Crear lote primero
+      // Crear lote
       const codigoLote = `LOT-${pedido.numero}-${Date.now()}`
       const { data: lote, error: loteErr } = await supabase
         .from('lotes')
@@ -283,7 +406,7 @@ export default function PedidoDetalle() {
 
       if (loteErr) throw loteErr
 
-      // Crear pieza para esta linea
+      // Crear pieza
       const codigoUnico = `PIE-${Date.now()}`
       const qrCode = `QR-${pedido.numero}-${lineaSeleccionada.numero_linea}`
 
@@ -305,7 +428,10 @@ export default function PedidoDetalle() {
 
       // Crear tareas de produccion
       for (const tarea of tareasProgramadas) {
+        if (!tarea.fecha_inicio || !tarea.fecha_fin) continue
+
         await supabase.from('tareas_produccion').insert({
+          lote_id: lote.id,
           pieza_id: pieza.id,
           proceso_id: tarea.proceso_id,
           nombre: tarea.proceso_nombre,
@@ -317,24 +443,21 @@ export default function PedidoDetalle() {
         })
       }
 
-      // Actualizar fecha de entrega del pedido
-      const fechaEntrega = getFechaEntregaEstimada()
-      if (fechaEntrega) {
+      // Calcular fecha de entrega (ultimo proceso)
+      const ultimaTarea = tareasProgramadas[tareasProgramadas.length - 1]
+      if (ultimaTarea.fecha_fin) {
         await supabase
           .from('pedidos')
           .update({ 
-            fecha_entrega: fechaEntrega.toISOString(),
-            estado: 'confirmado'
+            fecha_entrega: ultimaTarea.fecha_fin.toISOString().split('T')[0],
+            estado: 'en_produccion'
           })
           .eq('id', pedido.id)
-
-        setPedido({ ...pedido, fecha_entrega: fechaEntrega.toISOString(), estado: 'confirmado' })
       }
 
-      setShowCarroModal(false)
-      setShowGanttModal(false)
-      setTareasProgramadas([])
-      
+      setDialogCarro(false)
+      setVistaGantt(false)
+      loadPedido()
     } catch (err) {
       console.error('Error confirmando programacion:', err)
       setError('Error al confirmar programacion')
@@ -343,148 +466,337 @@ export default function PedidoDetalle() {
     }
   }
 
-  async function pasarAProduccion() {
-    if (!pedido) return
-    try {
-      setSaving(true)
-      await supabase.from('pedidos').update({ estado: 'en_produccion' }).eq('id', id)
-      setPedido({ ...pedido, estado: 'en_produccion' })
-      router.push('/produccion')
-    } catch (err) {
-      setError('Error al pasar a produccion')
-    } finally {
-      setSaving(false)
-    }
+  // Render del estado con iconos
+  function renderEstadoButtons() {
+    if (!pedido) return null
+
+    const estados = [
+      { estado: 'pendiente', label: 'Pendiente', icon: Clock, color: 'bg-yellow-100 text-yellow-800' },
+      { estado: 'en_produccion', label: 'Produccion', icon: Factory, color: 'bg-blue-100 text-blue-800' },
+      { estado: 'completado', label: 'Completado', icon: CheckCircle, color: 'bg-green-100 text-green-800' },
+      { estado: 'entregado', label: 'Entregado', icon: Truck, color: 'bg-purple-100 text-purple-800' },
+    ]
+
+    const estadoActualIndex = estados.findIndex(e => e.estado === pedido.estado)
+
+    return (
+      <div className="flex items-center gap-2">
+        {estados.map((e, i) => {
+          const Icon = e.icon
+          const isActive = e.estado === pedido.estado
+          const isPast = i < estadoActualIndex
+          const isNext = i === estadoActualIndex + 1
+
+          return (
+            <Button
+              key={e.estado}
+              variant={isActive ? "default" : "outline"}
+              size="sm"
+              disabled={!isNext && !isActive}
+              onClick={async () => {
+                if (isNext) {
+                  await supabase.from('pedidos').update({ estado: e.estado }).eq('id', pedido.id)
+                  loadPedido()
+                }
+              }}
+              className={`${isActive ? e.color : ''} ${isPast ? 'opacity-50' : ''}`}
+            >
+              <Icon className="w-4 h-4 mr-1" />
+              {e.label}
+            </Button>
+          )
+        })}
+      </div>
+    )
   }
 
-  async function marcarCompletado() {
-    if (!pedido) return
-    try {
-      setSaving(true)
-      await supabase.from('pedidos').update({ estado: 'completado' }).eq('id', id)
-      setPedido({ ...pedido, estado: 'completado' })
-    } catch (err) {
-      setError('Error al marcar como completado')
-    } finally {
-      setSaving(false)
-    }
-  }
+  // Calcular posicion y tamaño de tarea en el calendario
+  function getTareaStyle(fechaInicio: Date, fechaFin: Date, diaIndex: number) {
+    const horaInicio = fechaInicio.getHours() + fechaInicio.getMinutes() / 60
+    const horaFin = fechaFin.getHours() + fechaFin.getMinutes() / 60
+    const duracion = horaFin - horaInicio
 
-  async function marcarEntregado() {
-    if (!pedido) return
-    try {
-      setSaving(true)
-      await supabase.from('pedidos').update({ estado: 'entregado' }).eq('id', id)
-      setPedido({ ...pedido, estado: 'entregado' })
-    } catch (err) {
-      setError('Error al marcar como entregado')
-    } finally {
-      setSaving(false)
-    }
-  }
+    const top = (horaInicio - 8) * 60 // 60px por hora
+    const height = duracion * 60
 
-  function getEstadoBadge(estado: string) {
-    const colores: Record<string, string> = {
-      'pendiente': 'bg-yellow-100 text-yellow-800',
-      'confirmado': 'bg-blue-100 text-blue-800',
-      'en_produccion': 'bg-purple-100 text-purple-800',
-      'completado': 'bg-green-100 text-green-800',
-      'entregado': 'bg-gray-100 text-gray-800',
-      'cancelado': 'bg-red-100 text-red-800'
+    return {
+      top: `${top}px`,
+      height: `${height}px`,
+      left: `${diaIndex * 20}%`,
+      width: '19%'
     }
-    const labels: Record<string, string> = {
-      'pendiente': 'Pendiente',
-      'confirmado': 'Confirmado',
-      'en_produccion': 'En Produccion',
-      'completado': 'Completado',
-      'entregado': 'Entregado',
-      'cancelado': 'Cancelado'
-    }
-    return <Badge className={colores[estado] || ''}>{labels[estado] || estado}</Badge>
-  }
-
-  // Gantt helpers
-  function getDiaSemana(offset: number) {
-    const dia = new Date(fechaGantt)
-    const startOfWeek = dia.getDate() - dia.getDay() + 1 + offset
-    dia.setDate(startOfWeek)
-    return dia
-  }
-
-  function formatDia(date: Date) {
-    const dias = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab']
-    return `${dias[date.getDay()]} ${date.getDate()}`
-  }
-
-  function getTareaEnSlot(dia: Date, hora: number): TareaProgramada | TareaExistente | null {
-    // Primero buscar en tareas programadas (nuevas)
-    for (const t of tareasProgramadas) {
-      if (t.fecha_inicio.getDate() === dia.getDate() &&
-          t.fecha_inicio.getMonth() === dia.getMonth() &&
-          t.fecha_inicio.getHours() <= hora &&
-          t.fecha_fin.getHours() > hora) {
-        return t
-      }
-    }
-    // Luego buscar en tareas existentes
-    for (const t of tareasExistentes) {
-      const inicio = new Date(t.fecha_programada_inicio)
-      const fin = new Date(t.fecha_programada_fin)
-      if (inicio.getDate() === dia.getDate() &&
-          inicio.getMonth() === dia.getMonth() &&
-          inicio.getHours() <= hora &&
-          fin.getHours() > hora) {
-        return t
-      }
-    }
-    return null
   }
 
   if (loading) {
     return (
-      <div className="p-8 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900" />
       </div>
     )
   }
 
   if (!pedido) {
     return (
-      <div className="p-8">
+      <div className="container mx-auto py-8">
         <Alert variant="destructive">
           <AlertDescription>Pedido no encontrado</AlertDescription>
         </Alert>
-        <Link href="/pedidos">
-          <Button variant="outline" className="mt-4">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Volver a pedidos
-          </Button>
-        </Link>
       </div>
     )
   }
 
+  // VISTA GANTT
+  if (vistaGantt) {
+    const dias = getDiasSemana(semanaActual)
+    const tareasNoColocadas = tareasProgramadas.filter(t => !t.colocada)
+    const tareasColocadas = tareasProgramadas.filter(t => t.colocada)
+
+    return (
+      <div className="min-h-screen bg-slate-50">
+        {/* Header */}
+        <div className="bg-white border-b px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <Button variant="ghost" onClick={() => setVistaGantt(false)}>
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Volver al pedido
+              </Button>
+              <div>
+                <h1 className="text-xl font-bold">Programar Gantt - {pedido.numero}</h1>
+                <p className="text-sm text-muted-foreground">
+                  Linea: {lineaSeleccionada?.productos?.nombre} ({lineaSeleccionada?.cantidad} {lineaSeleccionada?.unidad})
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={programarAutomatico}>
+                <Zap className="w-4 h-4 mr-2" />
+                Automatico
+              </Button>
+              <Button 
+                onClick={confirmarProgramacion}
+                disabled={tareasNoColocadas.length > 0}
+              >
+                <CheckCircle className="w-4 h-4 mr-2" />
+                Confirmar Programacion
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {error && (
+          <Alert variant="destructive" className="mx-6 mt-4">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        <div className="flex gap-6 p-6">
+          {/* Panel izquierdo: Procesos a colocar */}
+          <div className="w-64 flex-shrink-0">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm">Procesos a programar</CardTitle>
+                <CardDescription>Arrastra cada proceso al calendario</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {tareasProgramadas.map(tarea => (
+                  <div
+                    key={tarea.proceso_id}
+                    draggable={!tarea.colocada}
+                    onDragStart={() => handleDragStart(tarea)}
+                    className={`
+                      p-3 rounded-lg border flex items-center gap-2 cursor-grab
+                      ${tarea.colocada 
+                        ? 'bg-green-50 border-green-200 opacity-50' 
+                        : `${COLORES_PROCESOS[tarea.proceso_nombre] || 'bg-gray-200'} text-white`
+                      }
+                    `}
+                  >
+                    {!tarea.colocada && <GripVertical className="w-4 h-4" />}
+                    {tarea.colocada && <CheckCircle className="w-4 h-4 text-green-600" />}
+                    <div className="flex-1">
+                      <p className="font-medium text-sm">{tarea.proceso_nombre}</p>
+                      <p className={`text-xs ${tarea.colocada ? 'text-muted-foreground' : 'text-white/80'}`}>
+                        {tarea.tiempo_estimado} min
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Calendario Gantt */}
+          <div className="flex-1">
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm">Calendario Semanal</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => {
+                        const prev = new Date(semanaActual)
+                        prev.setDate(prev.getDate() - 7)
+                        setSemanaActual(prev)
+                      }}
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </Button>
+                    <span className="text-sm font-medium min-w-[200px] text-center">
+                      {dias[0]?.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })} - {dias[4]?.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </span>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => {
+                        const next = new Date(semanaActual)
+                        next.setDate(next.getDate() + 7)
+                        setSemanaActual(next)
+                      }}
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {/* Header dias */}
+                <div className="grid grid-cols-6 gap-px bg-slate-200 rounded-t-lg overflow-hidden">
+                  <div className="bg-slate-100 p-2 text-xs font-medium text-center">Hora</div>
+                  {dias.map((dia, i) => (
+                    <div key={i} className="bg-slate-100 p-2 text-xs font-medium text-center">
+                      {dia.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' })}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Grid de horas */}
+                <div className="relative border border-t-0 rounded-b-lg overflow-hidden" style={{ height: '600px' }}>
+                  {/* Lineas de hora */}
+                  {HORAS_LABORALES.map(hora => (
+                    <div 
+                      key={hora} 
+                      className="absolute w-full border-b border-slate-100 flex"
+                      style={{ top: `${(hora - 8) * 60}px`, height: '60px' }}
+                    >
+                      <div className="w-[16.66%] text-xs text-muted-foreground p-1 border-r bg-slate-50">
+                        {hora}:00
+                      </div>
+                      {dias.map((dia, diaIndex) => (
+                        <div
+                          key={diaIndex}
+                          className="flex-1 border-r border-slate-100 hover:bg-blue-50/50 transition-colors"
+                          onDragOver={handleDragOver}
+                          onDrop={() => handleDrop(dia, hora)}
+                        />
+                      ))}
+                    </div>
+                  ))}
+
+                  {/* Tareas existentes (grises) */}
+                  {tareasExistentes.map(tarea => {
+                    const fechaInicio = new Date(tarea.fecha_programada_inicio)
+                    const fechaFin = new Date(tarea.fecha_programada_fin)
+                    const diaIndex = dias.findIndex(d => d.toDateString() === fechaInicio.toDateString())
+                    if (diaIndex === -1) return null
+
+                    const style = getTareaStyle(fechaInicio, fechaFin, diaIndex)
+                    return (
+                      <div
+                        key={tarea.id}
+                        className="absolute bg-slate-300 rounded p-1 text-xs overflow-hidden"
+                        style={{ ...style, marginLeft: '16.66%' }}
+                      >
+                        <p className="font-medium truncate">{tarea.nombre}</p>
+                        <p className="text-slate-600 truncate">{tarea.piezas?.codigo_unico}</p>
+                      </div>
+                    )
+                  })}
+
+                  {/* Tareas programadas (coloreadas) */}
+                  {tareasColocadas.map(tarea => {
+                    if (!tarea.fecha_inicio || !tarea.fecha_fin) return null
+                    const diaIndex = dias.findIndex(d => d.toDateString() === tarea.fecha_inicio!.toDateString())
+                    if (diaIndex === -1) return null
+
+                    const style = getTareaStyle(tarea.fecha_inicio, tarea.fecha_fin, diaIndex)
+                    return (
+                      <div
+                        key={tarea.proceso_id}
+                        className={`absolute ${COLORES_PROCESOS[tarea.proceso_nombre] || 'bg-gray-400'} rounded p-1 text-xs text-white overflow-hidden shadow-sm`}
+                        style={{ ...style, marginLeft: '16.66%' }}
+                      >
+                        <p className="font-medium truncate">{tarea.proceso_nombre}</p>
+                        <p className="text-white/80 truncate">
+                          {tarea.fecha_inicio.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
+                    )
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        {/* Dialog seleccionar carro */}
+        <Dialog open={dialogCarro} onOpenChange={setDialogCarro}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Asignar Carro</DialogTitle>
+              <DialogDescription>
+                Selecciona el carro donde se ubicara la pieza para su trazabilidad
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-4">
+              <Label>Carro</Label>
+              <Select value={carroSeleccionado} onValueChange={setCarroSeleccionado}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona un carro..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {carros.map(c => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.codigo} - {c.ubicacion}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDialogCarro(false)}>Cancelar</Button>
+              <Button onClick={confirmarConCarro} disabled={saving}>
+                {saving ? 'Guardando...' : 'Confirmar'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    )
+  }
+
+  // VISTA NORMAL DEL PEDIDO
   return (
-    <div className="p-6 space-y-6 max-w-6xl mx-auto">
+    <div className="container mx-auto py-8 max-w-6xl">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
-          <Link href="/pedidos">
-            <Button variant="outline" size="sm">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Volver
-            </Button>
-          </Link>
+          <Button variant="ghost" onClick={() => router.push('/pedidos')}>
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Volver
+          </Button>
           <div>
             <h1 className="text-2xl font-bold">{pedido.numero}</h1>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-muted-foreground">
               Creado el {new Date(pedido.fecha).toLocaleDateString('es-ES')}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          {getEstadoBadge(pedido.estado)}
-          <Button variant="outline" size="sm">
+        <div className="flex items-center gap-2">
+          {renderEstadoButtons()}
+          <Button variant="outline" onClick={() => window.print()}>
             <Printer className="w-4 h-4 mr-2" />
             Imprimir
           </Button>
@@ -492,13 +804,13 @@ export default function PedidoDetalle() {
       </div>
 
       {error && (
-        <Alert variant="destructive">
+        <Alert variant="destructive" className="mb-6">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Datos del pedido */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+        {/* Datos del Pedido */}
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -548,123 +860,56 @@ export default function PedidoDetalle() {
               </div>
             )}
 
-            {/* Prioridad y Fecha de entrega */}
+            {/* Prioridad y Fecha entrega */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Prioridad</Label>
-                <Select 
-                  value={pedido.prioridad || 'normal'} 
-                  onValueChange={async (value) => {
-                    await supabase.from('pedidos').update({ prioridad: value }).eq('id', pedido.id)
-                    setPedido({ ...pedido, prioridad: value })
-                  }}
-                >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="baja">Baja</SelectItem>
-                    <SelectItem value="normal">Normal</SelectItem>
-                    <SelectItem value="alta">Alta</SelectItem>
-                    <SelectItem value="urgente">Urgente</SelectItem>
-                  </SelectContent>
-                </Select>
+                <p className="text-sm text-muted-foreground">Prioridad</p>
+                <Badge variant="outline" className="capitalize">{pedido.prioridad || 'Normal'}</Badge>
               </div>
               <div>
-                <Label>Fecha de entrega</Label>
-                <div className="flex items-center gap-2 mt-1">
-                  {pedido.fecha_entrega ? (
-                    <Badge variant="outline" className="text-green-700 border-green-300 bg-green-50">
-                      <Calendar className="w-3 h-3 mr-1" />
-                      {new Date(pedido.fecha_entrega).toLocaleDateString('es-ES')}
-                    </Badge>
-                  ) : (
-                    <span className="text-sm text-muted-foreground">Se define al programar en Gantt</span>
-                  )}
-                </div>
+                <p className="text-sm text-muted-foreground">Fecha de entrega</p>
+                <p className="font-medium flex items-center gap-2">
+                  <Calendar className="w-4 h-4" />
+                  {pedido.fecha_entrega 
+                    ? new Date(pedido.fecha_entrega).toLocaleDateString('es-ES')
+                    : <span className="text-muted-foreground">Por programar en Gantt</span>
+                  }
+                </p>
               </div>
             </div>
-
-            {pedido.observaciones && (
-              <div className="pt-4 border-t">
-                <p className="text-sm text-muted-foreground mb-1">Observaciones</p>
-                <p className="text-sm">{pedido.observaciones}</p>
-              </div>
-            )}
           </CardContent>
         </Card>
 
-        {/* Resumen y Acciones */}
+        {/* Resumen */}
         <Card>
           <CardHeader>
             <CardTitle>Resumen</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Subtotal</span>
-                <span>{pedido.subtotal?.toFixed(2)}€</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">IVA (21%)</span>
-                <span>{pedido.impuestos?.toFixed(2)}€</span>
-              </div>
-              <div className="flex justify-between font-bold text-lg border-t pt-2">
-                <span>Total</span>
-                <span className="text-blue-600">{pedido.total?.toFixed(2)}€</span>
-              </div>
+          <CardContent className="space-y-3">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Subtotal</span>
+              <span>{pedido.subtotal?.toFixed(2)}€</span>
             </div>
-
-            {/* Botones de accion con iconos */}
-            <div className="pt-4 border-t space-y-2">
-              <p className="text-sm font-medium text-muted-foreground mb-2">Acciones</p>
-              
-              {pedido.estado === 'pendiente' && (
-                <Button 
-                  className="w-full" 
-                  onClick={() => {
-                    if (lineas.length > 0) {
-                      abrirGanttParaLinea(lineas[0])
-                    }
-                  }}
-                  disabled={lineas.length === 0}
-                >
-                  <Calendar className="w-4 h-4 mr-2" />
-                  Programar en Gantt
-                </Button>
-              )}
-
-              {pedido.estado === 'confirmado' && (
-                <Button className="w-full" variant="default" onClick={pasarAProduccion} disabled={saving}>
-                  <Factory className="w-4 h-4 mr-2" />
-                  Pasar a Produccion
-                </Button>
-              )}
-
-              {pedido.estado === 'en_produccion' && (
-                <Button className="w-full" variant="default" onClick={marcarCompletado} disabled={saving}>
-                  <CheckCircle className="w-4 h-4 mr-2" />
-                  Marcar Completado
-                </Button>
-              )}
-
-              {pedido.estado === 'completado' && (
-                <Button className="w-full" variant="default" onClick={marcarEntregado} disabled={saving}>
-                  <Truck className="w-4 h-4 mr-2" />
-                  Marcar Entregado
-                </Button>
-              )}
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">IVA (21%)</span>
+              <span>{pedido.impuestos?.toFixed(2)}€</span>
+            </div>
+            <div className="flex justify-between border-t pt-3">
+              <span className="font-bold">Total</span>
+              <span className="font-bold text-lg text-blue-600">{pedido.total?.toFixed(2)}€</span>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Lineas del pedido */}
+      {/* Lineas del Pedido */}
       <Card>
         <CardHeader>
           <CardTitle>Lineas del Pedido ({lineas.length})</CardTitle>
         </CardHeader>
         <CardContent>
           {lineas.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8">Este pedido no tiene lineas</p>
+            <p className="text-center py-8 text-muted-foreground">Este pedido no tiene lineas</p>
           ) : (
             <Table>
               <TableHeader>
@@ -674,7 +919,7 @@ export default function PedidoDetalle() {
                   <TableHead className="text-center">Cantidad</TableHead>
                   <TableHead className="text-right">Precio Unit.</TableHead>
                   <TableHead className="text-right">Subtotal</TableHead>
-                  <TableHead className="text-center">Acciones</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -689,17 +934,21 @@ export default function PedidoDetalle() {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="text-center">
-                      {linea.cantidad} {linea.unidad || 'm2'}
-                    </TableCell>
+                    <TableCell className="text-center">{linea.cantidad} {linea.unidad}</TableCell>
                     <TableCell className="text-right">{linea.precio_unitario?.toFixed(2)}€</TableCell>
                     <TableCell className="text-right font-medium">{linea.subtotal?.toFixed(2)}€</TableCell>
-                    <TableCell className="text-center">
+                    <TableCell className="text-right">
                       {pedido.estado === 'pendiente' && (
-                        <Button size="sm" variant="outline" onClick={() => abrirGanttParaLinea(linea)}>
+                        <Button size="sm" onClick={() => abrirGantt(linea)}>
                           <Calendar className="w-4 h-4 mr-1" />
-                          Programar
+                          Programar Gantt
                         </Button>
+                      )}
+                      {pedido.estado === 'en_produccion' && (
+                        <Badge variant="outline" className="bg-blue-50">
+                          <Play className="w-3 h-3 mr-1" />
+                          En produccion
+                        </Badge>
                       )}
                     </TableCell>
                   </TableRow>
@@ -709,175 +958,6 @@ export default function PedidoDetalle() {
           )}
         </CardContent>
       </Card>
-
-      {/* Modal Gantt */}
-      <Dialog open={showGanttModal} onOpenChange={setShowGanttModal}>
-        <DialogContent className="max-w-6xl max-h-[90vh] overflow-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Calendar className="w-5 h-5" />
-              Programar Produccion - {lineaSeleccionada?.productos?.nombre}
-            </DialogTitle>
-            <DialogDescription>
-              Programa los procesos de produccion en el calendario. Las casillas grises estan ocupadas.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            {/* Navegacion semana */}
-            <div className="flex items-center justify-between">
-              <Button variant="outline" size="sm" onClick={() => {
-                const newDate = new Date(fechaGantt)
-                newDate.setDate(newDate.getDate() - 7)
-                setFechaGantt(newDate)
-              }}>
-                <ChevronLeft className="w-4 h-4" />
-                Semana anterior
-              </Button>
-              <span className="font-medium">
-                Semana del {getDiaSemana(0).toLocaleDateString('es-ES')}
-              </span>
-              <Button variant="outline" size="sm" onClick={() => {
-                const newDate = new Date(fechaGantt)
-                newDate.setDate(newDate.getDate() + 7)
-                setFechaGantt(newDate)
-              }}>
-                Semana siguiente
-                <ChevronRight className="w-4 h-4" />
-              </Button>
-            </div>
-
-            {/* Procesos a programar */}
-            <div className="flex flex-wrap gap-2">
-              <span className="text-sm font-medium">Procesos:</span>
-              {procesosProducto.map(pp => (
-                <Badge key={pp.id} variant="outline">
-                  {pp.procesos_catalogo.nombre} ({pp.tiempo_estimado} min)
-                </Badge>
-              ))}
-              <Button size="sm" variant="default" onClick={programarTareasAutomaticas}>
-                <Play className="w-4 h-4 mr-1" />
-                Programar automaticamente
-              </Button>
-            </div>
-
-            {/* Calendario Gantt */}
-            <div className="border rounded-lg overflow-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-slate-100">
-                    <th className="p-2 border-r w-16">Hora</th>
-                    {[0, 1, 2, 3, 4].map(offset => (
-                      <th key={offset} className="p-2 border-r min-w-[120px]">
-                        {formatDia(getDiaSemana(offset))}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {HORAS_LABORALES.map(hora => (
-                    <tr key={hora} className="border-t">
-                      <td className="p-2 border-r text-center font-medium bg-slate-50">
-                        {hora}:00
-                      </td>
-                      {[0, 1, 2, 3, 4].map(offset => {
-                        const dia = getDiaSemana(offset)
-                        const tarea = getTareaEnSlot(dia, hora)
-                        const esProgramada = tarea && 'proceso_nombre' in tarea
-                        const esExistente = tarea && !('proceso_nombre' in tarea)
-                        
-                        return (
-                          <td 
-                            key={offset} 
-                            className={`p-1 border-r h-10 ${
-                              esExistente ? 'bg-gray-200' : 
-                              esProgramada ? 'bg-blue-100' : 
-                              'bg-white hover:bg-blue-50 cursor-pointer'
-                            }`}
-                          >
-                            {esProgramada && (
-                              <div className="text-xs p-1 bg-blue-500 text-white rounded truncate">
-                                {(tarea as TareaProgramada).proceso_nombre}
-                              </div>
-                            )}
-                            {esExistente && (
-                              <div className="text-xs p-1 bg-gray-400 text-white rounded truncate">
-                                {(tarea as TareaExistente).nombre}
-                              </div>
-                            )}
-                          </td>
-                        )
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Resumen */}
-            {tareasProgramadas.length > 0 && (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-medium text-green-800">Programacion lista</p>
-                    <p className="text-sm text-green-700">
-                      {tareasProgramadas.length} procesos programados. 
-                      Fecha de entrega estimada: {getFechaEntregaEstimada()?.toLocaleDateString('es-ES')}
-                    </p>
-                  </div>
-                  <Button onClick={confirmarProgramacion} disabled={saving}>
-                    <CheckCircle className="w-4 h-4 mr-2" />
-                    Confirmar
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Modal Seleccion Carro */}
-      <Dialog open={showCarroModal} onOpenChange={setShowCarroModal}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Package className="w-5 h-5" />
-              Asignar Carro
-            </DialogTitle>
-            <DialogDescription>
-              Selecciona el carro donde ubicar las piezas de este pedido
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            <div>
-              <Label>Carro</Label>
-              <Select value={carroSeleccionado} onValueChange={setCarroSeleccionado}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar carro..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {carros.map(carro => (
-                    <SelectItem key={carro.id} value={carro.id}>
-                      {carro.codigo}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCarroModal(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={confirmarConCarro} disabled={!carroSeleccionado || saving}>
-              <CheckCircle className="w-4 h-4 mr-2" />
-              Confirmar y Crear Pieza
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

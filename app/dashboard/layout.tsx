@@ -29,7 +29,7 @@ const MENU_ITEMS = [
   { label: 'Albaranes', href: '/albaranes', icon: FileBarChart },
   { label: 'Trazabilidad', href: '/trazabilidad', icon: QrCode },
   { label: 'Clientes', href: '/dashboard/clientes', icon: Users },
-  { label: 'Catalogos', href: '/dashboard/catalogo', icon: Layers },
+  { label: 'Productos', href: '/productos', icon: Layers },
   { label: 'Informes', href: '/informes', icon: BarChart3 },
 ]
 
