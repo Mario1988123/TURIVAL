@@ -296,7 +296,7 @@ export default function PedidoDetalle() {
           lote_id: lote.id,
           pedido_id: pedido.id,
           carro_id: carroSeleccionado,
-          estado: 'programada'
+          estado: 'por_procesar'
         })
         .select()
         .single()
