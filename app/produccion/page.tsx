@@ -12,7 +12,9 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
-import { Search, Plus, Package, Clock, CheckCircle, AlertTriangle, Play, Pause, RotateCcw } from 'lucide-react'
+import { Search, Plus, Package, Clock, CheckCircle, AlertTriangle, Play, Pause, RotateCcw, Users, BarChart3 } from 'lucide-react'
+import { ListaTareas } from '@/components/production/lista-tareas'
+import { GanttCarga } from '@/components/production/gantt-carga'
 
 interface Lote {
   id: string
@@ -71,6 +73,7 @@ export default function ProduccionPage() {
   const [dialogLoteOpen, setDialogLoteOpen] = useState(false)
   const [dialogPiezaOpen, setDialogPiezaOpen] = useState(false)
   const [selectedLote, setSelectedLote] = useState<string>('')
+  const [selectedLoteForTareas, setSelectedLoteForTareas] = useState<Lote | null>(null)
   
   const [formLote, setFormLote] = useState({ pedido_id: '', cantidad_piezas: 1, observaciones: '' })
 
@@ -167,6 +170,26 @@ export default function ProduccionPage() {
           })
         }
         await supabase.from('piezas').insert(piezasToInsert)
+        
+        // Crear tareas de produccion automaticamente
+        const tareasDefault = [
+          { nombre: 'Lijado', orden_secuencia: 1, tiempo_estimado: 30 },
+          { nombre: 'Fondo', orden_secuencia: 2, tiempo_estimado: 45 },
+          { nombre: 'Lacado', orden_secuencia: 3, tiempo_estimado: 60 },
+          { nombre: 'Secado', orden_secuencia: 4, tiempo_estimado: 120 },
+          { nombre: 'Revision', orden_secuencia: 5, tiempo_estimado: 20 },
+          { nombre: 'Picking', orden_secuencia: 6, tiempo_estimado: 15 },
+        ]
+        
+        const tareasToInsert = tareasDefault.map(t => ({
+          lote_id: loteData.id,
+          nombre: t.nombre,
+          orden_secuencia: t.orden_secuencia,
+          tiempo_estimado: t.tiempo_estimado,
+          estado: 'pendiente',
+        }))
+        
+        await supabase.from('tareas_produccion').insert(tareasToInsert)
       }
 
       setDialogLoteOpen(false)
@@ -292,6 +315,8 @@ export default function ProduccionPage() {
         <TabsList>
           <TabsTrigger value="lotes">Lotes ({lotes.length})</TabsTrigger>
           <TabsTrigger value="piezas">Piezas ({piezas.length})</TabsTrigger>
+          <TabsTrigger value="tareas"><Users className="w-4 h-4 mr-1" />Tareas</TabsTrigger>
+          <TabsTrigger value="gantt"><BarChart3 className="w-4 h-4 mr-1" />Gantt Carga</TabsTrigger>
           <TabsTrigger value="panel">Panel de Control</TabsTrigger>
         </TabsList>
 
@@ -427,6 +452,90 @@ export default function ProduccionPage() {
                     ))}
                   </TableBody>
                 </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Tab de Tareas */}
+        <TabsContent value="tareas" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Gestion de Tareas por Lote</CardTitle>
+              <CardDescription>Selecciona un lote para ver y gestionar sus tareas de produccion</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="mb-4">
+                <Label>Seleccionar Lote</Label>
+                <Select 
+                  value={selectedLoteForTareas?.id || ''} 
+                  onValueChange={(v) => {
+                    const lote = lotes.find(l => l.id === v)
+                    setSelectedLoteForTareas(lote || null)
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecciona un lote..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {lotes.filter(l => l.estado === 'en_produccion' || l.estado === 'creado').map(l => (
+                      <SelectItem key={l.id} value={l.id}>
+                        {l.codigo_lote} - {l.pedidos?.clientes?.nombre_comercial || 'Sin cliente'}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              {selectedLoteForTareas ? (
+                <ListaTareas loteId={selectedLoteForTareas.id} />
+              ) : (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p>Selecciona un lote para ver sus tareas</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Tab de Gantt Carga */}
+        <TabsContent value="gantt" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Carga de Trabajo por Empleado</CardTitle>
+              <CardDescription>Visualizacion tipo Gantt de la carga de trabajo asignada</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="mb-4">
+                <Label>Seleccionar Lote</Label>
+                <Select 
+                  value={selectedLoteForTareas?.id || ''} 
+                  onValueChange={(v) => {
+                    const lote = lotes.find(l => l.id === v)
+                    setSelectedLoteForTareas(lote || null)
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecciona un lote..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {lotes.filter(l => l.estado === 'en_produccion' || l.estado === 'creado').map(l => (
+                      <SelectItem key={l.id} value={l.id}>
+                        {l.codigo_lote} - {l.pedidos?.clientes?.nombre_comercial || 'Sin cliente'}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              {selectedLoteForTareas ? (
+                <GanttCarga loteId={selectedLoteForTareas.id} />
+              ) : (
+                <div className="text-center py-12 text-muted-foreground">
+                  <BarChart3 className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p>Selecciona un lote para ver la carga de trabajo</p>
+                </div>
               )}
             </CardContent>
           </Card>
