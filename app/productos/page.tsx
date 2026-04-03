@@ -44,6 +44,8 @@ interface Producto {
   categoria: string
   descripcion: string
   unidad_tarificacion: string
+  color_id: string | null
+  tarifa_id: string | null
   activo: boolean
 }
 
@@ -90,7 +92,9 @@ export default function ProductosPage() {
     nombre: '',
     categoria: '',
     descripcion: '',
-    unidad_tarificacion: 'm2'
+    unidad_tarificacion: 'm2',
+    color_id: '',
+    tarifa_id: ''
   })
   
   // Estados de procesos dentro del producto
@@ -160,7 +164,7 @@ export default function ProductosPage() {
   // Abrir dialog nuevo producto
   function openNuevoProducto() {
     setEditandoProducto(null)
-    setFormProducto({ nombre: '', categoria: '', descripcion: '', unidad_tarificacion: 'm2' })
+    setFormProducto({ nombre: '', categoria: '', descripcion: '', unidad_tarificacion: 'm2', color_id: '', tarifa_id: '' })
     initProcesosConfig()
     setDialogProducto(true)
   }
@@ -172,7 +176,9 @@ export default function ProductosPage() {
       nombre: producto.nombre,
       categoria: producto.categoria || '',
       descripcion: producto.descripcion || '',
-      unidad_tarificacion: producto.unidad_tarificacion || 'm2'
+      unidad_tarificacion: producto.unidad_tarificacion || 'm2',
+      color_id: producto.color_id || '',
+      tarifa_id: producto.tarifa_id || ''
     })
     
     // Cargar procesos existentes del producto
@@ -213,7 +219,9 @@ export default function ProductosPage() {
             nombre: formProducto.nombre,
             categoria: formProducto.categoria,
             descripcion: formProducto.descripcion,
-            unidad_tarificacion: formProducto.unidad_tarificacion
+            unidad_tarificacion: formProducto.unidad_tarificacion,
+            color_id: formProducto.color_id || null,
+            tarifa_id: formProducto.tarifa_id || null
           })
           .eq('id', editandoProducto.id)
         
@@ -231,6 +239,8 @@ export default function ProductosPage() {
             categoria: formProducto.categoria,
             descripcion: formProducto.descripcion,
             unidad_tarificacion: formProducto.unidad_tarificacion,
+            color_id: formProducto.color_id || null,
+            tarifa_id: formProducto.tarifa_id || null,
             activo: true
           })
           .select()
@@ -387,7 +397,8 @@ export default function ProductosPage() {
                   <TableRow>
                     <TableHead>Nombre</TableHead>
                     <TableHead>Categoria</TableHead>
-                    <TableHead>Unidad</TableHead>
+                    <TableHead>Color</TableHead>
+                    <TableHead>Tarifa</TableHead>
                     <TableHead>Procesos</TableHead>
                     <TableHead>Estado</TableHead>
                     <TableHead className="text-right">Acciones</TableHead>
@@ -396,40 +407,57 @@ export default function ProductosPage() {
                 <TableBody>
                   {productos.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                         No hay productos. Crea el primero.
                       </TableCell>
                     </TableRow>
                   ) : (
-                    productos.map(prod => (
-                      <TableRow key={prod.id}>
-                        <TableCell className="font-medium">{prod.nombre}</TableCell>
-                        <TableCell>{prod.categoria || '-'}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">
-                            {prod.unidad_tarificacion === 'm2' ? 'Por m2' : 'Por pieza'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <ProductoProcesosCount productoId={prod.id} supabase={supabase} />
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={prod.activo ? "default" : "secondary"}>
-                            {prod.activo ? 'Activo' : 'Inactivo'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex gap-2 justify-end">
-                            <Button variant="outline" size="sm" onClick={() => openEditarProducto(prod)}>
-                              <Edit2 className="w-4 h-4" />
-                            </Button>
-                            <Button variant="outline" size="sm" onClick={() => handleEliminarProducto(prod.id)}>
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    productos.map(prod => {
+                      const colorProd = colores.find(c => c.id === prod.color_id)
+                      const tarifaProd = tarifas.find(t => t.id === prod.tarifa_id)
+                      return (
+                        <TableRow key={prod.id}>
+                          <TableCell className="font-medium">{prod.nombre}</TableCell>
+                          <TableCell>{prod.categoria || '-'}</TableCell>
+                          <TableCell>
+                            {colorProd ? (
+                              <div className="flex items-center gap-2">
+                                <div 
+                                  className="w-4 h-4 rounded border" 
+                                  style={{ backgroundColor: colorProd.hex_aproximado }}
+                                />
+                                <span className="text-sm">{colorProd.codigo}</span>
+                              </div>
+                            ) : '-'}
+                          </TableCell>
+                          <TableCell>
+                            {tarifaProd ? (
+                              <span className="text-sm">
+                                {tarifaProd.modo_precio === 'm2' ? `${tarifaProd.precio_m2}€/m2` : `${tarifaProd.precio_pieza}€/ud`}
+                              </span>
+                            ) : '-'}
+                          </TableCell>
+                          <TableCell>
+                            <ProductoProcesosCount productoId={prod.id} supabase={supabase} />
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={prod.activo ? "default" : "secondary"}>
+                              {prod.activo ? 'Activo' : 'Inactivo'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex gap-2 justify-end">
+                              <Button variant="outline" size="sm" onClick={() => openEditarProducto(prod)}>
+                                <Edit2 className="w-4 h-4" />
+                              </Button>
+                              <Button variant="outline" size="sm" onClick={() => handleEliminarProducto(prod.id)}>
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })
                   )}
                 </TableBody>
               </Table>
@@ -650,6 +678,48 @@ export default function ProductosPage() {
                   <SelectContent>
                     <SelectItem value="m2">Por m2</SelectItem>
                     <SelectItem value="pieza">Por pieza</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Color (RAL)</Label>
+                <Select 
+                  value={formProducto.color_id} 
+                  onValueChange={v => setFormProducto({ ...formProducto, color_id: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar color..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {colores.filter(c => c.activo).map(color => (
+                      <SelectItem key={color.id} value={color.id}>
+                        <div className="flex items-center gap-2">
+                          <div 
+                            className="w-4 h-4 rounded border" 
+                            style={{ backgroundColor: color.hex_aproximado }}
+                          />
+                          {color.codigo} - {color.nombre}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Tarifa</Label>
+                <Select 
+                  value={formProducto.tarifa_id} 
+                  onValueChange={v => setFormProducto({ ...formProducto, tarifa_id: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar tarifa..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {tarifas.filter(t => t.activo).map(tarifa => (
+                      <SelectItem key={tarifa.id} value={tarifa.id}>
+                        {tarifa.nombre} - {tarifa.modo_precio === 'm2' ? `${tarifa.precio_m2}€/m2` : `${tarifa.precio_pieza}€/pieza`}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
