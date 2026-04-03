@@ -809,6 +809,9 @@ export default function ProductosPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{editandoColor ? 'Editar Color' : 'Nuevo Color'}</DialogTitle>
+            <DialogDescription>
+              Configura el color RAL, NCS o Pantone para asignar a productos
+            </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
@@ -885,6 +888,9 @@ export default function ProductosPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{editandoTarifa ? 'Editar Tarifa' : 'Nueva Tarifa'}</DialogTitle>
+            <DialogDescription>
+              Define precios por m2 o por pieza para asignar a productos
+            </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
