@@ -29,7 +29,7 @@ const MENU_ITEMS = [
   { label: 'Pedidos', href: '/pedidos', icon: ShoppingCart },
   { label: 'Producción', href: '/produccion', icon: Factory },
   { label: 'Albaranes', href: '/albaranes', icon: Truck },
-  { label: 'Productos', href: '/dashboard/catalogo', icon: Package },
+  { label: 'Productos', href: '/productos', icon: Package },
   { label: 'Trazabilidad', href: '/trazabilidad', icon: QrCode },
   { label: 'Informes', href: '/informes', icon: BarChart3 },
 ]
