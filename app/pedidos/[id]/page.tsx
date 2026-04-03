@@ -267,6 +267,22 @@ export default function PedidoDetalle() {
     try {
       setSaving(true)
 
+      // Crear lote primero
+      const codigoLote = `LOT-${pedido.numero}-${Date.now()}`
+      const { data: lote, error: loteErr } = await supabase
+        .from('lotes')
+        .insert({
+          codigo_lote: codigoLote,
+          numero: codigoLote,
+          pedido_id: pedido.id,
+          estado: 'creado',
+          cantidad_piezas: 1
+        })
+        .select()
+        .single()
+
+      if (loteErr) throw loteErr
+
       // Crear pieza para esta linea
       const codigoUnico = `PIE-${Date.now()}`
       const qrCode = `QR-${pedido.numero}-${lineaSeleccionada.numero_linea}`
@@ -277,6 +293,7 @@ export default function PedidoDetalle() {
           codigo_unico: codigoUnico,
           codigo_qr: qrCode,
           qr_code: qrCode,
+          lote_id: lote.id,
           pedido_id: pedido.id,
           carro_id: carroSeleccionado,
           estado: 'programada'
