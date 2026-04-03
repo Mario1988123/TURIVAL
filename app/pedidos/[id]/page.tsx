@@ -407,8 +407,9 @@ export default function PedidoDetalle() {
       if (loteErr) throw loteErr
 
       // Crear pieza
-      const codigoUnico = `PIE-${Date.now()}`
-      const qrCode = `QR-${pedido.numero}-${lineaSeleccionada.numero_linea}`
+      const timestamp = Date.now()
+      const codigoUnico = `PIE-${timestamp}`
+      const qrCode = `QR-${pedido.numero}-${lineaSeleccionada.numero_linea}-${timestamp}`
 
       const { data: pieza, error: piezaErr } = await supabase
         .from('piezas')
