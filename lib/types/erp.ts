@@ -339,3 +339,130 @@ export interface Secuencia {
   anio: number
   ultimo_numero: number
 }
+
+
+// ============================================================
+// TIPOS NUEVOS (migración 004) — Procesos, Carros, Empleados, etc.
+// ============================================================
+
+export interface NivelComplejidad {
+  id: number
+  codigo: 'SIMPLE' | 'MEDIA' | 'COMPLEJA'
+  nombre: string
+  multiplicador: number
+  descripcion: string | null
+  orden: number
+  activo: boolean
+  created_at: string
+}
+
+export interface ProcesoCatalogo {
+  id: string
+  codigo: string // RECEPCION, LIJADO, FONDO, LACADO, SECADO, MANIPULADO, TERMINACION, EMPAQUETADO, LISTO_ENTREGA
+  nombre: string
+  orden_tipico: number
+  color_gantt: string
+  permite_repetir: boolean
+  es_tiempo_espera: boolean
+  requiere_operario: boolean
+  descripcion: string | null
+  activo: boolean
+  created_at: string
+}
+
+export interface Carro {
+  id: string
+  codigo: string
+  nombre: string
+  capacidad_piezas: number | null
+  capacidad_m2: number | null
+  ubicacion_actual: string | null
+  qr_code: string | null
+  notas: string | null
+  activo: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface Empleado {
+  id: string
+  profile_id: string | null
+  nombre: string
+  apellidos: string | null
+  dni: string | null
+  puesto: string | null
+  proceso_principal_id: string | null
+  horas_dia: number
+  turno_horario: string | null
+  fecha_alta: string
+  fecha_baja: string | null
+  activo: boolean
+  notas: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ProcesoProducto {
+  id: string
+  producto_id: string
+  proceso_id: string
+  secuencia: number
+  tiempo_base_minutos: number
+  tiempo_por_m2_minutos: number
+  factor_simple: number
+  factor_media: number
+  factor_compleja: number
+  notas: string | null
+  activo: boolean
+  created_at: string
+  updated_at: string
+}
+
+// Cuando se pide el flujo de un producto con info del proceso maestro incluida
+export interface ProcesoProductoConDetalle extends ProcesoProducto {
+  proceso: ProcesoCatalogo
+}
+
+export interface LineaPedido {
+  id: string
+  pedido_id: string
+  producto_id: string | null
+  color_id: string | null
+  tratamiento_id: string | null
+  acabado_id: string | null
+  referencia_cliente: string | null
+  descripcion: string | null
+  cantidad: number
+  ancho_mm: number | null
+  alto_mm: number | null
+  grosor_mm: number | null
+  superficie_m2: number | null
+  nivel_complejidad: number
+  precio_unitario: number | null
+  precio_total_linea: number | null
+  observaciones: string | null
+  orden: number
+  created_at: string
+  updated_at: string
+}
+
+export interface TareaProduccion {
+  id: string
+  pieza_id: string
+  proceso_id: string
+  secuencia: number
+  estado: 'pendiente' | 'en_progreso' | 'pausada' | 'completada' | 'cancelada'
+  tiempo_estimado_minutos: number | null
+  tiempo_real_minutos: number | null
+  fecha_inicio_planificada: string | null
+  fecha_fin_planificada: string | null
+  fecha_inicio_real: string | null
+  fecha_fin_real: string | null
+  carro_id: string | null
+  empleado_id: string | null
+  nivel_complejidad_aplicado: number | null
+  superficie_m2_aplicada: number | null
+  notas_operario: string | null
+  created_at: string
+  updated_at: string
+}
