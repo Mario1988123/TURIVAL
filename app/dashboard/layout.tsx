@@ -6,13 +6,16 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   LayoutDashboard,
+  Calendar,
   FileText,
   ShoppingCart,
   Package,
+  Palette,
   QrCode,
   FileBarChart,
   Users,
-  Layers,
+  Factory,
+  Truck,
   BarChart3,
   LogOut,
   Menu,
@@ -23,13 +26,15 @@ import type { Profile } from '@/lib/types/erp'
 
 const MENU_ITEMS = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { label: 'Agenda', href: '/agenda', icon: Calendar },
+  { label: 'Clientes', href: '/dashboard/clientes', icon: Users },
   { label: 'Presupuestos', href: '/presupuestos', icon: FileText },
   { label: 'Pedidos', href: '/pedidos', icon: ShoppingCart },
-  { label: 'Produccion', href: '/produccion', icon: Package },
-  { label: 'Albaranes', href: '/albaranes', icon: FileBarChart },
+  { label: 'Producción', href: '/produccion', icon: Factory },
+  { label: 'Albaranes', href: '/albaranes', icon: Truck },
+  { label: 'Productos', href: '/productos', icon: Package },
+  { label: 'Colores', href: '/colores', icon: Palette },
   { label: 'Trazabilidad', href: '/trazabilidad', icon: QrCode },
-  { label: 'Clientes', href: '/dashboard/clientes', icon: Users },
-  { label: 'Productos', href: '/productos', icon: Layers },
   { label: 'Informes', href: '/informes', icon: BarChart3 },
 ]
 
