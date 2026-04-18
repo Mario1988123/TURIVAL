@@ -89,10 +89,13 @@ export default function ColoresPage() {
 
   async function cargar() {
     setLoading(true)
+    // IMPORTANTE: pedimos explícitamente hasta 5000 filas con .range(0, 4999)
+    // para evitar el límite implícito de Supabase que recorta la respuesta.
     const { data, error } = await supabase
       .from('colores')
       .select('*')
       .order('codigo', { ascending: true })
+      .range(0, 4999)
 
     if (error) {
       setMensaje({ tipo: 'error', texto: `Error cargando colores: ${error.message}` })
@@ -130,8 +133,7 @@ export default function ColoresPage() {
     for (const c of coloresFiltrados) {
       let clave: string
       if (c.tipo === 'RAL') {
-        // Agrupar por primer dígito: 1000, 2000, 3000...
-        const match = c.codigo.match(/RAL\s+(\d)/)
+        const match = c.codigo.match(/RAL\s*(\d)/)
         if (match) {
           clave = `RAL ${match[1]}000 — ${etiquetaGrupoRAL(match[1])}`
         } else {
@@ -257,7 +259,6 @@ export default function ColoresPage() {
         </Alert>
       )}
 
-      {/* Barra de filtros */}
       <Card>
         <CardContent className="pt-6">
           <div className="flex flex-wrap gap-3 items-end">
@@ -328,7 +329,6 @@ export default function ColoresPage() {
         </CardContent>
       </Card>
 
-      {/* Contenido */}
       {loading ? (
         <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
           {[...Array(18)].map((_, i) => (
@@ -351,7 +351,6 @@ export default function ColoresPage() {
         />
       )}
 
-      {/* Diálogo crear/editar */}
       <Dialog open={dialogoAbierto} onOpenChange={setDialogoAbierto}>
         <DialogContent>
           <DialogHeader>
@@ -476,9 +475,6 @@ export default function ColoresPage() {
   )
 }
 
-// ============================================================
-// VISTA CUADRÍCULA (agrupada por serie)
-// ============================================================
 function VistaCuadricula({
   grupos,
   onEditar,
@@ -556,9 +552,6 @@ function TarjetaColor({
   )
 }
 
-// ============================================================
-// VISTA TABLA
-// ============================================================
 function VistaTabla({
   colores,
   onEditar,
@@ -630,9 +623,6 @@ function VistaTabla({
   )
 }
 
-// ============================================================
-// HELPERS
-// ============================================================
 function etiquetaGrupoRAL(digito: string): string {
   const m: Record<string, string> = {
     '1': 'Amarillos y beiges',
@@ -648,14 +638,12 @@ function etiquetaGrupoRAL(digito: string): string {
   return m[digito] || 'Otros'
 }
 
-/** Devuelve true si el color hex es "oscuro" (para decidir color de texto sobre él). */
 function esColorOscuro(hex: string): boolean {
   const h = hex.replace('#', '')
   if (h.length !== 6) return false
   const r = parseInt(h.substring(0, 2), 16)
   const g = parseInt(h.substring(2, 4), 16)
   const b = parseInt(h.substring(4, 6), 16)
-  // Fórmula de luminancia percibida
   const luminancia = (0.299 * r + 0.587 * g + 0.114 * b) / 255
   return luminancia < 0.5
 }
