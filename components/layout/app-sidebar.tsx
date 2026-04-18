@@ -4,12 +4,14 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import type { Profile } from '@/lib/types/erp'
 import {
   LayoutDashboard,
   Calendar,
   FileText,
   ShoppingCart,
   Package,
+  Palette,
   QrCode,
   Users,
   Factory,
@@ -30,6 +32,7 @@ const MENU_ITEMS = [
   { label: 'Producción', href: '/produccion', icon: Factory },
   { label: 'Albaranes', href: '/albaranes', icon: Truck },
   { label: 'Productos', href: '/productos', icon: Package },
+  { label: 'Colores', href: '/colores', icon: Palette },
   { label: 'Trazabilidad', href: '/trazabilidad', icon: QrCode },
   { label: 'Informes', href: '/informes', icon: BarChart3 },
 ]
@@ -132,7 +135,7 @@ export function AppLayout({ children, title }: AppLayoutProps) {
               </div>
             </div>
           )}
-          
+
           {user?.rol === 'admin' && (
             <Link
               href="/dashboard/admin"
@@ -142,7 +145,7 @@ export function AppLayout({ children, title }: AppLayoutProps) {
               <span className="font-medium text-sm">Panel Admin</span>
             </Link>
           )}
-          
+
           <button
             onClick={handleLogout}
             className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
