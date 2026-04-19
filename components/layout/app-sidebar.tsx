@@ -13,6 +13,7 @@ import {
   Package,
   Palette,
   Layers,
+  Euro,
   QrCode,
   Users,
   Factory,
@@ -35,6 +36,7 @@ const MENU_ITEMS = [
   { label: 'Productos', href: '/productos', icon: Package },
   { label: 'Colores', href: '/colores', icon: Palette },
   { label: 'Tratamientos', href: '/tratamientos', icon: Layers },
+  { label: 'Tarifas', href: '/tarifas', icon: Euro },
   { label: 'Trazabilidad', href: '/trazabilidad', icon: QrCode },
   { label: 'Informes', href: '/informes', icon: BarChart3 },
 ]
