@@ -12,6 +12,7 @@ import {
   ShoppingCart,
   Package,
   Palette,
+  Layers,
   QrCode,
   Users,
   Factory,
@@ -33,6 +34,7 @@ const MENU_ITEMS = [
   { label: 'Albaranes', href: '/albaranes', icon: Truck },
   { label: 'Productos', href: '/productos', icon: Package },
   { label: 'Colores', href: '/colores', icon: Palette },
+  { label: 'Tratamientos', href: '/tratamientos', icon: Layers },
   { label: 'Trazabilidad', href: '/trazabilidad', icon: QrCode },
   { label: 'Informes', href: '/informes', icon: BarChart3 },
 ]
