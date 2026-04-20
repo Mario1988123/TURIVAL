@@ -49,6 +49,9 @@ import {
   Info,
 } from 'lucide-react'
 
+// Valor interno para representar "sin categoría" (shadcn Select no permite value="")
+const SIN_CATEGORIA = '__ninguna__'
+
 type ProductoExtendido = Producto & {
   categoria_id?: string | null
 }
@@ -67,7 +70,7 @@ export default function ProductosPage() {
   const [guardandoNuevo, setGuardandoNuevo] = useState(false)
   const [nuevo, setNuevo] = useState({
     nombre: '',
-    categoria_id: '',
+    categoria_id: SIN_CATEGORIA,
     descripcion: '',
     unidad_tarificacion: 'm2' as 'm2' | 'pieza',
   })
@@ -106,12 +109,13 @@ export default function ProductosPage() {
     }
     setGuardandoNuevo(true)
     try {
-      const cat = categorias.find((c) => c.id === nuevo.categoria_id)
+      const categoriaIdReal = nuevo.categoria_id === SIN_CATEGORIA ? null : nuevo.categoria_id
+      const cat = categorias.find((c) => c.id === categoriaIdReal)
       const creado = await crearProducto(
         {
           nombre: nuevo.nombre.trim(),
-          categoria: cat?.nombre ?? null, // retrocompatibilidad con campo texto
-          categoria_id: nuevo.categoria_id || null,
+          categoria: cat?.nombre ?? null,
+          categoria_id: categoriaIdReal,
           descripcion: nuevo.descripcion.trim() || null,
           unidad_tarificacion: nuevo.unidad_tarificacion,
           activo: true,
@@ -119,7 +123,7 @@ export default function ProductosPage() {
         { auto_cargar_procesos: true }
       )
       setAbiertoNuevo(false)
-      setNuevo({ nombre: '', categoria_id: '', descripcion: '', unidad_tarificacion: 'm2' })
+      setNuevo({ nombre: '', categoria_id: SIN_CATEGORIA, descripcion: '', unidad_tarificacion: 'm2' })
       setMensaje({
         tipo: 'ok',
         texto: `"${creado.nombre}" creado con los 9 procesos estándar precargados.`,
@@ -149,7 +153,6 @@ export default function ProductosPage() {
     if (p.categoria_id) {
       return categorias.find((c) => c.id === p.categoria_id) ?? null
     }
-    // Fallback al texto
     if (p.categoria) {
       return categorias.find((c) => c.nombre === p.categoria) ?? null
     }
@@ -375,6 +378,8 @@ export default function ProductosPage() {
                     >
                       Crea una primero →
                     </Link>
+                    <br />
+                    (Mientras tanto, el producto se creará sin categoría)
                   </AlertDescription>
                 </Alert>
               ) : (
@@ -383,10 +388,10 @@ export default function ProductosPage() {
                   onValueChange={(v) => setNuevo({ ...nuevo, categoria_id: v })}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Sin categoría" />
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Sin categoría</SelectItem>
+                    <SelectItem value={SIN_CATEGORIA}>Sin categoría</SelectItem>
                     {categorias.map((c) => (
                       <SelectItem key={c.id} value={c.id}>
                         {c.nombre}
