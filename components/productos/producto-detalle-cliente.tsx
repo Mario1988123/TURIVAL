@@ -36,7 +36,6 @@ import {
   Package,
   ArrowLeft,
   Save,
-  Plus,
   Trash2,
   Clock,
   Info,
@@ -46,6 +45,9 @@ import {
   HelpCircle,
   Settings,
 } from 'lucide-react'
+
+// Valor interno para representar "sin categoría"
+const SIN_CATEGORIA = '__ninguna__'
 
 type ProductoExtendido = Producto & { categoria_id?: string | null }
 
@@ -60,7 +62,6 @@ type Linea = ProcesoProductoForm & {
 
 const uid = () => Math.random().toString(36).slice(2, 11)
 
-// Tooltip simple inline
 function Tooltip({ texto }: { texto: string }) {
   return (
     <span
@@ -84,7 +85,7 @@ export default function ProductoDetalleCliente({
 
   const [form, setForm] = useState({
     nombre: productoInicial.nombre,
-    categoria_id: productoInicial.categoria_id || '',
+    categoria_id: productoInicial.categoria_id || SIN_CATEGORIA,
     descripcion: productoInicial.descripcion || '',
     unidad_tarificacion: productoInicial.unidad_tarificacion,
     activo: productoInicial.activo,
@@ -147,16 +148,17 @@ export default function ProductoDetalleCliente({
     }
     setGuardandoDatos(true)
     try {
-      const cat = categorias.find((c) => c.id === form.categoria_id)
+      const categoriaIdReal = form.categoria_id === SIN_CATEGORIA ? null : form.categoria_id
+      const cat = categorias.find((c) => c.id === categoriaIdReal)
       const actualizado = await actualizarProducto(producto.id, {
         nombre: form.nombre.trim(),
         categoria: cat?.nombre ?? null,
-        categoria_id: form.categoria_id || null,
+        categoria_id: categoriaIdReal,
         descripcion: form.descripcion.trim() || null,
         unidad_tarificacion: form.unidad_tarificacion,
         activo: form.activo,
       })
-      setProducto({ ...actualizado, categoria_id: form.categoria_id || null })
+      setProducto({ ...actualizado, categoria_id: categoriaIdReal })
       setMensaje({ tipo: 'ok', texto: 'Datos guardados.' })
     } catch (e: any) {
       setMensaje({ tipo: 'error', texto: e.message })
@@ -258,14 +260,9 @@ export default function ProductoDetalleCliente({
 
   return (
     <div className="space-y-6">
-      {/* HEADER */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex items-start gap-3">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => router.push('/productos')}
-          >
+          <Button variant="ghost" size="icon" onClick={() => router.push('/productos')}>
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div>
@@ -296,7 +293,6 @@ export default function ProductoDetalleCliente({
           <TabsTrigger value="procesos">Procesos ({lineas.length})</TabsTrigger>
         </TabsList>
 
-        {/* TAB DATOS */}
         <TabsContent value="datos" className="mt-4">
           <Card>
             <CardHeader>
@@ -323,10 +319,10 @@ export default function ProductoDetalleCliente({
                     onValueChange={(v) => setForm({ ...form, categoria_id: v })}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Sin categoría" />
+                      <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Sin categoría</SelectItem>
+                      <SelectItem value={SIN_CATEGORIA}>Sin categoría</SelectItem>
                       {categorias.map((c) => (
                         <SelectItem key={c.id} value={c.id}>{c.nombre}</SelectItem>
                       ))}
@@ -336,7 +332,7 @@ export default function ProductoDetalleCliente({
                 <div className="space-y-1">
                   <Label className="flex items-center">
                     Unidad de tarificación
-                    <Tooltip texto="Indica cómo se calcula el precio por defecto: por m² (superficie lacada) o por pieza (precio fijo)" />
+                    <Tooltip texto="Cómo se calcula el precio por defecto: por m² (superficie lacada) o por pieza (precio fijo)" />
                   </Label>
                   <Select
                     value={form.unidad_tarificacion}
@@ -375,22 +371,18 @@ export default function ProductoDetalleCliente({
           </Card>
         </TabsContent>
 
-        {/* TAB PROCESOS */}
         <TabsContent value="procesos" className="mt-4 space-y-4">
-          {/* Leyenda explicativa completa */}
           <Alert>
             <Info className="w-4 h-4" />
             <AlertDescription className="text-sm space-y-2">
-              <div>
-                <strong>¿Qué significa cada campo?</strong>
-              </div>
+              <div><strong>¿Qué significa cada campo?</strong></div>
               <ul className="text-xs space-y-1 list-disc ml-5">
                 <li><strong>Secuencia:</strong> orden del paso (1, 2, 3...). El sistema respeta este orden en Gantt.</li>
-                <li><strong>Tiempo base (min):</strong> tiempo fijo del paso, independiente del tamaño de la pieza (ej: preparar, limpiar mesa).</li>
-                <li><strong>Tiempo por m² (min):</strong> solo en procesos físicos (Lijado/Fondo/Lacado). Se multiplica por la superficie. No aparece en procesos administrativos (picking, revisión, recepción).</li>
+                <li><strong>Tiempo base (min):</strong> tiempo fijo del paso, independiente del tamaño (ej: preparar, limpiar mesa).</li>
+                <li><strong>Tiempo por m² (min):</strong> solo en procesos físicos (Lijado/Fondo/Lacado). Se multiplica por superficie.</li>
                 <li><strong>Factor simple/media/compleja:</strong> multiplicador según complejidad. Pieza compleja = más tiempo.</li>
-                <li><strong>Depende de:</strong> qué paso debe terminar antes de empezar éste (para cálculos de Gantt).</li>
-                <li><strong>Paso opcional:</strong> si está marcado, la pieza puede saltarse este paso. Útil para Lijado 2/Fondeado 2.</li>
+                <li><strong>Depende de:</strong> qué paso debe terminar antes de empezar éste.</li>
+                <li><strong>Paso opcional:</strong> si está marcado, la pieza puede saltarse este paso.</li>
               </ul>
             </AlertDescription>
           </Alert>
@@ -481,7 +473,6 @@ export default function ProductoDetalleCliente({
                                 </div>
                               </div>
 
-                              {/* Tiempos — solo mostrar m² si aplica */}
                               <div className={`grid gap-3 mb-3 ${escalaM2 ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-2 md:grid-cols-3'}`}>
                                 <div className="space-y-1">
                                   <Label className="text-xs flex items-center">
@@ -502,7 +493,7 @@ export default function ProductoDetalleCliente({
                                   <div className="space-y-1">
                                     <Label className="text-xs flex items-center">
                                       Tiempo por m² (min)
-                                      <Tooltip texto="Minutos adicionales por cada m² de superficie. Solo procesos físicos (lijado, fondo, lacado)." />
+                                      <Tooltip texto="Minutos adicionales por cada m² de superficie. Solo procesos físicos." />
                                     </Label>
                                     <Input
                                       type="number"
@@ -532,7 +523,7 @@ export default function ProductoDetalleCliente({
                                 <div className="space-y-1">
                                   <Label className="text-xs flex items-center">
                                     Depende de (sec.)
-                                    <Tooltip texto="Secuencia del paso anterior obligatorio. Déjalo vacío si no depende de nadie." />
+                                    <Tooltip texto="Secuencia del paso anterior obligatorio. Vacío si no depende de nadie." />
                                   </Label>
                                   <Input
                                     type="number"
@@ -549,7 +540,7 @@ export default function ProductoDetalleCliente({
                                 <div className="space-y-1">
                                   <Label className="text-xs flex items-center">
                                     Factor simple ×
-                                    <Tooltip texto="Multiplicador para piezas simples. Normalmente <1 porque tardan menos." />
+                                    <Tooltip texto="Multiplicador para piezas simples. Normalmente <1." />
                                   </Label>
                                   <Input type="number" step="0.1" min={0} className="h-8 bg-green-50"
                                     value={l.factor_simple}
@@ -558,7 +549,7 @@ export default function ProductoDetalleCliente({
                                 <div className="space-y-1">
                                   <Label className="text-xs flex items-center">
                                     Factor media ×
-                                    <Tooltip texto="Multiplicador para piezas medias. Valor de referencia (normalmente 1.0)." />
+                                    <Tooltip texto="Multiplicador de referencia (normalmente 1.0)." />
                                   </Label>
                                   <Input type="number" step="0.1" min={0} className="h-8 bg-blue-50"
                                     value={l.factor_media}
@@ -567,7 +558,7 @@ export default function ProductoDetalleCliente({
                                 <div className="space-y-1">
                                   <Label className="text-xs flex items-center">
                                     Factor compleja ×
-                                    <Tooltip texto="Multiplicador para piezas complejas (tallado, repintado, detalles). Normalmente >1." />
+                                    <Tooltip texto="Multiplicador para piezas complejas. Normalmente >1." />
                                   </Label>
                                   <Input type="number" step="0.1" min={0} className="h-8 bg-red-50"
                                     value={l.factor_compleja}
@@ -583,7 +574,7 @@ export default function ProductoDetalleCliente({
                                     onChange={(e) => actualizarLinea(l._uid, { es_opcional: e.target.checked })}
                                   />
                                   <span>Paso opcional (puede saltarse)</span>
-                                  <Tooltip texto="Marca esta casilla si este paso no siempre aplica. Ej: Lijado 2 solo en piezas que lo necesitan." />
+                                  <Tooltip texto="Marca si este paso no siempre aplica. Ej: Lijado 2." />
                                 </label>
                               </div>
 
