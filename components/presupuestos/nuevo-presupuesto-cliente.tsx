@@ -44,30 +44,34 @@ import {
   Loader2,
   Lock,
   Info,
+  Square,
+  Minus,
+  Shapes,
+  RectangleHorizontal,
 } from 'lucide-react'
 import SelectorColorDialog, { type ColorItem } from './selector-color-dialog'
 import NuevoClienteDialog from './nuevo-cliente-dialog'
+import VisualizacionPiezaSVG from './visualizacion-pieza-svg'
 
 // ============================================================================
-// TIPOS (alineados con lib/types/erp.ts)
+// TIPOS
 // ============================================================================
 
 type Producto = {
   id: string
   nombre: string
   descripcion: string | null
-  unidad_tarificacion?: 'm2' | 'pieza'
 }
 type Tratamiento = { id: string; nombre: string }
 
-// Tarifa REAL según BD
 type Tarifa = {
   id: string
   nombre: string
   producto_id: string | null
-  modo_precio: 'm2' | 'pieza' | 'ambos'
+  modo_precio: 'm2' | 'pieza' | 'metro_lineal' | 'ambos' | 'todos'
   precio_m2: number | null
   precio_pieza: number | null
+  precio_metro_lineal: number | null
   precio_minimo: number
   coste_adicional_color: number
   coste_adicional_tratamiento: number
@@ -105,6 +109,9 @@ type PresupuestoAnterior = {
   total: number
 }
 
+type TipoPieza = 'tablero' | 'frente' | 'moldura' | 'irregular'
+type ModoPrecio = 'm2' | 'pieza' | 'metro_lineal'
+
 type Linea = {
   _uid: string
   referencia_cliente_id: string | null
@@ -113,20 +120,27 @@ type Linea = {
   color_id: string | null
   tratamiento_id: string | null
   tarifa_id: string | null
-  modo_precio: 'm2' | 'pieza'
+
+  tipo_pieza: TipoPieza
+  modo_precio: ModoPrecio
+
   cantidad: number
-  ancho: number
-  alto: number
-  grosor: number
+  ancho: number // mm
+  alto: number // mm
+  grosor: number // mm
+  longitud_ml: number // metros (solo moldura)
+
   cara_frontal: boolean
   cara_trasera: boolean
   canto_superior: boolean
   canto_inferior: boolean
   canto_izquierdo: boolean
   canto_derecho: boolean
+
   nivel_complejidad: number | null
   precio_pactado: number | null
   suplemento_manual: number
+
   // calculados
   superficie_m2: number
   precio_unitario: number
@@ -136,7 +150,7 @@ type Linea = {
 const uid = () => Math.random().toString(36).slice(2, 11)
 
 // ============================================================================
-// MOTOR DE CÁLCULO v3 (con esquema real de Tarifa)
+// MOTOR DE CÁLCULO v4
 // ============================================================================
 
 function lineaVacia(): Linea {
@@ -148,11 +162,13 @@ function lineaVacia(): Linea {
     color_id: null,
     tratamiento_id: null,
     tarifa_id: null,
+    tipo_pieza: 'tablero',
     modo_precio: 'm2',
     cantidad: 1,
     ancho: 0,
     alto: 0,
     grosor: 0,
+    longitud_ml: 0,
     cara_frontal: true,
     cara_trasera: true,
     canto_superior: false,
@@ -168,35 +184,42 @@ function lineaVacia(): Linea {
   }
 }
 
-function contarCaras(l: Linea): number {
-  return (
-    (l.cara_frontal ? 1 : 0) +
-    (l.cara_trasera ? 1 : 0) +
-    (l.canto_superior ? 1 : 0) +
-    (l.canto_inferior ? 1 : 0) +
-    (l.canto_izquierdo ? 1 : 0) +
-    (l.canto_derecho ? 1 : 0)
-  )
-}
-
-function calcularSuperficie(l: Linea): number {
-  const m2Cara = ((l.ancho || 0) / 1000) * ((l.alto || 0) / 1000)
-  const caras = contarCaras(l) || 1
-  return Number((m2Cara * caras * (l.cantidad || 1)).toFixed(4))
-}
-
 /**
- * Busca TODAS las tarifas candidatas para esta combinación:
- * - Debe coincidir producto_id
- * - Tarifa con tratamiento en el nombre (ej: "Frente cajón - Lacado estándar")
- *   Si hay tratamiento seleccionado, filtra por nombre que contenga ese tratamiento
+ * MOTOR v4 - Cálculo de superficie según tipo de pieza y regla grosor ≤ 19mm.
+ * Si grosor ≤ 19mm: cantos NO suman superficie aunque se marquen (cost ya incluido en €/m² frontal)
+ * Si grosor > 19mm: cantos SÍ suman según sus dimensiones reales (canto×grosor)
  */
+function calcularSuperficie(l: Linea): number {
+  if (l.tipo_pieza === 'irregular' || l.tipo_pieza === 'moldura') {
+    return 0
+  }
+
+  const a = (l.ancho || 0) / 1000 // m
+  const h = (l.alto || 0) / 1000 // m
+  const g = (l.grosor || 0) / 1000 // m
+
+  let sup = 0
+  if (l.cara_frontal) sup += a * h
+  if (l.cara_trasera) sup += a * h
+
+  // Regla grosor: cantos solo cuentan si grosor > 19mm
+  const contabilizarCantos = l.grosor > 19
+  if (contabilizarCantos) {
+    if (l.canto_superior) sup += a * g
+    if (l.canto_inferior) sup += a * g
+    if (l.canto_izquierdo) sup += h * g
+    if (l.canto_derecho) sup += h * g
+  }
+
+  return Number((sup * (l.cantidad || 1)).toFixed(4))
+}
+
 function buscarTarifaCompatible(
   tarifas: Tarifa[],
   producto_id: string | null,
   tratamiento_id: string | null,
   tratamientos: Tratamiento[],
-  modoLinea: 'm2' | 'pieza'
+  modoLinea: ModoPrecio
 ): Tarifa | null {
   if (!producto_id) return null
   const candidatas = tarifas.filter((t) => t.producto_id === producto_id && t.activo !== false)
@@ -213,13 +236,15 @@ function buscarTarifaCompatible(
     }
   }
 
-  // Si no match por tratamiento, preferir una compatible con modo
+  // Preferir tarifas que soporten el modo de la línea
   const compatibles = candidatas.filter(
-    (t) => t.modo_precio === modoLinea || t.modo_precio === 'ambos'
+    (t) =>
+      t.modo_precio === modoLinea ||
+      t.modo_precio === 'ambos' ||
+      t.modo_precio === 'todos'
   )
   if (compatibles.length > 0) return compatibles[0]
 
-  // Fallback: la primera
   return candidatas[0]
 }
 
@@ -232,7 +257,19 @@ function recalcularLinea(
 ): Linea {
   const superficie_m2 = calcularSuperficie(l)
 
-  // Si hay precio pactado → manda él
+  // Pieza irregular → precio pactado obligatorio
+  if (l.tipo_pieza === 'irregular') {
+    const precio = l.precio_pactado ?? 0
+    const total = precio * (l.cantidad || 1) + (l.suplemento_manual || 0)
+    return {
+      ...l,
+      superficie_m2: 0,
+      precio_unitario: precio,
+      total_linea: Number(total.toFixed(2)),
+    }
+  }
+
+  // Precio pactado manda siempre
   if (l.precio_pactado !== null && l.precio_pactado > 0) {
     const total = l.precio_pactado * (l.cantidad || 1) + (l.suplemento_manual || 0)
     return {
@@ -243,7 +280,7 @@ function recalcularLinea(
     }
   }
 
-  // Buscar tarifa (si la línea ya tenía una fijada, úsala; si no, auto-buscar)
+  // Buscar tarifa
   const tarifaFijada = tarifas.find((t) => t.id === l.tarifa_id)
   const tarifa =
     tarifaFijada ??
@@ -258,52 +295,46 @@ function recalcularLinea(
     }
   }
 
-  // Multiplicador por complejidad
+  // Factor complejidad
   const nivel = niveles.find((n) => n.id === l.nivel_complejidad)
   const factor = nivel ? Number(nivel.multiplicador) : 1
 
-  // Sobrecostes adicionales de la tarifa (si hay color → sumar, si hay tratamiento → sumar, embalaje siempre)
+  // Sobrecostes
   const sobrecosteColorTarifa = l.color_id ? Number(tarifa.coste_adicional_color || 0) : 0
   const sobrecosteTratamientoTarifa = l.tratamiento_id
     ? Number(tarifa.coste_adicional_tratamiento || 0)
     : 0
   const sobrecosteEmbalaje = Number(tarifa.coste_adicional_embalaje || 0)
 
-  // Sobrecoste por color (del catálogo de colores - extra del RAL específico)
   const color = colores.find((c) => c.id === l.color_id)
   const sobrecosteColorCatalogo = color ? Number(color.sobrecoste || 0) : 0
 
-  // ¿Qué precio base usamos? Depende del modo_precio de la LÍNEA
+  // PRECIO BASE según modo_precio
   let precioBase: number
   if (l.modo_precio === 'pieza') {
     precioBase = Number(tarifa.precio_pieza ?? 0)
+  } else if (l.modo_precio === 'metro_lineal') {
+    const precioML = Number(tarifa.precio_metro_lineal ?? 0)
+    precioBase = precioML * (l.longitud_ml || 0)
   } else {
-    // modo_precio = 'm2' → multiplicamos precio_m2 por los m² por UNIDAD
+    // m2
     const m2PorUnidad = superficie_m2 / Math.max(l.cantidad || 1, 1)
     const precioM2 = Number(tarifa.precio_m2 ?? 0)
     precioBase = precioM2 * m2PorUnidad
   }
 
-  // Si no hay precio (tarifa sin precio para ese modo), devolvemos 0
-  if (precioBase <= 0 && !sobrecosteColorCatalogo && !sobrecosteColorTarifa && !sobrecosteTratamientoTarifa) {
-    return {
-      ...l,
-      tarifa_id: tarifa.id,
-      superficie_m2,
-      precio_unitario: 0,
-      total_linea: l.suplemento_manual || 0,
-    }
-  }
-
-  // Precio por unidad = (base + sobrecostes) * factor_complejidad + embalaje
+  // Precio por unidad
   let precioUnidad =
-    (precioBase + sobrecosteColorCatalogo + sobrecosteColorTarifa + sobrecosteTratamientoTarifa) *
+    (precioBase +
+      sobrecosteColorCatalogo +
+      sobrecosteColorTarifa +
+      sobrecosteTratamientoTarifa) *
       factor +
     sobrecosteEmbalaje
 
-  // Aplicar mínimo
+  // Mínimo
   const minimo = Number(tarifa.precio_minimo || 0)
-  if (minimo > 0 && precioUnidad < minimo) precioUnidad = minimo
+  if (minimo > 0 && precioUnidad < minimo && precioUnidad > 0) precioUnidad = minimo
 
   const total = precioUnidad * (l.cantidad || 1) + (l.suplemento_manual || 0)
 
@@ -319,6 +350,33 @@ function recalcularLinea(
 const euro = (n: number) =>
   Number(n).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })
 
+const TIPOS_PIEZA_INFO: Record<TipoPieza, { icon: any; label: string; descripcion: string; modoSugerido: ModoPrecio }> = {
+  tablero: {
+    icon: Square,
+    label: 'Tablero',
+    descripcion: '6 caras independientes',
+    modoSugerido: 'm2',
+  },
+  frente: {
+    icon: RectangleHorizontal,
+    label: 'Frente/Puerta',
+    descripcion: 'Plana con frontal + trasera',
+    modoSugerido: 'm2',
+  },
+  moldura: {
+    icon: Minus,
+    label: 'Moldura',
+    descripcion: 'Lineal (rodapié, tapeta)',
+    modoSugerido: 'metro_lineal',
+  },
+  irregular: {
+    icon: Shapes,
+    label: 'Irregular',
+    descripcion: 'Precio manual',
+    modoSugerido: 'pieza',
+  },
+}
+
 // ============================================================================
 // COMPONENTE PRINCIPAL
 // ============================================================================
@@ -327,7 +385,6 @@ export default function NuevoPresupuestoCliente() {
   const router = useRouter()
   const supabase = createClient()
 
-  // DATOS CARGADOS
   const [loading, setLoading] = useState(true)
   const [cargaError, setCargaError] = useState<string | null>(null)
   const [clientes, setClientes] = useState<Cliente[]>([])
@@ -460,8 +517,6 @@ export default function NuevoPresupuestoCliente() {
   }, [buscadorCliente, clientes])
 
   // ============================================================
-  // ACCIONES LÍNEAS
-  // ============================================================
 
   function actualizarLinea(uidLinea: string, cambios: Partial<Linea>) {
     setLineas((prev) =>
@@ -470,6 +525,39 @@ export default function NuevoPresupuestoCliente() {
           ? recalcularLinea({ ...l, ...cambios }, tarifas, niveles, colores, tratamientos)
           : l
       )
+    )
+  }
+
+  function cambiarTipoPieza(uidLinea: string, nuevoTipo: TipoPieza) {
+    setLineas((prev) =>
+      prev.map((l) => {
+        if (l._uid !== uidLinea) return l
+        const info = TIPOS_PIEZA_INFO[nuevoTipo]
+        const base: Linea = {
+          ...l,
+          tipo_pieza: nuevoTipo,
+          modo_precio: info.modoSugerido,
+          tarifa_id: null, // reset para que recalcule
+        }
+        // Ajustes por tipo
+        if (nuevoTipo === 'moldura') {
+          base.cara_frontal = false
+          base.cara_trasera = false
+          base.canto_superior = false
+          base.canto_inferior = false
+          base.canto_izquierdo = false
+          base.canto_derecho = false
+        }
+        if (nuevoTipo === 'tablero') {
+          base.cara_frontal = true
+          base.cara_trasera = true
+        }
+        if (nuevoTipo === 'frente') {
+          base.cara_frontal = true
+          base.cara_trasera = true
+        }
+        return recalcularLinea(base, tarifas, niveles, colores, tratamientos)
+      })
     )
   }
 
@@ -555,11 +643,13 @@ export default function NuevoPresupuestoCliente() {
           color_id: la.color_id,
           tratamiento_id: la.tratamiento_id,
           tarifa_id: la.tarifa_id,
-          modo_precio: la.modo_precio ?? 'm2',
+          tipo_pieza: (la.tipo_pieza as TipoPieza) ?? 'tablero',
+          modo_precio: (la.modo_precio as ModoPrecio) ?? 'm2',
           cantidad: la.cantidad ?? 1,
           ancho: Number(la.ancho ?? 0),
           alto: Number(la.alto ?? 0),
           grosor: Number(la.grosor ?? 0),
+          longitud_ml: Number(la.longitud_ml ?? 0),
           cara_frontal: !!la.cara_frontal,
           cara_trasera: !!la.cara_trasera,
           canto_superior: !!la.canto_superior,
@@ -579,7 +669,6 @@ export default function NuevoPresupuestoCliente() {
     setLineas((prev) => [...prev, ...nuevas])
   }
 
-  // TOTALES
   const totales = useMemo(() => {
     const subtotal = lineas.reduce((s, l) => s + (l.total_linea || 0), 0)
     const descuento_importe = subtotal * (descuentoPct / 100)
@@ -595,7 +684,6 @@ export default function NuevoPresupuestoCliente() {
     }
   }, [lineas, descuentoPct, ivaPct])
 
-  // GUARDAR
   async function guardar() {
     setMensaje(null)
     if (!clienteId) {
@@ -657,9 +745,11 @@ export default function NuevoPresupuestoCliente() {
         descripcion: l.descripcion,
         cantidad: l.cantidad,
         modo_precio: l.modo_precio,
+        tipo_pieza: l.tipo_pieza,
         ancho: l.ancho,
         alto: l.alto,
         grosor: l.grosor,
+        longitud_ml: l.tipo_pieza === 'moldura' ? l.longitud_ml : null,
         unidad: 'mm',
         cara_frontal: l.cara_frontal,
         cara_trasera: l.cara_trasera,
@@ -699,7 +789,6 @@ export default function NuevoPresupuestoCliente() {
     })
   }
 
-  // Helper: info de tarifa encontrada para UI
   function infoTarifaLinea(l: Linea): {
     tarifa: Tarifa | null
     precioRef: number
@@ -709,15 +798,19 @@ export default function NuevoPresupuestoCliente() {
       tarifas.find((t) => t.id === l.tarifa_id) ??
       buscarTarifaCompatible(tarifas, l.producto_id, l.tratamiento_id, tratamientos, l.modo_precio)
     if (!tarifa) return { tarifa: null, precioRef: 0, modoRef: '' }
-    const precioRef =
-      l.modo_precio === 'pieza'
-        ? Number(tarifa.precio_pieza || 0)
-        : Number(tarifa.precio_m2 || 0)
-    return {
-      tarifa,
-      precioRef,
-      modoRef: l.modo_precio === 'pieza' ? '€/pieza' : '€/m²',
+    let precioRef = 0
+    let modoRef = ''
+    if (l.modo_precio === 'pieza') {
+      precioRef = Number(tarifa.precio_pieza || 0)
+      modoRef = '€/pieza'
+    } else if (l.modo_precio === 'metro_lineal') {
+      precioRef = Number(tarifa.precio_metro_lineal || 0)
+      modoRef = '€/m.l.'
+    } else {
+      precioRef = Number(tarifa.precio_m2 || 0)
+      modoRef = '€/m²'
     }
+    return { tarifa, precioRef, modoRef }
   }
 
   // RENDER
@@ -750,6 +843,7 @@ export default function NuevoPresupuestoCliente() {
   return (
     <div className="flex gap-6 p-6">
       <div className="flex-1 min-w-0 space-y-6">
+        {/* HEADER */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
@@ -781,6 +875,7 @@ export default function NuevoPresupuestoCliente() {
           </Alert>
         )}
 
+        {/* CLIENTE */}
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
@@ -844,13 +939,6 @@ export default function NuevoPresupuestoCliente() {
                     {clienteActual.email ?? 'sin email'} ·{' '}
                     {clienteActual.telefono ?? 'sin teléfono'}
                   </div>
-                  {(clienteActual.direccion || clienteActual.ciudad) && (
-                    <div className="text-muted-foreground">
-                      {[clienteActual.direccion, clienteActual.ciudad]
-                        .filter(Boolean)
-                        .join(', ')}
-                    </div>
-                  )}
                 </div>
                 <Button
                   variant="ghost"
@@ -867,6 +955,7 @@ export default function NuevoPresupuestoCliente() {
           </CardContent>
         </Card>
 
+        {/* DATOS GENERALES */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Datos generales</CardTitle>
@@ -911,6 +1000,7 @@ export default function NuevoPresupuestoCliente() {
           </CardContent>
         </Card>
 
+        {/* LÍNEAS */}
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
@@ -958,7 +1048,7 @@ export default function NuevoPresupuestoCliente() {
                     <TableRow>
                       <TableHead>Descripción</TableHead>
                       <TableHead className="w-20 text-right">Uds</TableHead>
-                      <TableHead className="w-20 text-right">m²</TableHead>
+                      <TableHead className="w-20 text-right">m²/m.l.</TableHead>
                       <TableHead className="w-24 text-right">€ unit.</TableHead>
                       <TableHead className="w-28 text-right">Total</TableHead>
                       <TableHead className="w-28 text-right">Acciones</TableHead>
@@ -971,20 +1061,31 @@ export default function NuevoPresupuestoCliente() {
                       const info = infoTarifaLinea(l)
                       const precioManual =
                         l.precio_pactado !== null && l.precio_pactado > 0
+                      const tipoInfo = TIPOS_PIEZA_INFO[l.tipo_pieza]
+                      const IconTipo = tipoInfo.icon
                       return (
                         <Fragment key={l._uid}>
                           <TableRow className="align-top">
                             <TableCell>
-                              <Input
-                                value={l.descripcion}
-                                onChange={(e) =>
-                                  actualizarLinea(l._uid, {
-                                    descripcion: e.target.value,
-                                  })
-                                }
-                                placeholder="Descripción..."
-                                className="h-8"
-                              />
+                              <div className="flex items-center gap-2">
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] h-5 flex items-center gap-1"
+                                >
+                                  <IconTipo className="w-3 h-3" />
+                                  {tipoInfo.label}
+                                </Badge>
+                                <Input
+                                  value={l.descripcion}
+                                  onChange={(e) =>
+                                    actualizarLinea(l._uid, {
+                                      descripcion: e.target.value,
+                                    })
+                                  }
+                                  placeholder="Descripción..."
+                                  className="h-8"
+                                />
+                              </div>
                               <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
                                 <span>
                                   {productos.find((p) => p.id === l.producto_id)
@@ -1006,14 +1107,12 @@ export default function NuevoPresupuestoCliente() {
                                   <span>sin color</span>
                                 )}
                                 <span>·</span>
-                                <span>
-                                  {tratamientos.find(
-                                    (t) => t.id === l.tratamiento_id
-                                  )?.nombre ?? 'sin tratamiento'}
-                                </span>
-                                <span>·</span>
                                 <Badge variant="outline" className="text-[10px] h-5">
-                                  {l.modo_precio === 'm2' ? 'por m²' : 'por pieza'}
+                                  {l.modo_precio === 'm2'
+                                    ? 'por m²'
+                                    : l.modo_precio === 'pieza'
+                                    ? 'por pieza'
+                                    : 'por m.l.'}
                                 </Badge>
                                 {precioManual && (
                                   <Badge
@@ -1029,18 +1128,20 @@ export default function NuevoPresupuestoCliente() {
                                     variant="outline"
                                     className="text-[10px] h-5 bg-green-50 text-green-800 border-green-300"
                                   >
-                                    📋 {info.tarifa.nombre} · {euro(info.precioRef)}{' '}
-                                    {info.modoRef}
+                                    📋 {euro(info.precioRef)} {info.modoRef}
                                   </Badge>
                                 )}
-                                {!info.tarifa && !precioManual && l.producto_id && (
-                                  <Badge
-                                    variant="destructive"
-                                    className="text-[10px] h-5"
-                                  >
-                                    ⚠ Sin tarifa para este producto — pon precio manual
-                                  </Badge>
-                                )}
+                                {!info.tarifa &&
+                                  !precioManual &&
+                                  l.producto_id &&
+                                  l.tipo_pieza !== 'irregular' && (
+                                    <Badge
+                                      variant="destructive"
+                                      className="text-[10px] h-5"
+                                    >
+                                      ⚠ Sin tarifa
+                                    </Badge>
+                                  )}
                               </div>
                             </TableCell>
                             <TableCell className="text-right">
@@ -1057,7 +1158,11 @@ export default function NuevoPresupuestoCliente() {
                               />
                             </TableCell>
                             <TableCell className="text-right text-xs">
-                              {l.superficie_m2.toFixed(3)}
+                              {l.tipo_pieza === 'moldura'
+                                ? `${l.longitud_ml.toFixed(2)} m`
+                                : l.tipo_pieza === 'irregular'
+                                ? '—'
+                                : l.superficie_m2.toFixed(3)}
                             </TableCell>
                             <TableCell className="text-right text-xs">
                               {euro(l.precio_unitario)}
@@ -1104,266 +1209,423 @@ export default function NuevoPresupuestoCliente() {
                           {expandida && (
                             <TableRow className="bg-slate-50">
                               <TableCell colSpan={6} className="p-4">
-                                <div className="grid grid-cols-4 gap-3">
-                                  <div className="space-y-1">
-                                    <Label className="text-xs">Producto</Label>
-                                    <Select
-                                      value={l.producto_id ?? ''}
-                                      onValueChange={(v) =>
-                                        actualizarLinea(l._uid, {
-                                          producto_id: v || null,
-                                          tarifa_id: null, // reset para que recalcule
-                                        })
-                                      }
-                                    >
-                                      <SelectTrigger className="h-8">
-                                        <SelectValue placeholder="—" />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {productos.map((p) => (
-                                          <SelectItem key={p.id} value={p.id}>
-                                            {p.nombre}
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
+                                <div className="grid grid-cols-12 gap-4">
+                                  {/* PANEL IZQUIERDO: campos */}
+                                  <div className="col-span-8 space-y-3">
+                                    {/* TIPO DE PIEZA */}
+                                    <div>
+                                      <Label className="text-xs mb-1 block">Tipo de pieza</Label>
+                                      <div className="grid grid-cols-4 gap-2">
+                                        {(Object.keys(TIPOS_PIEZA_INFO) as TipoPieza[]).map(
+                                          (t) => {
+                                            const info = TIPOS_PIEZA_INFO[t]
+                                            const Icon = info.icon
+                                            const activo = l.tipo_pieza === t
+                                            return (
+                                              <button
+                                                key={t}
+                                                onClick={() => cambiarTipoPieza(l._uid, t)}
+                                                className={`p-2 border rounded text-xs flex flex-col items-center gap-1 transition ${
+                                                  activo
+                                                    ? 'border-blue-500 bg-blue-50 text-blue-900'
+                                                    : 'hover:bg-slate-100'
+                                                }`}
+                                              >
+                                                <Icon className="w-4 h-4" />
+                                                <span className="font-medium">
+                                                  {info.label}
+                                                </span>
+                                                <span className="text-[10px] text-muted-foreground text-center leading-tight">
+                                                  {info.descripcion}
+                                                </span>
+                                              </button>
+                                            )
+                                          }
+                                        )}
+                                      </div>
+                                    </div>
 
-                                  <div className="space-y-1">
-                                    <Label className="text-xs">Color</Label>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="w-full h-8 justify-start font-normal"
-                                      onClick={() => setSelectorColorAbierto(l._uid)}
-                                    >
-                                      {color ? (
-                                        <>
-                                          <span
-                                            className="w-4 h-4 rounded-sm border mr-2"
-                                            style={{
-                                              backgroundColor:
-                                                color.hex_aproximado || '#DDD',
-                                            }}
-                                          />
-                                          {color.codigo}
-                                        </>
-                                      ) : (
-                                        <>
-                                          <Palette className="w-4 h-4 mr-2" />
-                                          Elegir color...
-                                        </>
-                                      )}
-                                    </Button>
-                                  </div>
+                                    {/* PRODUCTO / COLOR / TRATAMIENTO / MODO */}
+                                    <div className="grid grid-cols-4 gap-3">
+                                      <div className="space-y-1">
+                                        <Label className="text-xs">Producto</Label>
+                                        <Select
+                                          value={l.producto_id ?? ''}
+                                          onValueChange={(v) =>
+                                            actualizarLinea(l._uid, {
+                                              producto_id: v || null,
+                                              tarifa_id: null,
+                                            })
+                                          }
+                                        >
+                                          <SelectTrigger className="h-8">
+                                            <SelectValue placeholder="—" />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            {productos.map((p) => (
+                                              <SelectItem key={p.id} value={p.id}>
+                                                {p.nombre}
+                                              </SelectItem>
+                                            ))}
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+                                      <div className="space-y-1">
+                                        <Label className="text-xs">Color</Label>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="w-full h-8 justify-start font-normal"
+                                          onClick={() =>
+                                            setSelectorColorAbierto(l._uid)
+                                          }
+                                        >
+                                          {color ? (
+                                            <>
+                                              <span
+                                                className="w-4 h-4 rounded-sm border mr-2"
+                                                style={{
+                                                  backgroundColor:
+                                                    color.hex_aproximado || '#DDD',
+                                                }}
+                                              />
+                                              {color.codigo}
+                                            </>
+                                          ) : (
+                                            <>
+                                              <Palette className="w-4 h-4 mr-2" />
+                                              Elegir color...
+                                            </>
+                                          )}
+                                        </Button>
+                                      </div>
+                                      <div className="space-y-1">
+                                        <Label className="text-xs">Tratamiento</Label>
+                                        <Select
+                                          value={l.tratamiento_id ?? ''}
+                                          onValueChange={(v) =>
+                                            actualizarLinea(l._uid, {
+                                              tratamiento_id: v || null,
+                                              tarifa_id: null,
+                                            })
+                                          }
+                                        >
+                                          <SelectTrigger className="h-8">
+                                            <SelectValue placeholder="—" />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            {tratamientos.map((t) => (
+                                              <SelectItem key={t.id} value={t.id}>
+                                                {t.nombre}
+                                              </SelectItem>
+                                            ))}
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+                                      <div className="space-y-1">
+                                        <Label className="text-xs">Modo precio</Label>
+                                        <Select
+                                          value={l.modo_precio}
+                                          onValueChange={(v: ModoPrecio) =>
+                                            actualizarLinea(l._uid, { modo_precio: v })
+                                          }
+                                        >
+                                          <SelectTrigger className="h-8">
+                                            <SelectValue />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="m2">Por m²</SelectItem>
+                                            <SelectItem value="pieza">Por pieza</SelectItem>
+                                            <SelectItem value="metro_lineal">
+                                              Por metro lineal
+                                            </SelectItem>
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+                                    </div>
 
-                                  <div className="space-y-1">
-                                    <Label className="text-xs">Tratamiento</Label>
-                                    <Select
-                                      value={l.tratamiento_id ?? ''}
-                                      onValueChange={(v) =>
-                                        actualizarLinea(l._uid, {
-                                          tratamiento_id: v || null,
-                                          tarifa_id: null,
-                                        })
-                                      }
-                                    >
-                                      <SelectTrigger className="h-8">
-                                        <SelectValue placeholder="—" />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {tratamientos.map((t) => (
-                                          <SelectItem key={t.id} value={t.id}>
-                                            {t.nombre}
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-
-                                  <div className="space-y-1">
-                                    <Label className="text-xs">Modo precio</Label>
-                                    <Select
-                                      value={l.modo_precio}
-                                      onValueChange={(v: 'm2' | 'pieza') =>
-                                        actualizarLinea(l._uid, { modo_precio: v })
-                                      }
-                                    >
-                                      <SelectTrigger className="h-8">
-                                        <SelectValue />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        <SelectItem value="m2">Por m²</SelectItem>
-                                        <SelectItem value="pieza">Por pieza</SelectItem>
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-
-                                  {/* Info de la tarifa aplicada */}
-                                  {info.tarifa && (
-                                    <div className="col-span-4 bg-green-50 border border-green-200 rounded p-2 text-xs">
-                                      <div className="flex items-start gap-2">
-                                        <Info className="w-3.5 h-3.5 text-green-700 mt-0.5 shrink-0" />
-                                        <div>
-                                          <strong>Tarifa aplicada:</strong>{' '}
-                                          {info.tarifa.nombre}
-                                          <div className="mt-0.5 text-green-900">
-                                            €/m²: {euro(Number(info.tarifa.precio_m2 || 0))}{' '}
-                                            · €/pieza:{' '}
-                                            {euro(Number(info.tarifa.precio_pieza || 0))}{' '}
-                                            · Mín:{' '}
-                                            {euro(Number(info.tarifa.precio_minimo || 0))}{' '}
-                                            · Modo:{' '}
-                                            <Badge
-                                              variant="outline"
-                                              className="text-[10px] h-4 ml-1"
-                                            >
-                                              {info.tarifa.modo_precio}
-                                            </Badge>
+                                    {/* INFO TARIFA */}
+                                    {info.tarifa && (
+                                      <div className="bg-green-50 border border-green-200 rounded p-2 text-xs">
+                                        <div className="flex items-start gap-2">
+                                          <Info className="w-3.5 h-3.5 text-green-700 mt-0.5 shrink-0" />
+                                          <div>
+                                            <strong>Tarifa:</strong> {info.tarifa.nombre}
+                                            <div className="mt-0.5 text-green-900">
+                                              €/m²:{' '}
+                                              {euro(Number(info.tarifa.precio_m2 || 0))} ·
+                                              €/pieza:{' '}
+                                              {euro(
+                                                Number(info.tarifa.precio_pieza || 0)
+                                              )}{' '}
+                                              · €/m.l.:{' '}
+                                              {euro(
+                                                Number(
+                                                  info.tarifa.precio_metro_lineal || 0
+                                                )
+                                              )}{' '}
+                                              · Mín:{' '}
+                                              {euro(
+                                                Number(info.tarifa.precio_minimo || 0)
+                                              )}
+                                            </div>
                                           </div>
                                         </div>
                                       </div>
-                                    </div>
-                                  )}
+                                    )}
 
-                                  <div className="space-y-1">
-                                    <Label className="text-xs">Ancho (mm)</Label>
-                                    <Input
-                                      type="number"
-                                      className="h-8"
-                                      value={l.ancho}
-                                      onChange={(e) =>
-                                        actualizarLinea(l._uid, {
-                                          ancho: Number(e.target.value),
-                                        })
-                                      }
-                                    />
-                                  </div>
-                                  <div className="space-y-1">
-                                    <Label className="text-xs">Alto (mm)</Label>
-                                    <Input
-                                      type="number"
-                                      className="h-8"
-                                      value={l.alto}
-                                      onChange={(e) =>
-                                        actualizarLinea(l._uid, {
-                                          alto: Number(e.target.value),
-                                        })
-                                      }
-                                    />
-                                  </div>
-                                  <div className="space-y-1">
-                                    <Label className="text-xs">Grosor (mm)</Label>
-                                    <Input
-                                      type="number"
-                                      className="h-8"
-                                      value={l.grosor}
-                                      onChange={(e) =>
-                                        actualizarLinea(l._uid, {
-                                          grosor: Number(e.target.value),
-                                        })
-                                      }
-                                    />
-                                  </div>
-                                  <div className="space-y-1">
-                                    <Label className="text-xs">Complejidad</Label>
-                                    <Select
-                                      value={
-                                        l.nivel_complejidad !== null
-                                          ? String(l.nivel_complejidad)
-                                          : ''
-                                      }
-                                      onValueChange={(v) =>
-                                        actualizarLinea(l._uid, {
-                                          nivel_complejidad: v ? Number(v) : null,
-                                        })
-                                      }
-                                    >
-                                      <SelectTrigger className="h-8">
-                                        <SelectValue placeholder="—" />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {niveles.map((n) => (
-                                          <SelectItem key={n.id} value={String(n.id)}>
-                                            {n.nombre} (×{Number(n.multiplicador)})
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-
-                                  <div className="col-span-4 space-y-1">
-                                    <Label className="text-xs">Caras a lacar</Label>
-                                    <div className="grid grid-cols-6 gap-2">
-                                      {[
-                                        { k: 'cara_frontal', lbl: 'Frontal' },
-                                        { k: 'cara_trasera', lbl: 'Trasera' },
-                                        { k: 'canto_superior', lbl: 'C. sup.' },
-                                        { k: 'canto_inferior', lbl: 'C. inf.' },
-                                        { k: 'canto_izquierdo', lbl: 'C. izq.' },
-                                        { k: 'canto_derecho', lbl: 'C. der.' },
-                                      ].map((cara) => (
-                                        <label
-                                          key={cara.k}
-                                          className="flex items-center gap-1.5 text-xs cursor-pointer border rounded px-2 py-1 hover:bg-slate-100"
-                                        >
-                                          <input
-                                            type="checkbox"
-                                            checked={
-                                              l[cara.k as keyof Linea] as boolean
-                                            }
+                                    {/* DIMENSIONES — diferente según tipo */}
+                                    {l.tipo_pieza === 'moldura' ? (
+                                      <div className="grid grid-cols-3 gap-3">
+                                        <div className="space-y-1 col-span-1">
+                                          <Label className="text-xs">
+                                            Longitud total (m)
+                                          </Label>
+                                          <Input
+                                            type="number"
+                                            step="0.01"
+                                            className="h-8"
+                                            value={l.longitud_ml}
                                             onChange={(e) =>
                                               actualizarLinea(l._uid, {
-                                                [cara.k]: e.target.checked,
-                                              } as any)
+                                                longitud_ml: Number(e.target.value),
+                                              })
                                             }
                                           />
-                                          {cara.lbl}
-                                        </label>
-                                      ))}
+                                        </div>
+                                        <div className="space-y-1">
+                                          <Label className="text-xs">
+                                            Ancho perfil (mm)
+                                          </Label>
+                                          <Input
+                                            type="number"
+                                            className="h-8"
+                                            value={l.ancho}
+                                            onChange={(e) =>
+                                              actualizarLinea(l._uid, {
+                                                ancho: Number(e.target.value),
+                                              })
+                                            }
+                                          />
+                                        </div>
+                                        <div className="space-y-1">
+                                          <Label className="text-xs">
+                                            Grosor perfil (mm)
+                                          </Label>
+                                          <Input
+                                            type="number"
+                                            className="h-8"
+                                            value={l.grosor}
+                                            onChange={(e) =>
+                                              actualizarLinea(l._uid, {
+                                                grosor: Number(e.target.value),
+                                              })
+                                            }
+                                          />
+                                        </div>
+                                      </div>
+                                    ) : l.tipo_pieza === 'irregular' ? (
+                                      <Alert>
+                                        <AlertDescription className="text-xs">
+                                          Esta pieza es irregular. <strong>Introduce
+                                          directamente el precio en "Precio pactado"</strong>.
+                                          No se calcula por tarifa.
+                                        </AlertDescription>
+                                      </Alert>
+                                    ) : (
+                                      <>
+                                        <div className="grid grid-cols-4 gap-3">
+                                          <div className="space-y-1">
+                                            <Label className="text-xs">Ancho (mm)</Label>
+                                            <Input
+                                              type="number"
+                                              className="h-8"
+                                              value={l.ancho}
+                                              onChange={(e) =>
+                                                actualizarLinea(l._uid, {
+                                                  ancho: Number(e.target.value),
+                                                })
+                                              }
+                                            />
+                                          </div>
+                                          <div className="space-y-1">
+                                            <Label className="text-xs">Alto (mm)</Label>
+                                            <Input
+                                              type="number"
+                                              className="h-8"
+                                              value={l.alto}
+                                              onChange={(e) =>
+                                                actualizarLinea(l._uid, {
+                                                  alto: Number(e.target.value),
+                                                })
+                                              }
+                                            />
+                                          </div>
+                                          <div className="space-y-1">
+                                            <Label className="text-xs">Grosor (mm)</Label>
+                                            <Input
+                                              type="number"
+                                              className="h-8"
+                                              value={l.grosor}
+                                              onChange={(e) =>
+                                                actualizarLinea(l._uid, {
+                                                  grosor: Number(e.target.value),
+                                                })
+                                              }
+                                            />
+                                          </div>
+                                          <div className="space-y-1">
+                                            <Label className="text-xs">Complejidad</Label>
+                                            <Select
+                                              value={
+                                                l.nivel_complejidad !== null
+                                                  ? String(l.nivel_complejidad)
+                                                  : ''
+                                              }
+                                              onValueChange={(v) =>
+                                                actualizarLinea(l._uid, {
+                                                  nivel_complejidad: v
+                                                    ? Number(v)
+                                                    : null,
+                                                })
+                                              }
+                                            >
+                                              <SelectTrigger className="h-8">
+                                                <SelectValue placeholder="—" />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                {niveles.map((n) => (
+                                                  <SelectItem
+                                                    key={n.id}
+                                                    value={String(n.id)}
+                                                  >
+                                                    {n.nombre} (×
+                                                    {Number(n.multiplicador)})
+                                                  </SelectItem>
+                                                ))}
+                                              </SelectContent>
+                                            </Select>
+                                          </div>
+                                        </div>
+
+                                        {/* CARAS */}
+                                        <div>
+                                          <Label className="text-xs mb-1 block">
+                                            Caras a lacar
+                                            {l.grosor > 0 && l.grosor <= 19 && (
+                                              <span className="ml-2 text-amber-700 font-normal">
+                                                (grosor ≤ 19mm: cantos no suman m²)
+                                              </span>
+                                            )}
+                                            {l.grosor > 19 && (
+                                              <span className="ml-2 text-green-700 font-normal">
+                                                (grosor &gt; 19mm: cantos sí suman m²)
+                                              </span>
+                                            )}
+                                          </Label>
+                                          <div className="grid grid-cols-6 gap-2">
+                                            {[
+                                              { k: 'cara_frontal', lbl: 'Frontal' },
+                                              { k: 'cara_trasera', lbl: 'Trasera' },
+                                              { k: 'canto_superior', lbl: 'C. sup.' },
+                                              { k: 'canto_inferior', lbl: 'C. inf.' },
+                                              { k: 'canto_izquierdo', lbl: 'C. izq.' },
+                                              { k: 'canto_derecho', lbl: 'C. der.' },
+                                            ].map((cara) => (
+                                              <label
+                                                key={cara.k}
+                                                className="flex items-center gap-1.5 text-xs cursor-pointer border rounded px-2 py-1 hover:bg-slate-100"
+                                              >
+                                                <input
+                                                  type="checkbox"
+                                                  checked={
+                                                    l[cara.k as keyof Linea] as boolean
+                                                  }
+                                                  onChange={(e) =>
+                                                    actualizarLinea(l._uid, {
+                                                      [cara.k]: e.target.checked,
+                                                    } as any)
+                                                  }
+                                                />
+                                                {cara.lbl}
+                                              </label>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      </>
+                                    )}
+
+                                    {/* PRECIO PACTADO + SUPLEMENTO */}
+                                    <div className="grid grid-cols-2 gap-3">
+                                      <div className="space-y-1 bg-amber-50 border border-amber-200 rounded p-3">
+                                        <Label className="text-xs font-semibold flex items-center gap-1">
+                                          <Lock className="w-3 h-3" />
+                                          Precio pactado (€/ud)
+                                        </Label>
+                                        <Input
+                                          type="number"
+                                          step="0.01"
+                                          className="h-8"
+                                          value={l.precio_pactado ?? ''}
+                                          onChange={(e) =>
+                                            actualizarLinea(l._uid, {
+                                              precio_pactado:
+                                                e.target.value === ''
+                                                  ? null
+                                                  : Number(e.target.value),
+                                            })
+                                          }
+                                          placeholder={
+                                            l.tipo_pieza === 'irregular'
+                                              ? 'Introduce el precio'
+                                              : 'Deja vacío para calcular'
+                                          }
+                                        />
+                                        <p className="text-[10px] text-amber-900">
+                                          {l.tipo_pieza === 'irregular'
+                                            ? 'Obligatorio para piezas irregulares.'
+                                            : 'Si lo rellenas, ignora la tarifa.'}
+                                        </p>
+                                      </div>
+                                      <div className="space-y-1">
+                                        <Label className="text-xs">
+                                          Suplemento manual (€ al total)
+                                        </Label>
+                                        <Input
+                                          type="number"
+                                          step="0.01"
+                                          className="h-8"
+                                          value={l.suplemento_manual}
+                                          onChange={(e) =>
+                                            actualizarLinea(l._uid, {
+                                              suplemento_manual: Number(e.target.value),
+                                            })
+                                          }
+                                        />
+                                      </div>
                                     </div>
                                   </div>
 
-                                  <div className="col-span-2 space-y-1 bg-amber-50 border border-amber-200 rounded p-3">
-                                    <Label className="text-xs font-semibold flex items-center gap-1">
-                                      <Lock className="w-3 h-3" />
-                                      Precio pactado (€/ud)
+                                  {/* PANEL DERECHO: visualización SVG */}
+                                  <div className="col-span-4">
+                                    <Label className="text-xs mb-1 block">
+                                      Vista previa
                                     </Label>
-                                    <Input
-                                      type="number"
-                                      step="0.01"
-                                      className="h-8"
-                                      value={l.precio_pactado ?? ''}
-                                      onChange={(e) =>
-                                        actualizarLinea(l._uid, {
-                                          precio_pactado:
-                                            e.target.value === ''
-                                              ? null
-                                              : Number(e.target.value),
-                                        })
-                                      }
-                                      placeholder="Deja vacío para calcular por tarifa"
-                                    />
-                                    <p className="text-[10px] text-amber-900">
-                                      Si rellenas este campo,{' '}
-                                      <strong>ignora la tarifa</strong> y usa este precio
-                                      fijo por unidad.
-                                    </p>
-                                  </div>
-                                  <div className="col-span-2 space-y-1">
-                                    <Label className="text-xs">
-                                      Suplemento manual (€ al total)
-                                    </Label>
-                                    <Input
-                                      type="number"
-                                      step="0.01"
-                                      className="h-8"
-                                      value={l.suplemento_manual}
-                                      onChange={(e) =>
-                                        actualizarLinea(l._uid, {
-                                          suplemento_manual: Number(e.target.value),
-                                        })
-                                      }
+                                    <VisualizacionPiezaSVG
+                                      datos={{
+                                        tipo_pieza: l.tipo_pieza,
+                                        ancho: l.ancho,
+                                        alto: l.alto,
+                                        grosor: l.grosor,
+                                        longitud_ml: l.longitud_ml,
+                                        cara_frontal: l.cara_frontal,
+                                        cara_trasera: l.cara_trasera,
+                                        canto_superior: l.canto_superior,
+                                        canto_inferior: l.canto_inferior,
+                                        canto_izquierdo: l.canto_izquierdo,
+                                        canto_derecho: l.canto_derecho,
+                                        color_hex: color?.hex_aproximado ?? null,
+                                      }}
                                     />
                                   </div>
                                 </div>
@@ -1380,6 +1642,7 @@ export default function NuevoPresupuestoCliente() {
           </CardContent>
         </Card>
 
+        {/* TOTALES */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Totales</CardTitle>
@@ -1443,6 +1706,7 @@ export default function NuevoPresupuestoCliente() {
           </CardContent>
         </Card>
 
+        {/* OBSERVACIONES */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Observaciones</CardTitle>
@@ -1481,6 +1745,7 @@ export default function NuevoPresupuestoCliente() {
         </div>
       </div>
 
+      {/* PANEL LATERAL */}
       <aside className="w-80 shrink-0">
         <Card className="sticky top-6">
           <CardHeader>
