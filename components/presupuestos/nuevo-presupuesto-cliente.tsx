@@ -1,27 +1,63 @@
-"use client"
+'use client'
 
-import { useState, useEffect, useMemo } from "react"
-import { useRouter } from "next/navigation"
-import { createClient } from "@/lib/supabase/client"
+import { useEffect, useMemo, useState, Fragment } from 'react'
+import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
+
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Badge } from '@/components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import {
+  FileText,
+  Plus,
+  Search,
+  Save,
+  Trash2,
+  Copy,
+  ChevronDown,
+  ChevronUp,
+  Palette,
+  PackageOpen,
+  Download,
+} from 'lucide-react'
+import SelectorColorDialog, { type ColorItem } from './selector-color-dialog'
+
+// ============================================================================
+// TIPOS
+// ============================================================================
 
 type Cliente = {
   id: string
-  nombre: string
+  nombre_comercial: string
+  razon_social: string | null
   cif: string | null
   email: string | null
   telefono: string | null
   direccion: string | null
+  ciudad: string | null
 }
 
 type Producto = { id: string; nombre: string; descripcion: string | null }
-type Color = {
-  id: string
-  codigo: string | null
-  nombre: string
-  familia: string | null
-  ral: string | null
-}
-type Tratamiento = { id: string; nombre: string; descripcion: string | null }
+type Tratamiento = { id: string; nombre: string }
 type Tarifa = {
   id: string
   nombre: string
@@ -32,6 +68,13 @@ type Tarifa = {
   precio_m2: number | null
   precio_minimo: number | null
   suplemento: number | null
+}
+type NivelComplejidad = {
+  id: number
+  codigo: string
+  nombre: string
+  multiplicador: number
+  orden: number
 }
 
 type PiezaGuardada = {
@@ -49,10 +92,8 @@ type PiezaGuardada = {
   tratamiento_id: string | null
   tarifa_id: string | null
   acabado_texto: string | null
-  nivel_complejidad: string | null
+  nivel_complejidad: number | null
   precio_pactado: number | null
-  superficie_m2_habitual: number | null
-  observaciones: string | null
 }
 
 type PresupuestoAnterior = {
@@ -70,57 +111,79 @@ type Linea = {
   color_id: string | null
   tratamiento_id: string | null
   tarifa_id: string | null
+  modo_precio: 'm2' | 'pieza'
+  cantidad: number
   ancho: number
   alto: number
   grosor: number
-  caras: number
-  cantidad: number
-  nivel_complejidad: "bajo" | "medio" | "alto"
+  cara_frontal: boolean
+  cara_trasera: boolean
+  canto_superior: boolean
+  canto_inferior: boolean
+  canto_izquierdo: boolean
+  canto_derecho: boolean
+  nivel_complejidad: number | null
   precio_pactado: number | null
-  descuento_pct: number
+  suplemento_manual: number
+  // calculados
   superficie_m2: number
   precio_unitario: number
-  subtotal: number
+  total_linea: number
 }
+
+// ============================================================================
+// UTILIDADES
+// ============================================================================
 
 const uid = () => Math.random().toString(36).slice(2, 11)
-
-const FACTOR_COMPLEJIDAD: Record<Linea["nivel_complejidad"], number> = {
-  bajo: 1,
-  medio: 1.2,
-  alto: 1.5,
-}
 
 function lineaVacia(): Linea {
   return {
     _uid: uid(),
     referencia_cliente_id: null,
-    descripcion: "",
+    descripcion: '',
     producto_id: null,
     color_id: null,
     tratamiento_id: null,
     tarifa_id: null,
+    modo_precio: 'm2',
+    cantidad: 1,
     ancho: 0,
     alto: 0,
     grosor: 0,
-    caras: 2,
-    cantidad: 1,
-    nivel_complejidad: "medio",
+    cara_frontal: true,
+    cara_trasera: true,
+    canto_superior: false,
+    canto_inferior: false,
+    canto_izquierdo: false,
+    canto_derecho: false,
+    nivel_complejidad: null,
     precio_pactado: null,
-    descuento_pct: 0,
+    suplemento_manual: 0,
     superficie_m2: 0,
     precio_unitario: 0,
-    subtotal: 0,
+    total_linea: 0,
   }
 }
 
-function calcularSuperficieLinea(l: Linea): number {
-  const m2Unitario =
-    ((l.ancho || 0) / 1000) * ((l.alto || 0) / 1000) * (l.caras || 1)
-  return Number((m2Unitario * (l.cantidad || 1)).toFixed(4))
+function contarCaras(l: Linea): number {
+  return (
+    (l.cara_frontal ? 1 : 0) +
+    (l.cara_trasera ? 1 : 0) +
+    (l.canto_superior ? 1 : 0) +
+    (l.canto_inferior ? 1 : 0) +
+    (l.canto_izquierdo ? 1 : 0) +
+    (l.canto_derecho ? 1 : 0)
+  )
 }
 
-function buscarTarifaAutomatica(
+function calcularSuperficie(l: Linea): number {
+  const m2Cara = ((l.ancho || 0) / 1000) * ((l.alto || 0) / 1000)
+  const caras = contarCaras(l) || 1
+  return Number((m2Cara * caras * (l.cantidad || 1)).toFixed(4))
+}
+
+function buscarTarifaAuto(
   tarifas: Tarifa[],
   producto_id: string | null,
   color_id: string | null,
@@ -137,49 +200,73 @@ function buscarTarifaAutomatica(
   )
 }
 
-function recalcularLinea(l: Linea, tarifas: Tarifa[]): Linea {
-  const superficie_m2 = calcularSuperficieLinea(l)
+function recalcularLinea(
+  l: Linea,
+  tarifas: Tarifa[],
+  niveles: NivelComplejidad[],
+  colores: ColorItem[]
+): Linea {
+  const superficie_m2 = calcularSuperficie(l)
 
+  // Si hay precio pactado, se respeta
   if (l.precio_pactado !== null && l.precio_pactado > 0) {
-    const subtotalSinDto = l.precio_pactado * (l.cantidad || 1)
-    const subtotal = subtotalSinDto * (1 - (l.descuento_pct || 0) / 100)
+    const total = l.precio_pactado * (l.cantidad || 1) + (l.suplemento_manual || 0)
     return {
       ...l,
       superficie_m2,
       precio_unitario: l.precio_pactado,
-      subtotal: Number(subtotal.toFixed(2)),
+      total_linea: Number(total.toFixed(2)),
     }
   }
 
   const tarifa =
     tarifas.find((t) => t.id === l.tarifa_id) ??
-    buscarTarifaAutomatica(tarifas, l.producto_id, l.color_id, l.tratamiento_id)
+    buscarTarifaAuto(tarifas, l.producto_id, l.color_id, l.tratamiento_id)
 
   if (!tarifa) {
-    return { ...l, superficie_m2, precio_unitario: 0, subtotal: 0 }
+    return { ...l, superficie_m2, precio_unitario: 0, total_linea: l.suplemento_manual || 0 }
   }
 
   const base = Number(tarifa.precio_base ?? 0)
   const precioM2 = Number(tarifa.precio_m2 ?? 0)
   const minimo = Number(tarifa.precio_minimo ?? 0)
-  const suplemento = Number(tarifa.suplemento ?? 0)
-  const factor = FACTOR_COMPLEJIDAD[l.nivel_complejidad]
+  const suplementoTarifa = Number(tarifa.suplemento ?? 0)
 
-  const m2PorUnidad = superficie_m2 / Math.max(l.cantidad || 1, 1)
-  let precioUnidad = (base + precioM2 * m2PorUnidad) * factor + suplemento
+  const nivel = niveles.find((n) => n.id === l.nivel_complejidad)
+  const factor = nivel ? Number(nivel.multiplicador) : 1
+
+  // Sobrecoste color
+  const color = colores.find((c) => c.id === l.color_id)
+  const sobrecosteColor = color ? Number(color.sobrecoste || 0) : 0
+
+  let precioUnidad: number
+  if (l.modo_precio === 'pieza') {
+    precioUnidad = (base + sobrecosteColor) * factor + suplementoTarifa
+  } else {
+    const m2PorUnidad = superficie_m2 / Math.max(l.cantidad || 1, 1)
+    precioUnidad =
+      (base + (precioM2 + sobrecosteColor) * m2PorUnidad) * factor + suplementoTarifa
+  }
+
   if (minimo > 0 && precioUnidad < minimo) precioUnidad = minimo
 
-  const subtotalSinDto = precioUnidad * (l.cantidad || 1)
-  const subtotal = subtotalSinDto * (1 - (l.descuento_pct || 0) / 100)
+  const total = precioUnidad * (l.cantidad || 1) + (l.suplemento_manual || 0)
 
   return {
     ...l,
     tarifa_id: tarifa.id,
     superficie_m2,
     precio_unitario: Number(precioUnidad.toFixed(2)),
-    subtotal: Number(subtotal.toFixed(2)),
+    total_linea: Number(total.toFixed(2)),
   }
 }
+
+const euro = (n: number) =>
+  Number(n).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })
+
+// ============================================================================
+// COMPONENTE PRINCIPAL
+// ============================================================================
 
 export default function NuevoPresupuestoCliente({
   clientes,
@@ -187,45 +274,49 @@ export default function NuevoPresupuestoCliente({
   colores,
   tratamientos,
   tarifas,
+  niveles,
 }: {
   clientes: Cliente[]
   productos: Producto[]
-  colores: Color[]
+  colores: ColorItem[]
   tratamientos: Tratamiento[]
   tarifas: Tarifa[]
+  niveles: NivelComplejidad[]
 }) {
   const router = useRouter()
   const supabase = createClient()
 
-  const [clienteId, setClienteId] = useState<string>("")
-  const [buscadorCliente, setBuscadorCliente] = useState("")
+  // Estado del presupuesto
+  const [clienteId, setClienteId] = useState('')
+  const [buscadorCliente, setBuscadorCliente] = useState('')
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10))
-  const [validezDias, setValidezDias] = useState<number>(30)
-  const [fechaEntregaEstimada, setFechaEntregaEstimada] = useState<string>("")
-  const [observaciones, setObservaciones] = useState("")
-  const [ivaPct] = useState<number>(21)
-  const [guardando, setGuardando] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [lineaExpandida, setLineaExpandida] = useState<string | null>(null)
+  const [validezDias, setValidezDias] = useState(30)
+  const [fechaEntrega, setFechaEntrega] = useState('')
+  const [obsComerciales, setObsComerciales] = useState('')
+  const [obsInternas, setObsInternas] = useState('')
+  const [descuentoPct, setDescuentoPct] = useState(0)
+  const [ivaPct, setIvaPct] = useState(21)
 
+  // Estado UI
   const [lineas, setLineas] = useState<Linea[]>([])
+  const [lineaExpandida, setLineaExpandida] = useState<string | null>(null)
+  const [selectorColorAbierto, setSelectorColorAbierto] = useState<string | null>(null)
+  const [guardando, setGuardando] = useState(false)
+  const [mensaje, setMensaje] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null)
 
+  // Datos del cliente
   const clienteActual = useMemo(
     () => clientes.find((c) => c.id === clienteId) ?? null,
     [clienteId, clientes]
   )
-
-  const [piezasGuardadas, setPiezasGuardadas] = useState<PiezaGuardada[]>([])
+  const [piezas, setPiezas] = useState<PiezaGuardada[]>([])
+  const [presupuestosAnteriores, setPresupuestosAnteriores] = useState<PresupuestoAnterior[]>([])
   const [cargandoPiezas, setCargandoPiezas] = useState(false)
 
-  const [presupuestosAnteriores, setPresupuestosAnteriores] = useState<
-    PresupuestoAnterior[]
-  >([])
-  const [mostrarImportar, setMostrarImportar] = useState(false)
-
+  // Cargar piezas y presupuestos al cambiar cliente
   useEffect(() => {
     if (!clienteId) {
-      setPiezasGuardadas([])
+      setPiezas([])
       setPresupuestosAnteriores([])
       return
     }
@@ -233,25 +324,30 @@ export default function NuevoPresupuestoCliente({
     ;(async () => {
       const [piezasRes, presRes] = await Promise.all([
         supabase
-          .from("referencias_cliente")
-          .select("*")
-          .eq("cliente_id", clienteId)
-          .eq("activo", true)
-          .order("nombre_pieza"),
+          .from('referencias_cliente')
+          .select('*')
+          .eq('cliente_id', clienteId)
+          .eq('activo', true)
+          .order('nombre_pieza'),
         supabase
-          .from("presupuestos")
-          .select("id, numero, fecha, total")
-          .eq("cliente_id", clienteId)
-          .order("fecha", { ascending: false })
+          .from('presupuestos')
+          .select('id, numero, fecha, total')
+          .eq('cliente_id', clienteId)
+          .order('fecha', { ascending: false })
           .limit(20),
       ])
-      setPiezasGuardadas((piezasRes.data as PiezaGuardada[]) ?? [])
-      setPresupuestosAnteriores(
-        (presRes.data as PresupuestoAnterior[]) ?? []
-      )
+      setPiezas((piezasRes.data as PiezaGuardada[]) ?? [])
+      setPresupuestosAnteriores((presRes.data as PresupuestoAnterior[]) ?? [])
       setCargandoPiezas(false)
     })()
   }, [clienteId, supabase])
+
+  // Auto-limpiar mensaje
+  useEffect(() => {
+    if (!mensaje) return
+    const t = setTimeout(() => setMensaje(null), 5000)
+    return () => clearTimeout(t)
+  }, [mensaje])
 
   const clientesFiltrados = useMemo(() => {
     const q = buscadorCliente.trim().toLowerCase()
@@ -259,20 +355,25 @@ export default function NuevoPresupuestoCliente({
     return clientes
       .filter(
         (c) =>
-          c.nombre.toLowerCase().includes(q) ||
-          (c.cif ?? "").toLowerCase().includes(q) ||
-          (c.email ?? "").toLowerCase().includes(q)
+          c.nombre_comercial.toLowerCase().includes(q) ||
+          (c.razon_social || '').toLowerCase().includes(q) ||
+          (c.cif || '').toLowerCase().includes(q) ||
+          (c.email || '').toLowerCase().includes(q)
       )
       .slice(0, 50)
   }, [buscadorCliente, clientes])
 
+  // ============================================================
+  // ACCIONES SOBRE LÍNEAS
+  // ============================================================
+
   function actualizarLinea(uidLinea: string, cambios: Partial<Linea>) {
     setLineas((prev) =>
-      prev.map((l) => {
-        if (l._uid !== uidLinea) return l
-        const mezclada = { ...l, ...cambios }
-        return recalcularLinea(mezclada, tarifas)
-      })
+      prev.map((l) =>
+        l._uid === uidLinea
+          ? recalcularLinea({ ...l, ...cambios }, tarifas, niveles, colores)
+          : l
+      )
     )
   }
 
@@ -282,30 +383,27 @@ export default function NuevoPresupuestoCliente({
 
   function duplicarLinea(uidLinea: string) {
     setLineas((prev) => {
-      const original = prev.find((l) => l._uid === uidLinea)
-      if (!original) return prev
-      const copia = recalcularLinea({ ...original, _uid: uid() }, tarifas)
-      return [...prev, copia]
+      const orig = prev.find((l) => l._uid === uidLinea)
+      if (!orig) return prev
+      return [...prev, recalcularLinea({ ...orig, _uid: uid() }, tarifas, niveles, colores)]
     })
   }
 
   function anadirLineaManual() {
-    const nueva = lineaVacia()
+    const nivelMedio = niveles.find((n) => n.codigo === 'medio') ?? niveles[Math.floor(niveles.length / 2)] ?? niveles[0]
+    const nueva: Linea = { ...lineaVacia(), nivel_complejidad: nivelMedio?.id ?? null }
     setLineas((prev) => [...prev, nueva])
     setLineaExpandida(nueva._uid)
   }
 
   function anadirLineaDesdePieza(p: PiezaGuardada) {
-    const nivel =
-      (p.nivel_complejidad as Linea["nivel_complejidad"]) ?? "medio"
     const base: Linea = {
       ...lineaVacia(),
       referencia_cliente_id: p.id,
       descripcion:
-        [p.nombre_pieza, p.referencia_cliente ? `(${p.referencia_cliente})` : ""]
+        [p.nombre_pieza, p.referencia_cliente ? `(${p.referencia_cliente})` : '']
           .filter(Boolean)
-          .join(" ") +
-        (p.acabado_texto ? ` — ${p.acabado_texto}` : ""),
+          .join(' ') + (p.acabado_texto ? ` — ${p.acabado_texto}` : ''),
       producto_id: p.producto_id,
       color_id: p.color_id,
       tratamiento_id: p.tratamiento_id,
@@ -313,823 +411,923 @@ export default function NuevoPresupuestoCliente({
       ancho: p.dimensiones_habituales?.ancho ?? 0,
       alto: p.dimensiones_habituales?.alto ?? 0,
       grosor: p.dimensiones_habituales?.grosor ?? 0,
-      nivel_complejidad: nivel,
+      nivel_complejidad: p.nivel_complejidad,
       precio_pactado: p.precio_pactado,
       cantidad: 1,
     }
-    setLineas((prev) => [...prev, recalcularLinea(base, tarifas)])
+    setLineas((prev) => [...prev, recalcularLinea(base, tarifas, niveles, colores)])
   }
 
   async function importarDePresupuestoAnterior(presId: string) {
-    const { data: lineasAnt } = await supabase
-      .from("lineas_presupuesto")
-      .select("*")
-      .eq("presupuesto_id", presId)
+    const { data } = await supabase
+      .from('lineas_presupuesto')
+      .select('*')
+      .eq('presupuesto_id', presId)
+      .order('orden')
 
-    if (!lineasAnt || lineasAnt.length === 0) return
+    if (!data) return
 
-    const nuevas: Linea[] = lineasAnt.map((la: any) =>
+    const nuevas: Linea[] = data.map((la: any) =>
       recalcularLinea(
         {
           ...lineaVacia(),
-          referencia_cliente_id: la.referencia_cliente_id ?? null,
-          descripcion: la.descripcion ?? "",
-          producto_id: la.producto_id ?? null,
-          color_id: la.color_id ?? null,
-          tratamiento_id: la.tratamiento_id ?? null,
-          tarifa_id: la.tarifa_id ?? null,
-          ancho: la.ancho ?? 0,
-          alto: la.alto ?? 0,
-          grosor: la.grosor ?? 0,
-          caras: la.caras ?? 2,
+          referencia_cliente_id: la.referencia_cliente_id,
+          descripcion: la.descripcion ?? '',
+          producto_id: la.producto_id,
+          color_id: la.color_id,
+          tratamiento_id: la.tratamiento_id,
+          tarifa_id: la.tarifa_id,
+          modo_precio: la.modo_precio ?? 'm2',
           cantidad: la.cantidad ?? 1,
-          nivel_complejidad: (la.nivel_complejidad as any) ?? "medio",
-          precio_pactado: la.precio_pactado ?? null,
-          descuento_pct: Number(la.descuento_pct ?? 0),
+          ancho: Number(la.ancho ?? 0),
+          alto: Number(la.alto ?? 0),
+          grosor: Number(la.grosor ?? 0),
+          cara_frontal: !!la.cara_frontal,
+          cara_trasera: !!la.cara_trasera,
+          canto_superior: !!la.canto_superior,
+          canto_inferior: !!la.canto_inferior,
+          canto_izquierdo: !!la.canto_izquierdo,
+          canto_derecho: !!la.canto_derecho,
+          nivel_complejidad: la.nivel_complejidad,
+          precio_pactado: la.precio_pactado,
+          suplemento_manual: Number(la.suplemento_manual ?? 0),
         },
-        tarifas
+        tarifas,
+        niveles,
+        colores
       )
     )
     setLineas((prev) => [...prev, ...nuevas])
-    setMostrarImportar(false)
   }
 
+  // ============================================================
+  // TOTALES
+  // ============================================================
+
   const totales = useMemo(() => {
-    const subtotal = lineas.reduce((s, l) => s + (l.subtotal || 0), 0)
-    const iva = subtotal * (ivaPct / 100)
-    const total = subtotal + iva
+    const subtotal = lineas.reduce((s, l) => s + (l.total_linea || 0), 0)
+    const descuento_importe = subtotal * (descuentoPct / 100)
+    const base_imponible = subtotal - descuento_importe
+    const iva_importe = base_imponible * (ivaPct / 100)
+    const total = base_imponible + iva_importe
     return {
       subtotal: Number(subtotal.toFixed(2)),
-      iva: Number(iva.toFixed(2)),
+      descuento_importe: Number(descuento_importe.toFixed(2)),
+      base_imponible: Number(base_imponible.toFixed(2)),
+      iva_importe: Number(iva_importe.toFixed(2)),
       total: Number(total.toFixed(2)),
     }
-  }, [lineas, ivaPct])
+  }, [lineas, descuentoPct, ivaPct])
+
+  // ============================================================
+  // GUARDAR
+  // ============================================================
 
   async function guardar() {
-    setError(null)
+    setMensaje(null)
     if (!clienteId) {
-      setError("Selecciona un cliente.")
+      setMensaje({ tipo: 'error', texto: 'Selecciona un cliente.' })
       return
     }
     if (lineas.length === 0) {
-      setError("Añade al menos una línea al presupuesto.")
+      setMensaje({ tipo: 'error', texto: 'Añade al menos una línea.' })
       return
     }
     if (lineas.some((l) => !l.descripcion.trim())) {
-      setError("Todas las líneas deben tener descripción.")
+      setMensaje({ tipo: 'error', texto: 'Todas las líneas deben tener descripción.' })
       return
     }
 
     setGuardando(true)
     try {
-      const { data: numeroData, error: errNum } = await supabase.rpc(
-        "get_next_sequence",
-        { tipo: "presupuesto" }
-      )
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      if (!session) throw new Error('No hay sesión activa.')
+
+      // Número secuencial
+      const { data: numeroData, error: errNum } = await supabase.rpc('get_next_sequence', {
+        tipo: 'presupuesto',
+      })
       if (errNum) throw errNum
       const numero = numeroData as string
 
-      const fechaValidez = new Date(fecha)
-      fechaValidez.setDate(fechaValidez.getDate() + Number(validezDias))
-
+      // INSERT cabecera - con campos REALES del esquema
       const { data: pres, error: errPres } = await supabase
-        .from("presupuestos")
+        .from('presupuestos')
         .insert({
           numero,
           cliente_id: clienteId,
           fecha,
-          fecha_validez: fechaValidez.toISOString().slice(0, 10),
-          fecha_entrega_estimada: fechaEntregaEstimada || null,
-          estado: "borrador",
+          estado: 'borrador',
+          validez_dias: validezDias,
+          fecha_entrega_estimada: fechaEntrega || null,
+          observaciones_comerciales: obsComerciales || null,
+          observaciones_internas: obsInternas || null,
           subtotal: totales.subtotal,
-          iva: totales.iva,
-          iva_pct: ivaPct,
+          descuento_porcentaje: descuentoPct,
+          descuento_importe: totales.descuento_importe,
+          base_imponible: totales.base_imponible,
+          iva_porcentaje: ivaPct,
+          iva_importe: totales.iva_importe,
           total: totales.total,
-          observaciones: observaciones || null,
+          user_id: session.user.id,
         })
-        .select("id, numero")
+        .select('id, numero')
         .single()
 
       if (errPres) throw errPres
 
+      // INSERT líneas - con campos REALES
       const filas = lineas.map((l, idx) => ({
         presupuesto_id: pres.id,
         orden: idx + 1,
-        referencia_cliente_id: l.referencia_cliente_id,
-        descripcion: l.descripcion,
         producto_id: l.producto_id,
-        color_id: l.color_id,
-        tratamiento_id: l.tratamiento_id,
         tarifa_id: l.tarifa_id,
+        descripcion: l.descripcion,
+        cantidad: l.cantidad,
+        modo_precio: l.modo_precio, // 'm2' | 'pieza'
         ancho: l.ancho,
         alto: l.alto,
         grosor: l.grosor,
-        caras: l.caras,
-        cantidad: l.cantidad,
-        nivel_complejidad: l.nivel_complejidad,
-        precio_pactado: l.precio_pactado,
+        unidad: 'mm',
+        cara_frontal: l.cara_frontal,
+        cara_trasera: l.cara_trasera,
+        canto_superior: l.canto_superior,
+        canto_inferior: l.canto_inferior,
+        canto_izquierdo: l.canto_izquierdo,
+        canto_derecho: l.canto_derecho,
         superficie_m2: l.superficie_m2,
         precio_unitario: l.precio_unitario,
-        descuento_pct: l.descuento_pct,
-        subtotal: l.subtotal,
+        color_id: l.color_id,
+        tratamiento_id: l.tratamiento_id,
+        suplemento_manual: l.suplemento_manual,
+        total_linea: l.total_linea,
+        referencia_cliente_id: l.referencia_cliente_id,
+        nivel_complejidad: l.nivel_complejidad,
       }))
 
-      const { error: errLin } = await supabase
-        .from("lineas_presupuesto")
-        .insert(filas)
+      const { error: errLin } = await supabase.from('lineas_presupuesto').insert(filas)
       if (errLin) throw errLin
 
       router.push(`/presupuestos/${pres.id}`)
       router.refresh()
     } catch (e: any) {
-      console.error(e)
-      setError(e.message ?? "Error al guardar el presupuesto")
-    } finally {
+      console.error('[presupuesto] Error guardando:', e)
+      setMensaje({ tipo: 'error', texto: e.message ?? 'Error al guardar.' })
       setGuardando(false)
     }
   }
 
+  // ============================================================
+  // RENDER
+  // ============================================================
+
   return (
     <div className="flex h-[calc(100vh-4rem)]">
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-4xl mx-auto space-y-6">
+      {/* COLUMNA IZQUIERDA */}
+      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="max-w-5xl mx-auto space-y-6">
+          {/* Header */}
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold">Nuevo presupuesto</h1>
-              <p className="text-sm text-gray-500 mt-1">
-                Crea un presupuesto desde cero, desde piezas guardadas o
-                importando uno anterior.
+              <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+                <FileText className="w-8 h-8" />
+                Nuevo presupuesto
+              </h1>
+              <p className="text-muted-foreground mt-1">
+                Crea desde cero, desde piezas guardadas o importando uno anterior.
               </p>
             </div>
             <div className="flex gap-2">
-              <button
-                onClick={() => router.push("/presupuestos")}
-                className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50"
+              <Button
+                variant="outline"
+                onClick={() => router.push('/presupuestos')}
                 disabled={guardando}
               >
                 Cancelar
-              </button>
-              <button
-                onClick={guardar}
-                disabled={guardando || lineas.length === 0}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg text-sm font-medium"
-              >
-                {guardando ? "Guardando..." : "Guardar presupuesto"}
-              </button>
+              </Button>
+              <Button onClick={guardar} disabled={guardando || lineas.length === 0}>
+                <Save className="w-4 h-4 mr-2" />
+                {guardando ? 'Guardando...' : 'Guardar'}
+              </Button>
             </div>
           </div>
 
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-              {error}
-            </div>
+          {mensaje && (
+            <Alert variant={mensaje.tipo === 'error' ? 'destructive' : 'default'}>
+              <AlertDescription>{mensaje.texto}</AlertDescription>
+            </Alert>
           )}
 
-          <div className="bg-white border rounded-lg p-5">
-            <h2 className="font-semibold text-gray-800 mb-4">Cliente</h2>
-            {!clienteActual ? (
-              <>
-                <input
-                  type="text"
-                  value={buscadorCliente}
-                  onChange={(e) => setBuscadorCliente(e.target.value)}
-                  placeholder="Buscar por nombre, CIF o email..."
-                  className="w-full px-3 py-2 border rounded-lg mb-3"
-                />
-                <div className="max-h-60 overflow-y-auto border rounded-lg divide-y">
-                  {clientesFiltrados.map((c) => (
-                    <button
-                      key={c.id}
-                      onClick={() => setClienteId(c.id)}
-                      className="w-full text-left px-3 py-2 hover:bg-blue-50 text-sm"
-                    >
-                      <div className="font-medium">{c.nombre}</div>
-                      <div className="text-xs text-gray-500">
-                        {c.cif ?? "—"} · {c.email ?? "sin email"}
+          {/* CLIENTE */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Cliente</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {!clienteActual ? (
+                <>
+                  <div className="relative mb-3">
+                    <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                    <Input
+                      value={buscadorCliente}
+                      onChange={(e) => setBuscadorCliente(e.target.value)}
+                      placeholder="Buscar por nombre, CIF o email..."
+                      className="pl-10"
+                    />
+                  </div>
+                  <div className="max-h-60 overflow-y-auto border rounded-md divide-y">
+                    {clientesFiltrados.map((c) => (
+                      <button
+                        key={c.id}
+                        onClick={() => setClienteId(c.id)}
+                        className="w-full text-left px-3 py-2 hover:bg-slate-50 text-sm"
+                      >
+                        <div className="font-medium">{c.nombre_comercial}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {c.cif ?? '—'} · {c.email ?? 'sin email'} · {c.ciudad ?? '—'}
+                        </div>
+                      </button>
+                    ))}
+                    {clientesFiltrados.length === 0 && (
+                      <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+                        No hay clientes que coincidan.
                       </div>
-                    </button>
-                  ))}
-                  {clientesFiltrados.length === 0 && (
-                    <div className="px-3 py-4 text-center text-sm text-gray-500">
-                      Sin resultados.
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-start justify-between bg-slate-50 rounded-md p-4">
+                  <div className="space-y-0.5 text-sm">
+                    <div className="font-semibold text-base">
+                      {clienteActual.nombre_comercial}
                     </div>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="flex items-start justify-between bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <div className="space-y-1 text-sm">
-                  <div className="font-semibold text-base">
-                    {clienteActual.nombre}
-                  </div>
-                  <div className="text-gray-600">
-                    CIF: {clienteActual.cif ?? "—"}
-                  </div>
-                  <div className="text-gray-600">
-                    {clienteActual.email ?? "sin email"} ·{" "}
-                    {clienteActual.telefono ?? "sin teléfono"}
-                  </div>
-                  {clienteActual.direccion && (
-                    <div className="text-gray-600">
-                      {clienteActual.direccion}
+                    <div className="text-muted-foreground">
+                      CIF: {clienteActual.cif ?? '—'}
                     </div>
-                  )}
+                    <div className="text-muted-foreground">
+                      {clienteActual.email ?? 'sin email'} ·{' '}
+                      {clienteActual.telefono ?? 'sin teléfono'}
+                    </div>
+                    {(clienteActual.direccion || clienteActual.ciudad) && (
+                      <div className="text-muted-foreground">
+                        {[clienteActual.direccion, clienteActual.ciudad]
+                          .filter(Boolean)
+                          .join(', ')}
+                      </div>
+                    )}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setClienteId('')
+                      setBuscadorCliente('')
+                    }}
+                  >
+                    Cambiar
+                  </Button>
                 </div>
-                <button
-                  onClick={() => {
-                    setClienteId("")
-                    setBuscadorCliente("")
-                  }}
-                  className="text-sm text-blue-600 hover:text-blue-800"
-                >
-                  Cambiar
-                </button>
-              </div>
-            )}
-          </div>
+              )}
+            </CardContent>
+          </Card>
 
-          <div className="bg-white border rounded-lg p-5">
-            <h2 className="font-semibold text-gray-800 mb-4">
-              Datos generales
-            </h2>
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">
-                  Fecha
-                </label>
-                <input
+          {/* DATOS GENERALES */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Datos generales</CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-3 gap-4">
+              <div className="space-y-1">
+                <Label>Fecha</Label>
+                <Input
                   type="date"
                   value={fecha}
                   onChange={(e) => setFecha(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg text-sm"
                 />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">
-                  Validez (días)
-                </label>
-                <select
-                  value={validezDias}
-                  onChange={(e) => setValidezDias(Number(e.target.value))}
-                  className="w-full px-3 py-2 border rounded-lg text-sm"
+              <div className="space-y-1">
+                <Label>Validez (días)</Label>
+                <Select
+                  value={String(validezDias)}
+                  onValueChange={(v) => setValidezDias(Number(v))}
                 >
-                  <option value={15}>15 días</option>
-                  <option value={30}>30 días</option>
-                  <option value={60}>60 días</option>
-                  <option value={90}>90 días</option>
-                </select>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="15">15 días</SelectItem>
+                    <SelectItem value="30">30 días</SelectItem>
+                    <SelectItem value="60">60 días</SelectItem>
+                    <SelectItem value="90">90 días</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">
-                  Fecha entrega estimada
-                </label>
-                <input
+              <div className="space-y-1">
+                <Label>Fecha entrega estimada</Label>
+                <Input
                   type="date"
-                  value={fechaEntregaEstimada}
-                  onChange={(e) => setFechaEntregaEstimada(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                  value={fechaEntrega}
+                  onChange={(e) => setFechaEntrega(e.target.value)}
                 />
-                <p className="text-[10px] text-gray-400 mt-1">
-                  Provisional. Se recalcula con Gantt (módulo 6).
+                <p className="text-[10px] text-muted-foreground">
+                  Provisional. Se recalculará con Gantt (módulo 6).
                 </p>
               </div>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
-          <div className="bg-white border rounded-lg p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-semibold text-gray-800">
-                Líneas ({lineas.length})
-              </h2>
-              <div className="flex gap-2">
-                <button
-                  onClick={anadirLineaManual}
-                  className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg"
-                >
-                  + Línea manual
-                </button>
-                <button
-                  onClick={() => setMostrarImportar((v) => !v)}
-                  disabled={!clienteId || presupuestosAnteriores.length === 0}
-                  className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg disabled:opacity-50"
-                >
-                  ⤵ Importar de anterior
-                </button>
-              </div>
-            </div>
-
-            {mostrarImportar && (
-              <div className="bg-gray-50 border rounded-lg p-3 mb-4">
-                <div className="text-xs font-medium text-gray-600 mb-2">
-                  Selecciona un presupuesto para importar sus líneas:
-                </div>
-                <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
-                  {presupuestosAnteriores.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => importarDePresupuestoAnterior(p.id)}
-                      className="text-left px-3 py-2 bg-white border rounded text-sm hover:bg-blue-50"
+          {/* LÍNEAS */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">
+                  Líneas{' '}
+                  <span className="text-muted-foreground font-normal">({lineas.length})</span>
+                </CardTitle>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={anadirLineaManual}>
+                    <Plus className="w-4 h-4 mr-1" />
+                    Línea manual
+                  </Button>
+                  {presupuestosAnteriores.length > 0 && (
+                    <Select
+                      onValueChange={(id) => importarDePresupuestoAnterior(id)}
+                      value=""
                     >
-                      <div className="font-mono text-xs">{p.numero}</div>
-                      <div className="text-xs text-gray-500">
-                        {new Date(p.fecha).toLocaleDateString("es-ES")} ·{" "}
-                        {Number(p.total).toLocaleString("es-ES", {
-                          style: "currency",
-                          currency: "EUR",
-                        })}
-                      </div>
-                    </button>
-                  ))}
+                      <SelectTrigger className="h-9 w-48">
+                        <Download className="w-4 h-4 mr-1" />
+                        <SelectValue placeholder="Importar de anterior" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {presupuestosAnteriores.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.numero} · {euro(Number(p.total))}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
               </div>
-            )}
-
-            {lineas.length === 0 ? (
-              <div className="text-center py-8 text-sm text-gray-500 border-2 border-dashed rounded-lg">
-                Sin líneas aún. Añade piezas desde el panel derecho o pulsa
-                "Línea manual".
-              </div>
-            ) : (
-              <div className="border rounded-lg overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 border-b text-xs">
-                    <tr>
-                      <th className="text-left px-3 py-2 font-medium text-gray-600">
-                        Descripción
-                      </th>
-                      <th className="text-right px-3 py-2 font-medium text-gray-600 w-16">
-                        Uds
-                      </th>
-                      <th className="text-right px-3 py-2 font-medium text-gray-600 w-20">
-                        m²
-                      </th>
-                      <th className="text-right px-3 py-2 font-medium text-gray-600 w-24">
-                        € unit.
-                      </th>
-                      <th className="text-right px-3 py-2 font-medium text-gray-600 w-20">
-                        Dto %
-                      </th>
-                      <th className="text-right px-3 py-2 font-medium text-gray-600 w-28">
-                        Subtotal
-                      </th>
-                      <th className="w-20"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lineas.map((l) => {
-                      const expandida = lineaExpandida === l._uid
-                      return (
-                        <>
-                          <tr
-                            key={l._uid}
-                            className="border-b hover:bg-gray-50 align-top"
-                          >
-                            <td className="px-3 py-2">
-                              <input
-                                type="text"
-                                value={l.descripcion}
-                                onChange={(e) =>
-                                  actualizarLinea(l._uid, {
-                                    descripcion: e.target.value,
-                                  })
-                                }
-                                placeholder="Descripción..."
-                                className="w-full px-2 py-1 border rounded text-sm"
-                              />
-                              <div className="mt-1 flex items-center gap-2 text-xs text-gray-500">
-                                <span>
-                                  {productos.find(
-                                    (p) => p.id === l.producto_id
-                                  )?.nombre ?? "sin producto"}
-                                </span>
-                                <span>·</span>
-                                <span>
-                                  {colores.find((c) => c.id === l.color_id)
-                                    ?.nombre ?? "sin color"}
-                                </span>
-                                <span>·</span>
-                                <span>
-                                  {tratamientos.find(
-                                    (t) => t.id === l.tratamiento_id
-                                  )?.nombre ?? "sin tratamiento"}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="px-3 py-2 text-right">
-                              <input
-                                type="number"
-                                min={1}
-                                value={l.cantidad}
-                                onChange={(e) =>
-                                  actualizarLinea(l._uid, {
-                                    cantidad: Number(e.target.value),
-                                  })
-                                }
-                                className="w-14 px-2 py-1 border rounded text-right text-sm"
-                              />
-                            </td>
-                            <td className="px-3 py-2 text-right text-xs text-gray-600">
-                              {l.superficie_m2.toFixed(3)}
-                            </td>
-                            <td className="px-3 py-2 text-right text-xs text-gray-700">
-                              {l.precio_unitario.toLocaleString("es-ES", {
-                                style: "currency",
-                                currency: "EUR",
-                              })}
-                            </td>
-                            <td className="px-3 py-2 text-right">
-                              <input
-                                type="number"
-                                min={0}
-                                max={100}
-                                value={l.descuento_pct}
-                                onChange={(e) =>
-                                  actualizarLinea(l._uid, {
-                                    descuento_pct: Number(e.target.value),
-                                  })
-                                }
-                                className="w-14 px-2 py-1 border rounded text-right text-sm"
-                              />
-                            </td>
-                            <td className="px-3 py-2 text-right font-medium">
-                              {l.subtotal.toLocaleString("es-ES", {
-                                style: "currency",
-                                currency: "EUR",
-                              })}
-                            </td>
-                            <td className="px-3 py-2 text-right">
-                              <div className="flex gap-1 justify-end">
-                                <button
-                                  onClick={() =>
-                                    setLineaExpandida(
-                                      expandida ? null : l._uid
-                                    )
+            </CardHeader>
+            <CardContent>
+              {lineas.length === 0 ? (
+                <div className="text-center py-10 text-sm text-muted-foreground border-2 border-dashed rounded-lg">
+                  Sin líneas aún. Añade piezas desde el panel derecho o pulsa "Línea manual".
+                </div>
+              ) : (
+                <div className="border rounded-md overflow-hidden">
+                  <Table>
+                    <TableHeader className="bg-slate-50">
+                      <TableRow>
+                        <TableHead>Descripción</TableHead>
+                        <TableHead className="w-20 text-right">Uds</TableHead>
+                        <TableHead className="w-20 text-right">m²</TableHead>
+                        <TableHead className="w-24 text-right">€ unit.</TableHead>
+                        <TableHead className="w-28 text-right">Total</TableHead>
+                        <TableHead className="w-28 text-right">Acciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {lineas.map((l) => {
+                        const expandida = lineaExpandida === l._uid
+                        const color = colores.find((c) => c.id === l.color_id)
+                        return (
+                          <Fragment key={l._uid}>
+                            <TableRow className="align-top">
+                              <TableCell>
+                                <Input
+                                  value={l.descripcion}
+                                  onChange={(e) =>
+                                    actualizarLinea(l._uid, { descripcion: e.target.value })
                                   }
-                                  className="text-xs text-blue-600 hover:text-blue-800"
-                                  title="Editar detalle"
-                                >
-                                  {expandida ? "▲" : "▼"}
-                                </button>
-                                <button
-                                  onClick={() => duplicarLinea(l._uid)}
-                                  className="text-xs text-gray-500 hover:text-gray-800"
-                                  title="Duplicar"
-                                >
-                                  ⧉
-                                </button>
-                                <button
-                                  onClick={() => eliminarLinea(l._uid)}
-                                  className="text-xs text-red-500 hover:text-red-700"
-                                  title="Eliminar"
-                                >
-                                  ✕
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-
-                          {expandida && (
-                            <tr className="bg-gray-50 border-b">
-                              <td colSpan={7} className="px-3 py-4">
-                                <div className="grid grid-cols-4 gap-3">
-                                  <div>
-                                    <label className="block text-[10px] font-medium text-gray-600 mb-1">
-                                      Producto
-                                    </label>
-                                    <select
-                                      value={l.producto_id ?? ""}
-                                      onChange={(e) =>
-                                        actualizarLinea(l._uid, {
-                                          producto_id:
-                                            e.target.value || null,
-                                        })
-                                      }
-                                      className="w-full px-2 py-1 border rounded text-sm"
-                                    >
-                                      <option value="">—</option>
-                                      {productos.map((p) => (
-                                        <option key={p.id} value={p.id}>
-                                          {p.nombre}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                  <div>
-                                    <label className="block text-[10px] font-medium text-gray-600 mb-1">
-                                      Color
-                                    </label>
-                                    <select
-                                      value={l.color_id ?? ""}
-                                      onChange={(e) =>
-                                        actualizarLinea(l._uid, {
-                                          color_id: e.target.value || null,
-                                        })
-                                      }
-                                      className="w-full px-2 py-1 border rounded text-sm"
-                                    >
-                                      <option value="">—</option>
-                                      {colores.map((c) => (
-                                        <option key={c.id} value={c.id}>
-                                          {c.nombre}
-                                          {c.ral ? ` (${c.ral})` : ""}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                  <div>
-                                    <label className="block text-[10px] font-medium text-gray-600 mb-1">
-                                      Tratamiento
-                                    </label>
-                                    <select
-                                      value={l.tratamiento_id ?? ""}
-                                      onChange={(e) =>
-                                        actualizarLinea(l._uid, {
-                                          tratamiento_id:
-                                            e.target.value || null,
-                                        })
-                                      }
-                                      className="w-full px-2 py-1 border rounded text-sm"
-                                    >
-                                      <option value="">—</option>
-                                      {tratamientos.map((t) => (
-                                        <option key={t.id} value={t.id}>
-                                          {t.nombre}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                  <div>
-                                    <label className="block text-[10px] font-medium text-gray-600 mb-1">
-                                      Tarifa (manual)
-                                    </label>
-                                    <select
-                                      value={l.tarifa_id ?? ""}
-                                      onChange={(e) =>
-                                        actualizarLinea(l._uid, {
-                                          tarifa_id: e.target.value || null,
-                                        })
-                                      }
-                                      className="w-full px-2 py-1 border rounded text-sm"
-                                    >
-                                      <option value="">Automática</option>
-                                      {tarifas.map((t) => (
-                                        <option key={t.id} value={t.id}>
-                                          {t.nombre}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                  <div>
-                                    <label className="block text-[10px] font-medium text-gray-600 mb-1">
-                                      Ancho (mm)
-                                    </label>
-                                    <input
-                                      type="number"
-                                      value={l.ancho}
-                                      onChange={(e) =>
-                                        actualizarLinea(l._uid, {
-                                          ancho: Number(e.target.value),
-                                        })
-                                      }
-                                      className="w-full px-2 py-1 border rounded text-sm"
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className="block text-[10px] font-medium text-gray-600 mb-1">
-                                      Alto (mm)
-                                    </label>
-                                    <input
-                                      type="number"
-                                      value={l.alto}
-                                      onChange={(e) =>
-                                        actualizarLinea(l._uid, {
-                                          alto: Number(e.target.value),
-                                        })
-                                      }
-                                      className="w-full px-2 py-1 border rounded text-sm"
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className="block text-[10px] font-medium text-gray-600 mb-1">
-                                      Grosor (mm)
-                                    </label>
-                                    <input
-                                      type="number"
-                                      value={l.grosor}
-                                      onChange={(e) =>
-                                        actualizarLinea(l._uid, {
-                                          grosor: Number(e.target.value),
-                                        })
-                                      }
-                                      className="w-full px-2 py-1 border rounded text-sm"
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className="block text-[10px] font-medium text-gray-600 mb-1">
-                                      Caras a lacar
-                                    </label>
-                                    <select
-                                      value={l.caras}
-                                      onChange={(e) =>
-                                        actualizarLinea(l._uid, {
-                                          caras: Number(e.target.value),
-                                        })
-                                      }
-                                      className="w-full px-2 py-1 border rounded text-sm"
-                                    >
-                                      <option value={1}>1 cara</option>
-                                      <option value={2}>2 caras</option>
-                                      <option value={4}>
-                                        2 caras + cantos
-                                      </option>
-                                      <option value={6}>Todas (6)</option>
-                                    </select>
-                                  </div>
-                                  <div>
-                                    <label className="block text-[10px] font-medium text-gray-600 mb-1">
-                                      Complejidad
-                                    </label>
-                                    <select
-                                      value={l.nivel_complejidad}
-                                      onChange={(e) =>
-                                        actualizarLinea(l._uid, {
-                                          nivel_complejidad: e.target
-                                            .value as Linea["nivel_complejidad"],
-                                        })
-                                      }
-                                      className="w-full px-2 py-1 border rounded text-sm"
-                                    >
-                                      <option value="bajo">Baja (×1.0)</option>
-                                      <option value="medio">
-                                        Media (×1.2)
-                                      </option>
-                                      <option value="alto">Alta (×1.5)</option>
-                                    </select>
-                                  </div>
-                                  <div>
-                                    <label className="block text-[10px] font-medium text-gray-600 mb-1">
-                                      Precio pactado (€/ud)
-                                    </label>
-                                    <input
-                                      type="number"
-                                      step="0.01"
-                                      value={l.precio_pactado ?? ""}
-                                      onChange={(e) =>
-                                        actualizarLinea(l._uid, {
-                                          precio_pactado:
-                                            e.target.value === ""
-                                              ? null
-                                              : Number(e.target.value),
-                                        })
-                                      }
-                                      placeholder="Auto por tarifa"
-                                      className="w-full px-2 py-1 border rounded text-sm"
-                                    />
-                                  </div>
+                                  placeholder="Descripción..."
+                                  className="h-8"
+                                />
+                                <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                                  <span>
+                                    {productos.find((p) => p.id === l.producto_id)
+                                      ?.nombre ?? 'sin producto'}
+                                  </span>
+                                  <span>·</span>
+                                  {color ? (
+                                    <span className="flex items-center gap-1">
+                                      <span
+                                        className="w-3 h-3 rounded-sm border"
+                                        style={{
+                                          backgroundColor:
+                                            color.hex_aproximado || '#DDD',
+                                        }}
+                                      />
+                                      {color.codigo}
+                                    </span>
+                                  ) : (
+                                    <span>sin color</span>
+                                  )}
+                                  <span>·</span>
+                                  <span>
+                                    {tratamientos.find((t) => t.id === l.tratamiento_id)
+                                      ?.nombre ?? 'sin tratamiento'}
+                                  </span>
+                                  <span>·</span>
+                                  <Badge variant="outline" className="text-[10px] h-5">
+                                    {l.modo_precio === 'm2' ? 'por m²' : 'por pieza'}
+                                  </Badge>
                                 </div>
-                              </td>
-                            </tr>
-                          )}
-                        </>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  value={l.cantidad}
+                                  onChange={(e) =>
+                                    actualizarLinea(l._uid, {
+                                      cantidad: Number(e.target.value),
+                                    })
+                                  }
+                                  className="h-8 text-right w-16 ml-auto"
+                                />
+                              </TableCell>
+                              <TableCell className="text-right text-xs">
+                                {l.superficie_m2.toFixed(3)}
+                              </TableCell>
+                              <TableCell className="text-right text-xs">
+                                {euro(l.precio_unitario)}
+                              </TableCell>
+                              <TableCell className="text-right font-medium">
+                                {euro(l.total_linea)}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex gap-1 justify-end">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    onClick={() =>
+                                      setLineaExpandida(expandida ? null : l._uid)
+                                    }
+                                  >
+                                    {expandida ? (
+                                      <ChevronUp className="w-4 h-4" />
+                                    ) : (
+                                      <ChevronDown className="w-4 h-4" />
+                                    )}
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    onClick={() => duplicarLinea(l._uid)}
+                                  >
+                                    <Copy className="w-3.5 h-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 text-red-600 hover:text-red-700"
+                                    onClick={() => eliminarLinea(l._uid)}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
 
-          <div className="bg-white border rounded-lg p-5">
-            <h2 className="font-semibold text-gray-800 mb-4">Totales</h2>
-            <div className="space-y-2 max-w-sm ml-auto text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-600">Subtotal</span>
-                <span className="font-medium">
-                  {totales.subtotal.toLocaleString("es-ES", {
-                    style: "currency",
-                    currency: "EUR",
-                  })}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">IVA ({ivaPct}%)</span>
-                <span className="font-medium">
-                  {totales.iva.toLocaleString("es-ES", {
-                    style: "currency",
-                    currency: "EUR",
-                  })}
-                </span>
-              </div>
-              <div className="flex justify-between text-lg border-t pt-2 mt-2">
-                <span className="font-semibold">TOTAL</span>
-                <span className="font-bold text-blue-700">
-                  {totales.total.toLocaleString("es-ES", {
-                    style: "currency",
-                    currency: "EUR",
-                  })}
-                </span>
-              </div>
-            </div>
-          </div>
+                            {expandida && (
+                              <TableRow className="bg-slate-50">
+                                <TableCell colSpan={6} className="p-4">
+                                  <div className="grid grid-cols-4 gap-3">
+                                    {/* Producto */}
+                                    <div className="space-y-1">
+                                      <Label className="text-xs">Producto</Label>
+                                      <Select
+                                        value={l.producto_id ?? ''}
+                                        onValueChange={(v) =>
+                                          actualizarLinea(l._uid, {
+                                            producto_id: v || null,
+                                          })
+                                        }
+                                      >
+                                        <SelectTrigger className="h-8">
+                                          <SelectValue placeholder="—" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {productos.map((p) => (
+                                            <SelectItem key={p.id} value={p.id}>
+                                              {p.nombre}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
 
-          <div className="bg-white border rounded-lg p-5">
-            <h2 className="font-semibold text-gray-800 mb-3">Observaciones</h2>
-            <textarea
-              value={observaciones}
-              onChange={(e) => setObservaciones(e.target.value)}
-              rows={3}
-              placeholder="Notas internas o comentarios para el cliente..."
-              className="w-full px-3 py-2 border rounded-lg text-sm"
-            />
-          </div>
+                                    {/* Color (abre modal) */}
+                                    <div className="space-y-1">
+                                      <Label className="text-xs">Color</Label>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="w-full h-8 justify-start font-normal"
+                                        onClick={() => setSelectorColorAbierto(l._uid)}
+                                      >
+                                        {color ? (
+                                          <>
+                                            <span
+                                              className="w-4 h-4 rounded-sm border mr-2"
+                                              style={{
+                                                backgroundColor:
+                                                  color.hex_aproximado || '#DDD',
+                                              }}
+                                            />
+                                            {color.codigo}
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Palette className="w-4 h-4 mr-2" />
+                                            Elegir color...
+                                          </>
+                                        )}
+                                      </Button>
+                                    </div>
 
-          <div className="flex justify-end pb-8">
-            <button
+                                    {/* Tratamiento */}
+                                    <div className="space-y-1">
+                                      <Label className="text-xs">Tratamiento</Label>
+                                      <Select
+                                        value={l.tratamiento_id ?? ''}
+                                        onValueChange={(v) =>
+                                          actualizarLinea(l._uid, {
+                                            tratamiento_id: v || null,
+                                          })
+                                        }
+                                      >
+                                        <SelectTrigger className="h-8">
+                                          <SelectValue placeholder="—" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {tratamientos.map((t) => (
+                                            <SelectItem key={t.id} value={t.id}>
+                                              {t.nombre}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+
+                                    {/* Modo precio */}
+                                    <div className="space-y-1">
+                                      <Label className="text-xs">Modo precio</Label>
+                                      <Select
+                                        value={l.modo_precio}
+                                        onValueChange={(v: 'm2' | 'pieza') =>
+                                          actualizarLinea(l._uid, { modo_precio: v })
+                                        }
+                                      >
+                                        <SelectTrigger className="h-8">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="m2">Por m²</SelectItem>
+                                          <SelectItem value="pieza">Por pieza</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+
+                                    {/* Dimensiones */}
+                                    <div className="space-y-1">
+                                      <Label className="text-xs">Ancho (mm)</Label>
+                                      <Input
+                                        type="number"
+                                        className="h-8"
+                                        value={l.ancho}
+                                        onChange={(e) =>
+                                          actualizarLinea(l._uid, {
+                                            ancho: Number(e.target.value),
+                                          })
+                                        }
+                                      />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs">Alto (mm)</Label>
+                                      <Input
+                                        type="number"
+                                        className="h-8"
+                                        value={l.alto}
+                                        onChange={(e) =>
+                                          actualizarLinea(l._uid, {
+                                            alto: Number(e.target.value),
+                                          })
+                                        }
+                                      />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs">Grosor (mm)</Label>
+                                      <Input
+                                        type="number"
+                                        className="h-8"
+                                        value={l.grosor}
+                                        onChange={(e) =>
+                                          actualizarLinea(l._uid, {
+                                            grosor: Number(e.target.value),
+                                          })
+                                        }
+                                      />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs">Complejidad</Label>
+                                      <Select
+                                        value={
+                                          l.nivel_complejidad !== null
+                                            ? String(l.nivel_complejidad)
+                                            : ''
+                                        }
+                                        onValueChange={(v) =>
+                                          actualizarLinea(l._uid, {
+                                            nivel_complejidad: v ? Number(v) : null,
+                                          })
+                                        }
+                                      >
+                                        <SelectTrigger className="h-8">
+                                          <SelectValue placeholder="—" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {niveles.map((n) => (
+                                            <SelectItem key={n.id} value={String(n.id)}>
+                                              {n.nombre} (×{Number(n.multiplicador)})
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+
+                                    {/* Caras */}
+                                    <div className="col-span-4 space-y-1">
+                                      <Label className="text-xs">Caras a lacar</Label>
+                                      <div className="grid grid-cols-6 gap-2">
+                                        {[
+                                          { k: 'cara_frontal', lbl: 'Frontal' },
+                                          { k: 'cara_trasera', lbl: 'Trasera' },
+                                          { k: 'canto_superior', lbl: 'C. sup.' },
+                                          { k: 'canto_inferior', lbl: 'C. inf.' },
+                                          { k: 'canto_izquierdo', lbl: 'C. izq.' },
+                                          { k: 'canto_derecho', lbl: 'C. der.' },
+                                        ].map((cara) => (
+                                          <label
+                                            key={cara.k}
+                                            className="flex items-center gap-1.5 text-xs cursor-pointer border rounded px-2 py-1 hover:bg-slate-100"
+                                          >
+                                            <input
+                                              type="checkbox"
+                                              checked={l[cara.k as keyof Linea] as boolean}
+                                              onChange={(e) =>
+                                                actualizarLinea(l._uid, {
+                                                  [cara.k]: e.target.checked,
+                                                } as any)
+                                              }
+                                            />
+                                            {cara.lbl}
+                                          </label>
+                                        ))}
+                                      </div>
+                                    </div>
+
+                                    {/* Precio pactado y suplemento */}
+                                    <div className="space-y-1">
+                                      <Label className="text-xs">
+                                        Precio pactado (€/ud)
+                                      </Label>
+                                      <Input
+                                        type="number"
+                                        step="0.01"
+                                        className="h-8"
+                                        value={l.precio_pactado ?? ''}
+                                        onChange={(e) =>
+                                          actualizarLinea(l._uid, {
+                                            precio_pactado:
+                                              e.target.value === ''
+                                                ? null
+                                                : Number(e.target.value),
+                                          })
+                                        }
+                                        placeholder="Auto por tarifa"
+                                      />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs">
+                                        Suplemento manual (€)
+                                      </Label>
+                                      <Input
+                                        type="number"
+                                        step="0.01"
+                                        className="h-8"
+                                        value={l.suplemento_manual}
+                                        onChange={(e) =>
+                                          actualizarLinea(l._uid, {
+                                            suplemento_manual: Number(e.target.value),
+                                          })
+                                        }
+                                      />
+                                    </div>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </Fragment>
+                        )
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* TOTALES */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Totales</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-4 items-start">
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Descuento global (%)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.5"
+                      value={descuentoPct}
+                      onChange={(e) => setDescuentoPct(Number(e.target.value))}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">IVA (%)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="1"
+                      value={ivaPct}
+                      onChange={(e) => setIvaPct(Number(e.target.value))}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between py-1">
+                    <span className="text-muted-foreground">Subtotal</span>
+                    <span className="font-medium">{euro(totales.subtotal)}</span>
+                  </div>
+                  {descuentoPct > 0 && (
+                    <div className="flex justify-between py-1">
+                      <span className="text-muted-foreground">
+                        Descuento ({descuentoPct}%)
+                      </span>
+                      <span className="font-medium text-red-600">
+                        −{euro(totales.descuento_importe)}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex justify-between py-1">
+                    <span className="text-muted-foreground">Base imponible</span>
+                    <span className="font-medium">{euro(totales.base_imponible)}</span>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-muted-foreground">IVA ({ivaPct}%)</span>
+                    <span className="font-medium">{euro(totales.iva_importe)}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-t mt-2 text-lg">
+                    <span className="font-bold">TOTAL</span>
+                    <span className="font-bold text-blue-700">{euro(totales.total)}</span>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* OBSERVACIONES */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Observaciones</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Para el cliente (se imprime en el PDF)</Label>
+                <Textarea
+                  rows={2}
+                  value={obsComerciales}
+                  onChange={(e) => setObsComerciales(e.target.value)}
+                  placeholder="Notas que verá el cliente..."
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Internas (solo uso interno)</Label>
+                <Textarea
+                  rows={2}
+                  value={obsInternas}
+                  onChange={(e) => setObsInternas(e.target.value)}
+                  placeholder="Notas internas..."
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Botón guardar inferior */}
+          <div className="flex justify-end pb-6">
+            <Button
+              size="lg"
               onClick={guardar}
               disabled={guardando || lineas.length === 0}
-              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg font-medium"
             >
-              {guardando ? "Guardando..." : "Guardar presupuesto"}
-            </button>
+              <Save className="w-4 h-4 mr-2" />
+              {guardando ? 'Guardando...' : 'Guardar presupuesto'}
+            </Button>
           </div>
         </div>
       </div>
 
-      <aside className="w-96 border-l bg-gray-50 overflow-y-auto">
-        <div className="p-4 sticky top-0 bg-gray-50 border-b z-10">
-          <h3 className="font-semibold text-gray-800">Piezas guardadas</h3>
-          <p className="text-xs text-gray-500 mt-1">
+      {/* COLUMNA DERECHA: piezas guardadas */}
+      <aside className="w-80 border-l bg-slate-50 overflow-y-auto">
+        <div className="p-4 sticky top-0 bg-slate-50 border-b z-10">
+          <div className="flex items-center gap-2 font-semibold">
+            <PackageOpen className="w-4 h-4" />
+            Piezas guardadas
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
             {clienteActual
-              ? `Referencias de ${clienteActual.nombre}`
-              : "Selecciona un cliente para ver sus piezas"}
+              ? `Referencias de ${clienteActual.nombre_comercial}`
+              : 'Selecciona un cliente para ver sus piezas'}
           </p>
         </div>
-
-        <div className="p-4 space-y-2">
+        <div className="p-3 space-y-2">
           {!clienteId && (
-            <div className="text-center text-xs text-gray-400 py-8">
+            <div className="text-center text-xs text-muted-foreground py-8">
               Sin cliente seleccionado.
             </div>
           )}
           {cargandoPiezas && (
-            <div className="text-center text-xs text-gray-400 py-4">
+            <div className="text-center text-xs text-muted-foreground py-4">
               Cargando...
             </div>
           )}
-          {!cargandoPiezas &&
-            clienteId &&
-            piezasGuardadas.length === 0 && (
-              <div className="text-center text-xs text-gray-400 py-8 border-2 border-dashed rounded-lg">
-                Este cliente aún no tiene piezas guardadas.
-              </div>
-            )}
-          {piezasGuardadas.map((p) => (
+          {!cargandoPiezas && clienteId && piezas.length === 0 && (
+            <div className="text-center text-xs text-muted-foreground py-8 border-2 border-dashed rounded-md">
+              Este cliente aún no tiene piezas guardadas.
+            </div>
+          )}
+          {piezas.map((p) => (
             <div
               key={p.id}
-              className="bg-white border rounded-lg p-3 hover:border-blue-400 transition"
+              className="bg-white border rounded-md p-3 hover:border-blue-400 transition"
             >
-              <div className="flex items-start justify-between">
+              <div className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium text-sm truncate">
-                    {p.nombre_pieza}
-                  </div>
+                  <div className="font-medium text-sm truncate">{p.nombre_pieza}</div>
                   {p.referencia_cliente && (
-                    <div className="text-xs text-gray-500 font-mono">
+                    <div className="text-xs text-muted-foreground font-mono truncate">
                       {p.referencia_cliente}
                     </div>
                   )}
-                  <div className="text-xs text-gray-600 mt-1 space-y-0.5">
+                  <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
                     {p.dimensiones_habituales && (
                       <div>
-                        {p.dimensiones_habituales.ancho ?? "?"} ×{" "}
-                        {p.dimensiones_habituales.alto ?? "?"} mm
+                        {p.dimensiones_habituales.ancho ?? '?'} ×{' '}
+                        {p.dimensiones_habituales.alto ?? '?'} mm
                       </div>
                     )}
-                    {p.acabado_texto && (
-                      <div className="truncate">{p.acabado_texto}</div>
-                    )}
+                    {p.acabado_texto && <div className="truncate">{p.acabado_texto}</div>}
                     {p.precio_pactado !== null && (
                       <div className="font-medium text-blue-700">
-                        {Number(p.precio_pactado).toLocaleString("es-ES", {
-                          style: "currency",
-                          currency: "EUR",
-                        })}{" "}
-                        /ud
+                        {euro(Number(p.precio_pactado))}/ud
                       </div>
                     )}
                   </div>
                 </div>
-                <button
-                  onClick={() => anadirLineaDesdePieza(p)}
-                  className="ml-2 shrink-0 px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded"
-                >
-                  + Añadir
-                </button>
+                <Button size="sm" onClick={() => anadirLineaDesdePieza(p)}>
+                  <Plus className="w-3 h-3" />
+                </Button>
               </div>
             </div>
           ))}
         </div>
       </aside>
+
+      {/* Selector de color modal */}
+      <SelectorColorDialog
+        abierto={selectorColorAbierto !== null}
+        onCerrar={() => setSelectorColorAbierto(null)}
+        colores={colores}
+        colorSeleccionadoId={
+          selectorColorAbierto
+            ? lineas.find((l) => l._uid === selectorColorAbierto)?.color_id ?? null
+            : null
+        }
+        onSeleccionar={(c) => {
+          if (!selectorColorAbierto) return
+          actualizarLinea(selectorColorAbierto, { color_id: c?.id ?? null })
+        }}
+      />
     </div>
   )
 }
