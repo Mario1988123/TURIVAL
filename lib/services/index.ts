@@ -8,6 +8,7 @@ export * from './catalogo'
 export * from './procesos'
 export * from './configuracion'
 export * from './productos'
+export * from './categorias-producto'
 
 // Tipos
 export * from '../types/erp'
