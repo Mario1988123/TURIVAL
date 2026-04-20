@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect } from 'react'
-import VisualizacionPiezaSVG from './visualizacion-pieza-svg'
 import { Printer, ArrowLeft } from 'lucide-react'
 
 type Cliente = {
@@ -109,10 +108,12 @@ export default function PresupuestoImprimible({
   presupuesto,
   lineas,
   empresa,
+  publico = false,
 }: {
   presupuesto: Presupuesto
   lineas: Linea[]
   empresa: Empresa
+  publico?: boolean
 }) {
   useEffect(() => {
     document.title = `${presupuesto.numero}`
@@ -124,14 +125,20 @@ export default function PresupuestoImprimible({
     <>
       {/* BARRA SUPERIOR (se oculta al imprimir) */}
       <div className="print:hidden bg-slate-100 border-b sticky top-0 z-10 px-6 py-3 flex items-center justify-between gap-3">
-        <button
-          onClick={() => window.close()}
-          className="inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-md hover:bg-slate-200"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Cerrar
-        </button>
-        <div className="text-sm text-muted-foreground">
+        {publico ? (
+          <div className="text-sm font-medium text-slate-700">
+            Presupuesto {presupuesto.numero}
+          </div>
+        ) : (
+          <button
+            onClick={() => window.close()}
+            className="inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-md hover:bg-slate-200"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Cerrar
+          </button>
+        )}
+        <div className="text-sm text-muted-foreground hidden md:block">
           Pulsa <strong>Imprimir</strong> y selecciona "Guardar como PDF" en el diálogo
           del navegador.
         </div>

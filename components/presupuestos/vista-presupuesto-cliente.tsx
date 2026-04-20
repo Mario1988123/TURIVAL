@@ -16,32 +16,21 @@ import {
 } from '@/components/ui/select'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import {
   FileText,
   Printer,
   Mail,
   MessageCircle,
   ArrowLeft,
   Pencil,
-  Eye,
   Trash2,
   Square,
   Minus,
   Shapes,
   RectangleHorizontal,
+  Link as LinkIcon,
+  Copy,
 } from 'lucide-react'
 import VisualizacionPiezaSVG from './visualizacion-pieza-svg'
-
-// ============================================================================
-// TIPOS
-// ============================================================================
 
 type Cliente = {
   id: string
@@ -74,6 +63,7 @@ type Presupuesto = {
   iva_porcentaje: number
   iva_importe: number
   total: number
+  share_token: string | null
   created_at: string
   cliente: Cliente | null
 }
@@ -147,10 +137,6 @@ function fechaValidez(fecha: string, dias: number): string {
   }
 }
 
-// ============================================================================
-// COMPONENTE
-// ============================================================================
-
 export default function VistaPresupuestoCliente({
   presupuestoInicial,
   lineasIniciales,
@@ -170,6 +156,12 @@ export default function VistaPresupuestoCliente({
   )
 
   const cliente = presupuesto.cliente
+
+  // URL pública para el cliente (con share_token)
+  const urlPublica =
+    typeof window !== 'undefined' && presupuesto.share_token
+      ? `${window.location.origin}/p/${presupuesto.share_token}`
+      : null
 
   async function cambiarEstado(nuevoEstado: Presupuesto['estado']) {
     setCambiandoEstado(true)
@@ -200,7 +192,6 @@ export default function VistaPresupuestoCliente({
     }
     setEliminando(true)
     try {
-      // Eliminar líneas primero (por si no hay cascada)
       await supabase
         .from('lineas_presupuesto')
         .delete()
@@ -218,29 +209,44 @@ export default function VistaPresupuestoCliente({
   }
 
   function abrirImprimible() {
+    // Versión interna (auth) para Mario
     window.open(`/presupuestos/${presupuesto.id}/imprimir`, '_blank')
+  }
+
+  function copiarLinkPublico() {
+    if (!urlPublica) return
+    navigator.clipboard.writeText(urlPublica)
+    setMensaje({ tipo: 'ok', texto: 'Enlace copiado al portapapeles.' })
   }
 
   function enviarWhatsApp() {
     if (!cliente?.telefono) {
+      setMensaje({ tipo: 'error', texto: 'El cliente no tiene teléfono registrado.' })
+      return
+    }
+    if (!urlPublica) {
       setMensaje({
         tipo: 'error',
-        texto: 'El cliente no tiene teléfono registrado.',
+        texto: 'Este presupuesto no tiene enlace público. Refresca la página.',
       })
       return
     }
     const tel = cliente.telefono.replace(/[^0-9]/g, '')
     const mensaje = encodeURIComponent(
-      `Hola ${cliente.nombre_comercial},\n\nTe adjunto el presupuesto ${presupuesto.numero} por un importe de ${euro(presupuesto.total)}.\n\nPuedes consultarlo en: ${window.location.origin}/presupuestos/${presupuesto.id}/imprimir\n\nGracias,`
+      `Hola ${cliente.nombre_comercial},\n\nTe envío el presupuesto ${presupuesto.numero} por un importe de ${euro(presupuesto.total)}.\n\nPuedes consultarlo aquí:\n${urlPublica}\n\nGracias,`
     )
     window.open(`https://wa.me/${tel}?text=${mensaje}`, '_blank')
   }
 
   function enviarEmail() {
     if (!cliente?.email) {
+      setMensaje({ tipo: 'error', texto: 'El cliente no tiene email registrado.' })
+      return
+    }
+    if (!urlPublica) {
       setMensaje({
         tipo: 'error',
-        texto: 'El cliente no tiene email registrado.',
+        texto: 'Este presupuesto no tiene enlace público. Refresca la página.',
       })
       return
     }
@@ -248,9 +254,10 @@ export default function VistaPresupuestoCliente({
     const cuerpo = encodeURIComponent(
       `Hola ${cliente.nombre_comercial},
 
-Te adjunto el presupuesto ${presupuesto.numero} por un importe de ${euro(presupuesto.total)}.
+Te envío el presupuesto ${presupuesto.numero} por un importe de ${euro(presupuesto.total)}.
 
-Puedes consultarlo en: ${window.location.origin}/presupuestos/${presupuesto.id}/imprimir
+Puedes consultarlo aquí:
+${urlPublica}
 
 Tiene una validez de ${presupuesto.validez_dias} días desde la fecha de emisión.
 
@@ -312,11 +319,39 @@ Un saludo,`
         </Alert>
       )}
 
+      {/* LINK PÚBLICO PARA COMPARTIR */}
+      {urlPublica && (
+        <Card className="bg-blue-50 border-blue-200">
+          <CardContent className="flex items-center gap-3 py-4 flex-wrap">
+            <LinkIcon className="w-4 h-4 text-blue-700 shrink-0" />
+            <div className="flex-1 min-w-60">
+              <div className="text-xs font-semibold text-blue-900 mb-0.5">
+                Enlace público para el cliente (sin login)
+              </div>
+              <div className="text-xs text-blue-800 font-mono truncate">
+                {urlPublica}
+              </div>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={copiarLinkPublico}
+              className="bg-white"
+            >
+              <Copy className="w-3.5 h-3.5 mr-1" />
+              Copiar
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* ACCIONES DE ESTADO */}
       <Card>
         <CardContent className="flex items-center gap-3 flex-wrap py-4">
           <div className="flex-1 min-w-40">
-            <Label className="text-xs">Estado del presupuesto</Label>
+            <div className="text-xs font-medium text-slate-700 mb-1">
+              Estado del presupuesto
+            </div>
             <Select
               value={presupuesto.estado}
               onValueChange={(v: Presupuesto['estado']) => cambiarEstado(v)}
@@ -335,14 +370,6 @@ Un saludo,`
             </Select>
           </div>
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => router.push(`/presupuestos/nuevo?clonar=${presupuesto.id}`)}
-            >
-              <Pencil className="w-4 h-4 mr-1" />
-              Duplicar
-            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -436,12 +463,8 @@ Un saludo,`
                 const tipo = l.tipo_pieza ?? 'tablero'
                 const IconTipo = TIPO_PIEZA_ICONS[tipo]
                 return (
-                  <div
-                    key={l.id}
-                    className="border rounded-lg p-4 bg-slate-50"
-                  >
+                  <div key={l.id} className="border rounded-lg p-4 bg-slate-50">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {/* Info */}
                       <div className="md:col-span-2 space-y-2">
                         <div className="flex items-start gap-2 flex-wrap">
                           <Badge
@@ -455,7 +478,6 @@ Un saludo,`
                             {l.descripcion}
                           </div>
                         </div>
-
                         <div className="text-xs text-muted-foreground grid grid-cols-2 md:grid-cols-4 gap-x-3 gap-y-1">
                           {tipo === 'moldura' ? (
                             <>
@@ -521,19 +543,14 @@ Un saludo,`
                             Cantidad: <strong>{l.cantidad}</strong>
                           </div>
                         </div>
-
                         <div className="flex items-center gap-3 pt-1 text-sm">
-                          <span className="text-muted-foreground">
-                            Precio/ud:
-                          </span>
+                          <span className="text-muted-foreground">Precio/ud:</span>
                           <span className="font-medium">
                             {euro(Number(l.precio_unitario ?? 0))}
                           </span>
                           {Number(l.suplemento_manual) > 0 && (
                             <>
-                              <span className="text-muted-foreground">
-                                + Suplemento:
-                              </span>
+                              <span className="text-muted-foreground">+ Suplemento:</span>
                               <span className="font-medium">
                                 {euro(Number(l.suplemento_manual))}
                               </span>
@@ -545,7 +562,6 @@ Un saludo,`
                         </div>
                       </div>
 
-                      {/* SVG pequeño */}
                       <div className="md:col-span-1">
                         <VisualizacionPiezaSVG
                           datos={{
@@ -653,9 +669,4 @@ Un saludo,`
       )}
     </div>
   )
-}
-
-// Helper Label reimported (no estaba)
-function Label({ className = '', children }: { className?: string; children: any }) {
-  return <div className={`text-xs font-medium text-slate-700 mb-1 ${className}`}>{children}</div>
 }
