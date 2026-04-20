@@ -46,7 +46,6 @@ import {
   Settings,
 } from 'lucide-react'
 
-// Valor interno para representar "sin categoría"
 const SIN_CATEGORIA = '__ninguna__'
 
 type ProductoExtendido = Producto & { categoria_id?: string | null }
@@ -70,6 +69,60 @@ function Tooltip({ texto }: { texto: string }) {
     >
       <HelpCircle className="w-3 h-3" />
     </span>
+  )
+}
+
+// Toast flotante (esquina inferior derecha)
+function Toast({
+  mensaje,
+  onClose,
+}: {
+  mensaje: { tipo: 'ok' | 'error'; texto: string } | null
+  onClose: () => void
+}) {
+  if (!mensaje) return null
+  return (
+    <div
+      className={`fixed bottom-6 right-6 z-50 min-w-[280px] max-w-md shadow-2xl rounded-lg p-4 border-2 ${
+        mensaje.tipo === 'error'
+          ? 'bg-red-50 border-red-300 text-red-900'
+          : 'bg-green-50 border-green-300 text-green-900'
+      }`}
+      style={{
+        animation: 'slideInRight 0.3s ease-out',
+      }}
+    >
+      <div className="flex items-start gap-2">
+        <div className="text-xl leading-none pt-0.5">
+          {mensaje.tipo === 'error' ? '❌' : '✅'}
+        </div>
+        <div className="flex-1">
+          <div className="font-semibold text-sm">
+            {mensaje.tipo === 'error' ? 'Error' : 'Guardado correctamente'}
+          </div>
+          <div className="text-xs mt-0.5">{mensaje.texto}</div>
+        </div>
+        <button
+          onClick={onClose}
+          className="text-slate-400 hover:text-slate-700 text-xl leading-none"
+          aria-label="Cerrar"
+        >
+          ×
+        </button>
+      </div>
+      <style jsx>{`
+        @keyframes slideInRight {
+          from {
+            transform: translateX(100%);
+            opacity: 0;
+          }
+          to {
+            transform: translateX(0);
+            opacity: 1;
+          }
+        }
+      `}</style>
+    </div>
   )
 }
 
@@ -135,9 +188,10 @@ export default function ProductoDetalleCliente({
     })()
   }, [producto.id])
 
+  // Auto-cerrar toast tras 3 segundos
   useEffect(() => {
     if (!mensaje) return
-    const t = setTimeout(() => setMensaje(null), 5000)
+    const t = setTimeout(() => setMensaje(null), 3000)
     return () => clearTimeout(t)
   }, [mensaje])
 
@@ -159,10 +213,14 @@ export default function ProductoDetalleCliente({
         activo: form.activo,
       })
       setProducto({ ...actualizado, categoria_id: categoriaIdReal })
-      setMensaje({ tipo: 'ok', texto: 'Datos guardados.' })
+      setMensaje({
+        tipo: 'ok',
+        texto: 'Datos guardados. Volviendo al listado...',
+      })
+      // Redirigir tras dar tiempo a ver el toast
+      setTimeout(() => router.push('/productos'), 1200)
     } catch (e: any) {
       setMensaje({ tipo: 'error', texto: e.message })
-    } finally {
       setGuardandoDatos(false)
     }
   }
@@ -239,10 +297,13 @@ export default function ProductoDetalleCliente({
           notas: l.notas,
         }))
       )
-      setMensaje({ tipo: 'ok', texto: 'Procesos guardados.' })
+      setMensaje({
+        tipo: 'ok',
+        texto: 'Procesos guardados. Volviendo al listado...',
+      })
+      setTimeout(() => router.push('/productos'), 1200)
     } catch (e: any) {
       setMensaje({ tipo: 'error', texto: e.message })
-    } finally {
       setGuardandoProcesos(false)
     }
   }
@@ -280,12 +341,6 @@ export default function ProductoDetalleCliente({
           </div>
         </div>
       </div>
-
-      {mensaje && (
-        <Alert variant={mensaje.tipo === 'error' ? 'destructive' : 'default'}>
-          <AlertDescription>{mensaje.texto}</AlertDescription>
-        </Alert>
-      )}
 
       <Tabs defaultValue="datos">
         <TabsList>
@@ -361,10 +416,17 @@ export default function ProductoDetalleCliente({
                 />
                 <Label htmlFor="activo" className="cursor-pointer">Producto activo</Label>
               </div>
-              <div className="pt-2">
+              <div className="pt-2 flex gap-2">
                 <Button onClick={guardarDatos} disabled={guardandoDatos}>
                   <Save className="w-4 h-4 mr-2" />
                   {guardandoDatos ? 'Guardando...' : 'Guardar datos'}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => router.push('/productos')}
+                  disabled={guardandoDatos}
+                >
+                  Cancelar
                 </Button>
               </div>
             </CardContent>
@@ -378,9 +440,9 @@ export default function ProductoDetalleCliente({
               <div><strong>¿Qué significa cada campo?</strong></div>
               <ul className="text-xs space-y-1 list-disc ml-5">
                 <li><strong>Secuencia:</strong> orden del paso (1, 2, 3...). El sistema respeta este orden en Gantt.</li>
-                <li><strong>Tiempo base (min):</strong> tiempo fijo del paso, independiente del tamaño (ej: preparar, limpiar mesa).</li>
-                <li><strong>Tiempo por m² (min):</strong> solo en procesos físicos (Lijado/Fondo/Lacado). Se multiplica por superficie.</li>
-                <li><strong>Factor simple/media/compleja:</strong> multiplicador según complejidad. Pieza compleja = más tiempo.</li>
+                <li><strong>Tiempo base (min):</strong> tiempo fijo del paso, independiente del tamaño.</li>
+                <li><strong>Tiempo por m² (min):</strong> solo en procesos físicos (Lijado/Fondo/Lacado).</li>
+                <li><strong>Factor simple/media/compleja:</strong> multiplicador según complejidad.</li>
                 <li><strong>Depende de:</strong> qué paso debe terminar antes de empezar éste.</li>
                 <li><strong>Paso opcional:</strong> si está marcado, la pieza puede saltarse este paso.</li>
               </ul>
@@ -416,6 +478,13 @@ export default function ProductoDetalleCliente({
                   <Button onClick={guardarProcesos} disabled={guardandoProcesos}>
                     <Save className="w-4 h-4 mr-2" />
                     {guardandoProcesos ? 'Guardando...' : 'Guardar flujo'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => router.push('/productos')}
+                    disabled={guardandoProcesos}
+                  >
+                    Cancelar
                   </Button>
                 </CardContent>
               </Card>
@@ -493,7 +562,7 @@ export default function ProductoDetalleCliente({
                                   <div className="space-y-1">
                                     <Label className="text-xs flex items-center">
                                       Tiempo por m² (min)
-                                      <Tooltip texto="Minutos adicionales por cada m² de superficie. Solo procesos físicos." />
+                                      <Tooltip texto="Minutos adicionales por cada m² de superficie." />
                                     </Label>
                                     <Input
                                       type="number"
@@ -523,7 +592,7 @@ export default function ProductoDetalleCliente({
                                 <div className="space-y-1">
                                   <Label className="text-xs flex items-center">
                                     Depende de (sec.)
-                                    <Tooltip texto="Secuencia del paso anterior obligatorio. Vacío si no depende de nadie." />
+                                    <Tooltip texto="Secuencia del paso anterior obligatorio." />
                                   </Label>
                                   <Input
                                     type="number"
@@ -574,7 +643,7 @@ export default function ProductoDetalleCliente({
                                     onChange={(e) => actualizarLinea(l._uid, { es_opcional: e.target.checked })}
                                   />
                                   <span>Paso opcional (puede saltarse)</span>
-                                  <Tooltip texto="Marca si este paso no siempre aplica. Ej: Lijado 2." />
+                                  <Tooltip texto="Marca si este paso no siempre aplica." />
                                 </label>
                               </div>
 
@@ -611,7 +680,14 @@ export default function ProductoDetalleCliente({
                     </CardContent>
                   </Card>
 
-                  <div className="flex justify-end pt-2">
+                  <div className="flex justify-end pt-2 gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => router.push('/productos')}
+                      disabled={guardandoProcesos}
+                    >
+                      Cancelar
+                    </Button>
                     <Button onClick={guardarProcesos} disabled={guardandoProcesos} size="lg">
                       <Save className="w-4 h-4 mr-2" />
                       {guardandoProcesos ? 'Guardando...' : 'Guardar flujo de procesos'}
@@ -623,6 +699,9 @@ export default function ProductoDetalleCliente({
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Toast flotante */}
+      <Toast mensaje={mensaje} onClose={() => setMensaje(null)} />
     </div>
   )
 }
