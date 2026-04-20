@@ -29,6 +29,13 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
+import {
   FileText,
   Plus,
   Search,
@@ -48,6 +55,7 @@ import {
   Minus,
   Shapes,
   RectangleHorizontal,
+  Eye,
 } from 'lucide-react'
 import SelectorColorDialog, { type ColorItem } from './selector-color-dialog'
 import NuevoClienteDialog from './nuevo-cliente-dialog'
@@ -120,28 +128,22 @@ type Linea = {
   color_id: string | null
   tratamiento_id: string | null
   tarifa_id: string | null
-
   tipo_pieza: TipoPieza
   modo_precio: ModoPrecio
-
   cantidad: number
-  ancho: number // mm
-  alto: number // mm
-  grosor: number // mm
-  longitud_ml: number // metros (solo moldura)
-
+  ancho: number
+  alto: number
+  grosor: number
+  longitud_ml: number
   cara_frontal: boolean
   cara_trasera: boolean
   canto_superior: boolean
   canto_inferior: boolean
   canto_izquierdo: boolean
   canto_derecho: boolean
-
   nivel_complejidad: number | null
   precio_pactado: number | null
   suplemento_manual: number
-
-  // calculados
   superficie_m2: number
   precio_unitario: number
   total_linea: number
@@ -150,7 +152,7 @@ type Linea = {
 const uid = () => Math.random().toString(36).slice(2, 11)
 
 // ============================================================================
-// MOTOR DE CÁLCULO v4
+// MOTOR DE CÁLCULO v4 (sin cambios respecto a v4.0)
 // ============================================================================
 
 function lineaVacia(): Linea {
@@ -184,25 +186,14 @@ function lineaVacia(): Linea {
   }
 }
 
-/**
- * MOTOR v4 - Cálculo de superficie según tipo de pieza y regla grosor ≤ 19mm.
- * Si grosor ≤ 19mm: cantos NO suman superficie aunque se marquen (cost ya incluido en €/m² frontal)
- * Si grosor > 19mm: cantos SÍ suman según sus dimensiones reales (canto×grosor)
- */
 function calcularSuperficie(l: Linea): number {
-  if (l.tipo_pieza === 'irregular' || l.tipo_pieza === 'moldura') {
-    return 0
-  }
-
-  const a = (l.ancho || 0) / 1000 // m
-  const h = (l.alto || 0) / 1000 // m
-  const g = (l.grosor || 0) / 1000 // m
-
+  if (l.tipo_pieza === 'irregular' || l.tipo_pieza === 'moldura') return 0
+  const a = (l.ancho || 0) / 1000
+  const h = (l.alto || 0) / 1000
+  const g = (l.grosor || 0) / 1000
   let sup = 0
   if (l.cara_frontal) sup += a * h
   if (l.cara_trasera) sup += a * h
-
-  // Regla grosor: cantos solo cuentan si grosor > 19mm
   const contabilizarCantos = l.grosor > 19
   if (contabilizarCantos) {
     if (l.canto_superior) sup += a * g
@@ -210,7 +201,6 @@ function calcularSuperficie(l: Linea): number {
     if (l.canto_izquierdo) sup += h * g
     if (l.canto_derecho) sup += h * g
   }
-
   return Number((sup * (l.cantidad || 1)).toFixed(4))
 }
 
@@ -222,10 +212,10 @@ function buscarTarifaCompatible(
   modoLinea: ModoPrecio
 ): Tarifa | null {
   if (!producto_id) return null
-  const candidatas = tarifas.filter((t) => t.producto_id === producto_id && t.activo !== false)
+  const candidatas = tarifas.filter(
+    (t) => t.producto_id === producto_id && t.activo !== false
+  )
   if (candidatas.length === 0) return null
-
-  // Si hay tratamiento, intentar match por nombre
   if (tratamiento_id) {
     const nombreTrat = tratamientos.find((t) => t.id === tratamiento_id)?.nombre
     if (nombreTrat) {
@@ -235,8 +225,6 @@ function buscarTarifaCompatible(
       if (matchTrat) return matchTrat
     }
   }
-
-  // Preferir tarifas que soporten el modo de la línea
   const compatibles = candidatas.filter(
     (t) =>
       t.modo_precio === modoLinea ||
@@ -244,7 +232,6 @@ function buscarTarifaCompatible(
       t.modo_precio === 'todos'
   )
   if (compatibles.length > 0) return compatibles[0]
-
   return candidatas[0]
 }
 
@@ -257,7 +244,6 @@ function recalcularLinea(
 ): Linea {
   const superficie_m2 = calcularSuperficie(l)
 
-  // Pieza irregular → precio pactado obligatorio
   if (l.tipo_pieza === 'irregular') {
     const precio = l.precio_pactado ?? 0
     const total = precio * (l.cantidad || 1) + (l.suplemento_manual || 0)
@@ -269,7 +255,6 @@ function recalcularLinea(
     }
   }
 
-  // Precio pactado manda siempre
   if (l.precio_pactado !== null && l.precio_pactado > 0) {
     const total = l.precio_pactado * (l.cantidad || 1) + (l.suplemento_manual || 0)
     return {
@@ -280,11 +265,16 @@ function recalcularLinea(
     }
   }
 
-  // Buscar tarifa
   const tarifaFijada = tarifas.find((t) => t.id === l.tarifa_id)
   const tarifa =
     tarifaFijada ??
-    buscarTarifaCompatible(tarifas, l.producto_id, l.tratamiento_id, tratamientos, l.modo_precio)
+    buscarTarifaCompatible(
+      tarifas,
+      l.producto_id,
+      l.tratamiento_id,
+      tratamientos,
+      l.modo_precio
+    )
 
   if (!tarifa) {
     return {
@@ -295,12 +285,12 @@ function recalcularLinea(
     }
   }
 
-  // Factor complejidad
   const nivel = niveles.find((n) => n.id === l.nivel_complejidad)
   const factor = nivel ? Number(nivel.multiplicador) : 1
 
-  // Sobrecostes
-  const sobrecosteColorTarifa = l.color_id ? Number(tarifa.coste_adicional_color || 0) : 0
+  const sobrecosteColorTarifa = l.color_id
+    ? Number(tarifa.coste_adicional_color || 0)
+    : 0
   const sobrecosteTratamientoTarifa = l.tratamiento_id
     ? Number(tarifa.coste_adicional_tratamiento || 0)
     : 0
@@ -309,7 +299,6 @@ function recalcularLinea(
   const color = colores.find((c) => c.id === l.color_id)
   const sobrecosteColorCatalogo = color ? Number(color.sobrecoste || 0) : 0
 
-  // PRECIO BASE según modo_precio
   let precioBase: number
   if (l.modo_precio === 'pieza') {
     precioBase = Number(tarifa.precio_pieza ?? 0)
@@ -317,13 +306,11 @@ function recalcularLinea(
     const precioML = Number(tarifa.precio_metro_lineal ?? 0)
     precioBase = precioML * (l.longitud_ml || 0)
   } else {
-    // m2
     const m2PorUnidad = superficie_m2 / Math.max(l.cantidad || 1, 1)
     const precioM2 = Number(tarifa.precio_m2 ?? 0)
     precioBase = precioM2 * m2PorUnidad
   }
 
-  // Precio por unidad
   let precioUnidad =
     (precioBase +
       sobrecosteColorCatalogo +
@@ -332,7 +319,6 @@ function recalcularLinea(
       factor +
     sobrecosteEmbalaje
 
-  // Mínimo
   const minimo = Number(tarifa.precio_minimo || 0)
   if (minimo > 0 && precioUnidad < minimo && precioUnidad > 0) precioUnidad = minimo
 
@@ -350,7 +336,10 @@ function recalcularLinea(
 const euro = (n: number) =>
   Number(n).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })
 
-const TIPOS_PIEZA_INFO: Record<TipoPieza, { icon: any; label: string; descripcion: string; modoSugerido: ModoPrecio }> = {
+const TIPOS_PIEZA_INFO: Record<
+  TipoPieza,
+  { icon: any; label: string; descripcion: string; modoSugerido: ModoPrecio }
+> = {
   tablero: {
     icon: Square,
     label: 'Tablero',
@@ -400,7 +389,6 @@ export default function NuevoPresupuestoCliente() {
     try {
       const resCli = await listarClientes({ limite: 5000, pagina: 0 })
       setClientes(resCli.clientes ?? [])
-
       const [prodRes, colRes, trRes, tarRes, nvRes] = await Promise.all([
         supabase.from('productos').select('*').order('nombre'),
         supabase
@@ -417,7 +405,6 @@ export default function NuevoPresupuestoCliente() {
           .eq('activo', true)
           .order('orden'),
       ])
-
       setProductos((prodRes.data ?? []) as Producto[])
       setColores((colRes.data ?? []) as ColorItem[])
       setTratamientos((trRes.data ?? []) as Tratamiento[])
@@ -436,7 +423,6 @@ export default function NuevoPresupuestoCliente() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // PRESUPUESTO
   const [clienteId, setClienteId] = useState('')
   const [buscadorCliente, setBuscadorCliente] = useState('')
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10))
@@ -451,6 +437,7 @@ export default function NuevoPresupuestoCliente() {
   const [lineaExpandida, setLineaExpandida] = useState<string | null>(null)
   const [selectorColorAbierto, setSelectorColorAbierto] = useState<string | null>(null)
   const [nuevoClienteAbierto, setNuevoClienteAbierto] = useState(false)
+  const [vistaPreviaAbierta, setVistaPreviaAbierta] = useState<string | null>(null)
   const [guardando, setGuardando] = useState(false)
   const [mensaje, setMensaje] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(
     null
@@ -516,13 +503,17 @@ export default function NuevoPresupuestoCliente() {
       .slice(0, 50)
   }, [buscadorCliente, clientes])
 
-  // ============================================================
-
   function actualizarLinea(uidLinea: string, cambios: Partial<Linea>) {
     setLineas((prev) =>
       prev.map((l) =>
         l._uid === uidLinea
-          ? recalcularLinea({ ...l, ...cambios }, tarifas, niveles, colores, tratamientos)
+          ? recalcularLinea(
+              { ...l, ...cambios },
+              tarifas,
+              niveles,
+              colores,
+              tratamientos
+            )
           : l
       )
     )
@@ -537,9 +528,8 @@ export default function NuevoPresupuestoCliente() {
           ...l,
           tipo_pieza: nuevoTipo,
           modo_precio: info.modoSugerido,
-          tarifa_id: null, // reset para que recalcule
+          tarifa_id: null,
         }
-        // Ajustes por tipo
         if (nuevoTipo === 'moldura') {
           base.cara_frontal = false
           base.cara_trasera = false
@@ -548,11 +538,7 @@ export default function NuevoPresupuestoCliente() {
           base.canto_izquierdo = false
           base.canto_derecho = false
         }
-        if (nuevoTipo === 'tablero') {
-          base.cara_frontal = true
-          base.cara_trasera = true
-        }
-        if (nuevoTipo === 'frente') {
+        if (nuevoTipo === 'tablero' || nuevoTipo === 'frente') {
           base.cara_frontal = true
           base.cara_trasera = true
         }
@@ -630,9 +616,7 @@ export default function NuevoPresupuestoCliente() {
       .select('*')
       .eq('presupuesto_id', presId)
       .order('orden')
-
     if (!data) return
-
     const nuevas: Linea[] = data.map((la: any) =>
       recalcularLinea(
         {
@@ -698,20 +682,18 @@ export default function NuevoPresupuestoCliente() {
       setMensaje({ tipo: 'error', texto: 'Todas las líneas deben tener descripción.' })
       return
     }
-
     setGuardando(true)
     try {
       const {
         data: { session },
       } = await supabase.auth.getSession()
       if (!session) throw new Error('No hay sesión activa.')
-
-      const { data: numeroData, error: errNum } = await supabase.rpc('get_next_sequence', {
-        tipo: 'presupuesto',
-      })
+      const { data: numeroData, error: errNum } = await supabase.rpc(
+        'get_next_sequence',
+        { tipo: 'presupuesto' }
+      )
       if (errNum) throw errNum
       const numero = numeroData as string
-
       const { data: pres, error: errPres } = await supabase
         .from('presupuestos')
         .insert({
@@ -734,9 +716,7 @@ export default function NuevoPresupuestoCliente() {
         })
         .select('id, numero')
         .single()
-
       if (errPres) throw errPres
-
       const filas = lineas.map((l, idx) => ({
         presupuesto_id: pres.id,
         orden: idx + 1,
@@ -766,10 +746,10 @@ export default function NuevoPresupuestoCliente() {
         referencia_cliente_id: l.referencia_cliente_id,
         nivel_complejidad: l.nivel_complejidad,
       }))
-
-      const { error: errLin } = await supabase.from('lineas_presupuesto').insert(filas)
+      const { error: errLin } = await supabase
+        .from('lineas_presupuesto')
+        .insert(filas)
       if (errLin) throw errLin
-
       router.push(`/presupuestos/${pres.id}`)
       router.refresh()
     } catch (e: any) {
@@ -796,7 +776,13 @@ export default function NuevoPresupuestoCliente() {
   } {
     const tarifa =
       tarifas.find((t) => t.id === l.tarifa_id) ??
-      buscarTarifaCompatible(tarifas, l.producto_id, l.tratamiento_id, tratamientos, l.modo_precio)
+      buscarTarifaCompatible(
+        tarifas,
+        l.producto_id,
+        l.tratamiento_id,
+        tratamientos,
+        l.modo_precio
+      )
     if (!tarifa) return { tarifa: null, precioRef: 0, modoRef: '' }
     let precioRef = 0
     let modoRef = ''
@@ -812,6 +798,18 @@ export default function NuevoPresupuestoCliente() {
     }
     return { tarifa, precioRef, modoRef }
   }
+
+  // Pieza de la línea para vista previa (modal)
+  const lineaVistaPreviaActiva = useMemo(() => {
+    if (!vistaPreviaAbierta) return null
+    return lineas.find((l) => l._uid === vistaPreviaAbierta) ?? null
+  }, [vistaPreviaAbierta, lineas])
+
+  const colorVistaPreviaHex = useMemo(() => {
+    if (!lineaVistaPreviaActiva) return null
+    return colores.find((c) => c.id === lineaVistaPreviaActiva.color_id)
+      ?.hex_aproximado ?? null
+  }, [lineaVistaPreviaActiva, colores])
 
   // RENDER
   if (loading) {
@@ -960,7 +958,7 @@ export default function NuevoPresupuestoCliente() {
           <CardHeader>
             <CardTitle className="text-base">Datos generales</CardTitle>
           </CardHeader>
-          <CardContent className="grid grid-cols-3 gap-4">
+          <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-1">
               <Label>Fecha</Label>
               <Input
@@ -1003,7 +1001,7 @@ export default function NuevoPresupuestoCliente() {
         {/* LÍNEAS */}
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <CardTitle className="text-base">
                 Líneas{' '}
                 <span className="text-muted-foreground font-normal">
@@ -1039,7 +1037,8 @@ export default function NuevoPresupuestoCliente() {
           <CardContent>
             {lineas.length === 0 ? (
               <div className="text-center py-10 text-sm text-muted-foreground border-2 border-dashed rounded-lg">
-                Sin líneas aún. Pulsa "Línea manual" o añade piezas desde el panel derecho.
+                Sin líneas aún. Pulsa "Línea manual" o añade piezas desde el panel
+                derecho.
               </div>
             ) : (
               <div className="border rounded-md overflow-hidden">
@@ -1065,12 +1064,13 @@ export default function NuevoPresupuestoCliente() {
                       const IconTipo = tipoInfo.icon
                       return (
                         <Fragment key={l._uid}>
+                          {/* FILA RESUMEN */}
                           <TableRow className="align-top">
                             <TableCell>
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <Badge
                                   variant="outline"
-                                  className="text-[10px] h-5 flex items-center gap-1"
+                                  className="text-[10px] h-5 flex items-center gap-1 shrink-0"
                                 >
                                   <IconTipo className="w-3 h-3" />
                                   {tipoInfo.label}
@@ -1083,7 +1083,7 @@ export default function NuevoPresupuestoCliente() {
                                     })
                                   }
                                   placeholder="Descripción..."
-                                  className="h-8"
+                                  className="h-8 flex-1 min-w-[140px]"
                                 />
                               </div>
                               <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
@@ -1179,6 +1179,7 @@ export default function NuevoPresupuestoCliente() {
                                   onClick={() =>
                                     setLineaExpandida(expandida ? null : l._uid)
                                   }
+                                  title={expandida ? 'Contraer' : 'Expandir'}
                                 >
                                   {expandida ? (
                                     <ChevronUp className="w-4 h-4" />
@@ -1191,6 +1192,7 @@ export default function NuevoPresupuestoCliente() {
                                   size="icon"
                                   className="h-7 w-7"
                                   onClick={() => duplicarLinea(l._uid)}
+                                  title="Duplicar"
                                 >
                                   <Copy className="w-3.5 h-3.5" />
                                 </Button>
@@ -1199,6 +1201,7 @@ export default function NuevoPresupuestoCliente() {
                                   size="icon"
                                   className="h-7 w-7 text-red-600 hover:text-red-700"
                                   onClick={() => eliminarLinea(l._uid)}
+                                  title="Eliminar"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </Button>
@@ -1206,47 +1209,66 @@ export default function NuevoPresupuestoCliente() {
                             </TableCell>
                           </TableRow>
 
+                          {/* FILA EXPANDIDA */}
                           {expandida && (
                             <TableRow className="bg-slate-50">
-                              <TableCell colSpan={6} className="p-4">
-                                <div className="grid grid-cols-12 gap-4">
-                                  {/* PANEL IZQUIERDO: campos */}
-                                  <div className="col-span-8 space-y-3">
-                                    {/* TIPO DE PIEZA */}
-                                    <div>
-                                      <Label className="text-xs mb-1 block">Tipo de pieza</Label>
-                                      <div className="grid grid-cols-4 gap-2">
-                                        {(Object.keys(TIPOS_PIEZA_INFO) as TipoPieza[]).map(
-                                          (t) => {
-                                            const info = TIPOS_PIEZA_INFO[t]
-                                            const Icon = info.icon
-                                            const activo = l.tipo_pieza === t
-                                            return (
-                                              <button
-                                                key={t}
-                                                onClick={() => cambiarTipoPieza(l._uid, t)}
-                                                className={`p-2 border rounded text-xs flex flex-col items-center gap-1 transition ${
-                                                  activo
-                                                    ? 'border-blue-500 bg-blue-50 text-blue-900'
-                                                    : 'hover:bg-slate-100'
-                                                }`}
-                                              >
-                                                <Icon className="w-4 h-4" />
-                                                <span className="font-medium">
-                                                  {info.label}
-                                                </span>
-                                                <span className="text-[10px] text-muted-foreground text-center leading-tight">
-                                                  {info.descripcion}
-                                                </span>
-                                              </button>
-                                            )
-                                          }
-                                        )}
-                                      </div>
-                                    </div>
+                              <TableCell colSpan={6} className="p-0">
+                                <div className="p-5 space-y-6">
 
-                                    {/* PRODUCTO / COLOR / TRATAMIENTO / MODO */}
-                                    <div className="grid grid-cols-4 gap-3">
+                                  {/* SECCIÓN 1: TIPO DE PIEZA */}
+                                  <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                      <Label className="text-sm font-semibold">
+                                        1. Tipo de pieza
+                                      </Label>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setVistaPreviaAbierta(l._uid)}
+                                        disabled={l.tipo_pieza === 'irregular'}
+                                      >
+                                        <Eye className="w-3.5 h-3.5 mr-1" />
+                                        Ver vista previa
+                                      </Button>
+                                    </div>
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                      {(Object.keys(TIPOS_PIEZA_INFO) as TipoPieza[]).map(
+                                        (t) => {
+                                          const info = TIPOS_PIEZA_INFO[t]
+                                          const Icon = info.icon
+                                          const activo = l.tipo_pieza === t
+                                          return (
+                                            <button
+                                              key={t}
+                                              onClick={() =>
+                                                cambiarTipoPieza(l._uid, t)
+                                              }
+                                              className={`p-3 border rounded-md text-xs flex flex-col items-center gap-1.5 transition ${
+                                                activo
+                                                  ? 'border-blue-500 bg-blue-50 text-blue-900 shadow-sm'
+                                                  : 'bg-white hover:bg-slate-100'
+                                              }`}
+                                            >
+                                              <Icon className="w-5 h-5" />
+                                              <span className="font-semibold">
+                                                {info.label}
+                                              </span>
+                                              <span className="text-[10px] text-muted-foreground text-center leading-tight">
+                                                {info.descripcion}
+                                              </span>
+                                            </button>
+                                          )
+                                        }
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* SECCIÓN 2: PRODUCTO/COLOR/TRATAMIENTO/MODO */}
+                                  <div>
+                                    <Label className="text-sm font-semibold mb-2 block">
+                                      2. Producto, color y modo
+                                    </Label>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                       <div className="space-y-1">
                                         <Label className="text-xs">Producto</Label>
                                         <Select
@@ -1258,8 +1280,8 @@ export default function NuevoPresupuestoCliente() {
                                             })
                                           }
                                         >
-                                          <SelectTrigger className="h-8">
-                                            <SelectValue placeholder="—" />
+                                          <SelectTrigger className="h-9">
+                                            <SelectValue placeholder="Seleccionar producto..." />
                                           </SelectTrigger>
                                           <SelectContent>
                                             {productos.map((p) => (
@@ -1275,7 +1297,7 @@ export default function NuevoPresupuestoCliente() {
                                         <Button
                                           variant="outline"
                                           size="sm"
-                                          className="w-full h-8 justify-start font-normal"
+                                          className="w-full h-9 justify-start font-normal"
                                           onClick={() =>
                                             setSelectorColorAbierto(l._uid)
                                           }
@@ -1283,13 +1305,15 @@ export default function NuevoPresupuestoCliente() {
                                           {color ? (
                                             <>
                                               <span
-                                                className="w-4 h-4 rounded-sm border mr-2"
+                                                className="w-4 h-4 rounded-sm border mr-2 shrink-0"
                                                 style={{
                                                   backgroundColor:
                                                     color.hex_aproximado || '#DDD',
                                                 }}
                                               />
-                                              {color.codigo}
+                                              <span className="truncate">
+                                                {color.codigo} · {color.nombre}
+                                              </span>
                                             </>
                                           ) : (
                                             <>
@@ -1310,8 +1334,8 @@ export default function NuevoPresupuestoCliente() {
                                             })
                                           }
                                         >
-                                          <SelectTrigger className="h-8">
-                                            <SelectValue placeholder="—" />
+                                          <SelectTrigger className="h-9">
+                                            <SelectValue placeholder="Seleccionar tratamiento..." />
                                           </SelectTrigger>
                                           <SelectContent>
                                             {tratamientos.map((t) => (
@@ -1327,15 +1351,19 @@ export default function NuevoPresupuestoCliente() {
                                         <Select
                                           value={l.modo_precio}
                                           onValueChange={(v: ModoPrecio) =>
-                                            actualizarLinea(l._uid, { modo_precio: v })
+                                            actualizarLinea(l._uid, {
+                                              modo_precio: v,
+                                            })
                                           }
                                         >
-                                          <SelectTrigger className="h-8">
+                                          <SelectTrigger className="h-9">
                                             <SelectValue />
                                           </SelectTrigger>
                                           <SelectContent>
                                             <SelectItem value="m2">Por m²</SelectItem>
-                                            <SelectItem value="pieza">Por pieza</SelectItem>
+                                            <SelectItem value="pieza">
+                                              Por pieza
+                                            </SelectItem>
                                             <SelectItem value="metro_lineal">
                                               Por metro lineal
                                             </SelectItem>
@@ -1343,48 +1371,78 @@ export default function NuevoPresupuestoCliente() {
                                         </Select>
                                       </div>
                                     </div>
+                                  </div>
 
-                                    {/* INFO TARIFA */}
-                                    {info.tarifa && (
-                                      <div className="bg-green-50 border border-green-200 rounded p-2 text-xs">
-                                        <div className="flex items-start gap-2">
-                                          <Info className="w-3.5 h-3.5 text-green-700 mt-0.5 shrink-0" />
-                                          <div>
-                                            <strong>Tarifa:</strong> {info.tarifa.nombre}
-                                            <div className="mt-0.5 text-green-900">
+                                  {/* INFO TARIFA */}
+                                  {info.tarifa && (
+                                    <div className="bg-green-50 border border-green-200 rounded-md p-3 text-xs">
+                                      <div className="flex items-start gap-2">
+                                        <Info className="w-4 h-4 text-green-700 mt-0.5 shrink-0" />
+                                        <div className="flex-1">
+                                          <div className="font-semibold text-green-900">
+                                            Tarifa aplicada: {info.tarifa.nombre}
+                                          </div>
+                                          <div className="mt-1 flex gap-3 flex-wrap text-green-900">
+                                            <span>
                                               €/m²:{' '}
-                                              {euro(Number(info.tarifa.precio_m2 || 0))} ·
+                                              <strong>
+                                                {euro(Number(info.tarifa.precio_m2 || 0))}
+                                              </strong>
+                                            </span>
+                                            <span>
                                               €/pieza:{' '}
-                                              {euro(
-                                                Number(info.tarifa.precio_pieza || 0)
-                                              )}{' '}
-                                              · €/m.l.:{' '}
-                                              {euro(
-                                                Number(
-                                                  info.tarifa.precio_metro_lineal || 0
-                                                )
-                                              )}{' '}
-                                              · Mín:{' '}
-                                              {euro(
-                                                Number(info.tarifa.precio_minimo || 0)
-                                              )}
-                                            </div>
+                                              <strong>
+                                                {euro(
+                                                  Number(info.tarifa.precio_pieza || 0)
+                                                )}
+                                              </strong>
+                                            </span>
+                                            <span>
+                                              €/m.l.:{' '}
+                                              <strong>
+                                                {euro(
+                                                  Number(
+                                                    info.tarifa.precio_metro_lineal || 0
+                                                  )
+                                                )}
+                                              </strong>
+                                            </span>
+                                            <span>
+                                              Mínimo:{' '}
+                                              <strong>
+                                                {euro(
+                                                  Number(info.tarifa.precio_minimo || 0)
+                                                )}
+                                              </strong>
+                                            </span>
                                           </div>
                                         </div>
                                       </div>
-                                    )}
+                                    </div>
+                                  )}
 
-                                    {/* DIMENSIONES — diferente según tipo */}
-                                    {l.tipo_pieza === 'moldura' ? (
-                                      <div className="grid grid-cols-3 gap-3">
-                                        <div className="space-y-1 col-span-1">
+                                  {/* SECCIÓN 3: DIMENSIONES */}
+                                  {l.tipo_pieza === 'irregular' ? (
+                                    <Alert>
+                                      <AlertDescription className="text-xs">
+                                        Esta pieza es irregular. Introduce directamente
+                                        el precio en "Precio pactado" más abajo.
+                                      </AlertDescription>
+                                    </Alert>
+                                  ) : l.tipo_pieza === 'moldura' ? (
+                                    <div>
+                                      <Label className="text-sm font-semibold mb-2 block">
+                                        3. Dimensiones de la moldura
+                                      </Label>
+                                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <div className="space-y-1">
                                           <Label className="text-xs">
-                                            Longitud total (m)
+                                            Longitud total (metros)
                                           </Label>
                                           <Input
                                             type="number"
                                             step="0.01"
-                                            className="h-8"
+                                            className="h-9"
                                             value={l.longitud_ml}
                                             onChange={(e) =>
                                               actualizarLinea(l._uid, {
@@ -1399,7 +1457,7 @@ export default function NuevoPresupuestoCliente() {
                                           </Label>
                                           <Input
                                             type="number"
-                                            className="h-8"
+                                            className="h-9"
                                             value={l.ancho}
                                             onChange={(e) =>
                                               actualizarLinea(l._uid, {
@@ -1414,7 +1472,7 @@ export default function NuevoPresupuestoCliente() {
                                           </Label>
                                           <Input
                                             type="number"
-                                            className="h-8"
+                                            className="h-9"
                                             value={l.grosor}
                                             onChange={(e) =>
                                               actualizarLinea(l._uid, {
@@ -1424,22 +1482,19 @@ export default function NuevoPresupuestoCliente() {
                                           />
                                         </div>
                                       </div>
-                                    ) : l.tipo_pieza === 'irregular' ? (
-                                      <Alert>
-                                        <AlertDescription className="text-xs">
-                                          Esta pieza es irregular. <strong>Introduce
-                                          directamente el precio en "Precio pactado"</strong>.
-                                          No se calcula por tarifa.
-                                        </AlertDescription>
-                                      </Alert>
-                                    ) : (
-                                      <>
-                                        <div className="grid grid-cols-4 gap-3">
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <div>
+                                        <Label className="text-sm font-semibold mb-2 block">
+                                          3. Dimensiones y complejidad
+                                        </Label>
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                           <div className="space-y-1">
                                             <Label className="text-xs">Ancho (mm)</Label>
                                             <Input
                                               type="number"
-                                              className="h-8"
+                                              className="h-9"
                                               value={l.ancho}
                                               onChange={(e) =>
                                                 actualizarLinea(l._uid, {
@@ -1452,7 +1507,7 @@ export default function NuevoPresupuestoCliente() {
                                             <Label className="text-xs">Alto (mm)</Label>
                                             <Input
                                               type="number"
-                                              className="h-8"
+                                              className="h-9"
                                               value={l.alto}
                                               onChange={(e) =>
                                                 actualizarLinea(l._uid, {
@@ -1462,10 +1517,12 @@ export default function NuevoPresupuestoCliente() {
                                             />
                                           </div>
                                           <div className="space-y-1">
-                                            <Label className="text-xs">Grosor (mm)</Label>
+                                            <Label className="text-xs">
+                                              Grosor (mm)
+                                            </Label>
                                             <Input
                                               type="number"
-                                              className="h-8"
+                                              className="h-9"
                                               value={l.grosor}
                                               onChange={(e) =>
                                                 actualizarLinea(l._uid, {
@@ -1475,7 +1532,9 @@ export default function NuevoPresupuestoCliente() {
                                             />
                                           </div>
                                           <div className="space-y-1">
-                                            <Label className="text-xs">Complejidad</Label>
+                                            <Label className="text-xs">
+                                              Complejidad
+                                            </Label>
                                             <Select
                                               value={
                                                 l.nivel_complejidad !== null
@@ -1490,7 +1549,7 @@ export default function NuevoPresupuestoCliente() {
                                                 })
                                               }
                                             >
-                                              <SelectTrigger className="h-8">
+                                              <SelectTrigger className="h-9">
                                                 <SelectValue placeholder="—" />
                                               </SelectTrigger>
                                               <SelectContent>
@@ -1507,57 +1566,73 @@ export default function NuevoPresupuestoCliente() {
                                             </Select>
                                           </div>
                                         </div>
+                                      </div>
 
-                                        {/* CARAS */}
-                                        <div>
-                                          <Label className="text-xs mb-1 block">
-                                            Caras a lacar
-                                            {l.grosor > 0 && l.grosor <= 19 && (
-                                              <span className="ml-2 text-amber-700 font-normal">
-                                                (grosor ≤ 19mm: cantos no suman m²)
-                                              </span>
-                                            )}
-                                            {l.grosor > 19 && (
-                                              <span className="ml-2 text-green-700 font-normal">
-                                                (grosor &gt; 19mm: cantos sí suman m²)
-                                              </span>
-                                            )}
+                                      {/* SECCIÓN 4: CARAS */}
+                                      <div>
+                                        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                                          <Label className="text-sm font-semibold">
+                                            4. Caras a lacar
                                           </Label>
-                                          <div className="grid grid-cols-6 gap-2">
-                                            {[
-                                              { k: 'cara_frontal', lbl: 'Frontal' },
-                                              { k: 'cara_trasera', lbl: 'Trasera' },
-                                              { k: 'canto_superior', lbl: 'C. sup.' },
-                                              { k: 'canto_inferior', lbl: 'C. inf.' },
-                                              { k: 'canto_izquierdo', lbl: 'C. izq.' },
-                                              { k: 'canto_derecho', lbl: 'C. der.' },
-                                            ].map((cara) => (
+                                          {l.grosor > 0 && l.grosor <= 19 && (
+                                            <span className="text-[11px] text-amber-700">
+                                              ⚠ grosor ≤ 19mm: los cantos no suman m²
+                                            </span>
+                                          )}
+                                          {l.grosor > 19 && (
+                                            <span className="text-[11px] text-green-700">
+                                              ✓ grosor &gt; 19mm: los cantos sí suman m²
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+                                          {[
+                                            { k: 'cara_frontal', lbl: 'Frontal' },
+                                            { k: 'cara_trasera', lbl: 'Trasera' },
+                                            { k: 'canto_superior', lbl: 'Canto sup.' },
+                                            { k: 'canto_inferior', lbl: 'Canto inf.' },
+                                            { k: 'canto_izquierdo', lbl: 'Canto izq.' },
+                                            { k: 'canto_derecho', lbl: 'Canto der.' },
+                                          ].map((cara) => {
+                                            const activa = l[
+                                              cara.k as keyof Linea
+                                            ] as boolean
+                                            return (
                                               <label
                                                 key={cara.k}
-                                                className="flex items-center gap-1.5 text-xs cursor-pointer border rounded px-2 py-1 hover:bg-slate-100"
+                                                className={`flex items-center gap-2 text-xs cursor-pointer border rounded-md px-3 py-2 transition ${
+                                                  activa
+                                                    ? 'bg-green-50 border-green-300 text-green-900'
+                                                    : 'bg-white hover:bg-slate-100'
+                                                }`}
                                               >
                                                 <input
                                                   type="checkbox"
-                                                  checked={
-                                                    l[cara.k as keyof Linea] as boolean
-                                                  }
+                                                  checked={activa}
                                                   onChange={(e) =>
                                                     actualizarLinea(l._uid, {
                                                       [cara.k]: e.target.checked,
                                                     } as any)
                                                   }
                                                 />
-                                                {cara.lbl}
+                                                <span className="font-medium">
+                                                  {cara.lbl}
+                                                </span>
                                               </label>
-                                            ))}
-                                          </div>
+                                            )
+                                          })}
                                         </div>
-                                      </>
-                                    )}
+                                      </div>
+                                    </>
+                                  )}
 
-                                    {/* PRECIO PACTADO + SUPLEMENTO */}
-                                    <div className="grid grid-cols-2 gap-3">
-                                      <div className="space-y-1 bg-amber-50 border border-amber-200 rounded p-3">
+                                  {/* SECCIÓN 5: PRECIO */}
+                                  <div>
+                                    <Label className="text-sm font-semibold mb-2 block">
+                                      5. Precio manual y suplementos
+                                    </Label>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                      <div className="bg-amber-50 border border-amber-200 rounded-md p-3 space-y-1">
                                         <Label className="text-xs font-semibold flex items-center gap-1">
                                           <Lock className="w-3 h-3" />
                                           Precio pactado (€/ud)
@@ -1565,7 +1640,7 @@ export default function NuevoPresupuestoCliente() {
                                         <Input
                                           type="number"
                                           step="0.01"
-                                          className="h-8"
+                                          className="h-9 bg-white"
                                           value={l.precio_pactado ?? ''}
                                           onChange={(e) =>
                                             actualizarLinea(l._uid, {
@@ -1578,10 +1653,10 @@ export default function NuevoPresupuestoCliente() {
                                           placeholder={
                                             l.tipo_pieza === 'irregular'
                                               ? 'Introduce el precio'
-                                              : 'Deja vacío para calcular'
+                                              : 'Deja vacío para calcular por tarifa'
                                           }
                                         />
-                                        <p className="text-[10px] text-amber-900">
+                                        <p className="text-[11px] text-amber-900">
                                           {l.tipo_pieza === 'irregular'
                                             ? 'Obligatorio para piezas irregulares.'
                                             : 'Si lo rellenas, ignora la tarifa.'}
@@ -1589,12 +1664,12 @@ export default function NuevoPresupuestoCliente() {
                                       </div>
                                       <div className="space-y-1">
                                         <Label className="text-xs">
-                                          Suplemento manual (€ al total)
+                                          Suplemento manual (€ al total de la línea)
                                         </Label>
                                         <Input
                                           type="number"
                                           step="0.01"
-                                          className="h-8"
+                                          className="h-9"
                                           value={l.suplemento_manual}
                                           onChange={(e) =>
                                             actualizarLinea(l._uid, {
@@ -1602,31 +1677,11 @@ export default function NuevoPresupuestoCliente() {
                                             })
                                           }
                                         />
+                                        <p className="text-[11px] text-muted-foreground">
+                                          Se suma al final. Útil para extras puntuales.
+                                        </p>
                                       </div>
                                     </div>
-                                  </div>
-
-                                  {/* PANEL DERECHO: visualización SVG */}
-                                  <div className="col-span-4">
-                                    <Label className="text-xs mb-1 block">
-                                      Vista previa
-                                    </Label>
-                                    <VisualizacionPiezaSVG
-                                      datos={{
-                                        tipo_pieza: l.tipo_pieza,
-                                        ancho: l.ancho,
-                                        alto: l.alto,
-                                        grosor: l.grosor,
-                                        longitud_ml: l.longitud_ml,
-                                        cara_frontal: l.cara_frontal,
-                                        cara_trasera: l.cara_trasera,
-                                        canto_superior: l.canto_superior,
-                                        canto_inferior: l.canto_inferior,
-                                        canto_izquierdo: l.canto_izquierdo,
-                                        canto_derecho: l.canto_derecho,
-                                        color_hex: color?.hex_aproximado ?? null,
-                                      }}
-                                    />
                                   </div>
                                 </div>
                               </TableCell>
@@ -1648,7 +1703,7 @@ export default function NuevoPresupuestoCliente() {
             <CardTitle className="text-base">Totales</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 gap-4 items-start">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
               <div className="space-y-3">
                 <div className="space-y-1">
                   <Label className="text-xs">Descuento global (%)</Label>
@@ -1672,7 +1727,7 @@ export default function NuevoPresupuestoCliente() {
                   />
                 </div>
               </div>
-              <div className="space-y-1 text-sm">
+              <div className="space-y-1 text-sm bg-slate-50 rounded-md p-4">
                 <div className="flex justify-between py-1">
                   <span className="text-muted-foreground">Subtotal</span>
                   <span className="font-medium">{euro(totales.subtotal)}</span>
@@ -1745,8 +1800,8 @@ export default function NuevoPresupuestoCliente() {
         </div>
       </div>
 
-      {/* PANEL LATERAL */}
-      <aside className="w-80 shrink-0">
+      {/* PANEL LATERAL: piezas guardadas */}
+      <aside className="w-80 shrink-0 hidden lg:block">
         <Card className="sticky top-6">
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
@@ -1820,6 +1875,7 @@ export default function NuevoPresupuestoCliente() {
         </Card>
       </aside>
 
+      {/* Modal selector color */}
       <SelectorColorDialog
         abierto={selectorColorAbierto !== null}
         onCerrar={() => setSelectorColorAbierto(null)}
@@ -1835,11 +1891,74 @@ export default function NuevoPresupuestoCliente() {
         }}
       />
 
+      {/* Modal nuevo cliente */}
       <NuevoClienteDialog
         abierto={nuevoClienteAbierto}
         onCerrar={() => setNuevoClienteAbierto(false)}
         onCreado={onClienteCreado}
       />
+
+      {/* Modal vista previa SVG (ocupa bastante espacio para verlo bien) */}
+      <Dialog
+        open={vistaPreviaAbierta !== null}
+        onOpenChange={(open) => !open && setVistaPreviaAbierta(null)}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Vista previa de la pieza</DialogTitle>
+            <DialogDescription>
+              Caras <span className="text-green-700 font-medium">verdes</span> =
+              se lacan. Caras <span className="text-slate-500 font-medium">grises</span>{' '}
+              = sin lacar.
+            </DialogDescription>
+          </DialogHeader>
+          {lineaVistaPreviaActiva && (
+            <div className="py-2">
+              <VisualizacionPiezaSVG
+                datos={{
+                  tipo_pieza: lineaVistaPreviaActiva.tipo_pieza,
+                  ancho: lineaVistaPreviaActiva.ancho,
+                  alto: lineaVistaPreviaActiva.alto,
+                  grosor: lineaVistaPreviaActiva.grosor,
+                  longitud_ml: lineaVistaPreviaActiva.longitud_ml,
+                  cara_frontal: lineaVistaPreviaActiva.cara_frontal,
+                  cara_trasera: lineaVistaPreviaActiva.cara_trasera,
+                  canto_superior: lineaVistaPreviaActiva.canto_superior,
+                  canto_inferior: lineaVistaPreviaActiva.canto_inferior,
+                  canto_izquierdo: lineaVistaPreviaActiva.canto_izquierdo,
+                  canto_derecho: lineaVistaPreviaActiva.canto_derecho,
+                  color_hex: colorVistaPreviaHex,
+                }}
+              />
+              <div className="mt-4 text-xs text-muted-foreground bg-slate-50 rounded-md p-3 space-y-1">
+                <div>
+                  <strong>Tipo:</strong>{' '}
+                  {TIPOS_PIEZA_INFO[lineaVistaPreviaActiva.tipo_pieza].label}
+                </div>
+                {lineaVistaPreviaActiva.tipo_pieza === 'moldura' ? (
+                  <div>
+                    <strong>Longitud:</strong>{' '}
+                    {lineaVistaPreviaActiva.longitud_ml.toFixed(2)} m ·
+                    <strong> Perfil:</strong> {lineaVistaPreviaActiva.ancho} ×{' '}
+                    {lineaVistaPreviaActiva.grosor} mm
+                  </div>
+                ) : (
+                  <div>
+                    <strong>Dimensiones:</strong> {lineaVistaPreviaActiva.ancho} ×{' '}
+                    {lineaVistaPreviaActiva.alto} × {lineaVistaPreviaActiva.grosor} mm
+                  </div>
+                )}
+                <div>
+                  <strong>Superficie a lacar:</strong>{' '}
+                  {lineaVistaPreviaActiva.superficie_m2.toFixed(3)} m²
+                  {lineaVistaPreviaActiva.cantidad > 1 &&
+                    ` (× ${lineaVistaPreviaActiva.cantidad} uds)`}
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
