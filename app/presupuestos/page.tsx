@@ -1,135 +1,151 @@
-import Link from "next/link"
-import { createClient } from "@/lib/supabase/server"
+import Link from 'next/link'
+import { createClient } from '@/lib/supabase/server'
 
-export const dynamic = "force-dynamic"
+export const dynamic = 'force-dynamic'
 
 const ESTADOS: Record<string, { label: string; color: string }> = {
-  borrador: { label: "Borrador", color: "bg-gray-100 text-gray-700" },
-  enviado: { label: "Enviado", color: "bg-blue-100 text-blue-700" },
-  aceptado: { label: "Aceptado", color: "bg-green-100 text-green-700" },
-  rechazado: { label: "Rechazado", color: "bg-red-100 text-red-700" },
-  caducado: { label: "Caducado", color: "bg-orange-100 text-orange-700" },
+  borrador: { label: 'Borrador', color: 'bg-slate-100 text-slate-700 border-slate-300' },
+  enviado: { label: 'Enviado', color: 'bg-blue-100 text-blue-700 border-blue-300' },
+  aceptado: { label: 'Aceptado', color: 'bg-green-100 text-green-700 border-green-300' },
+  rechazado: { label: 'Rechazado', color: 'bg-red-100 text-red-700 border-red-300' },
+  caducado: { label: 'Caducado', color: 'bg-amber-100 text-amber-700 border-amber-300' },
+}
+
+const euro = (n: number) =>
+  Number(n).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })
+
+function fechaES(iso: string) {
+  try {
+    return new Date(iso).toLocaleDateString('es-ES', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    })
+  } catch {
+    return iso
+  }
+}
+
+function fechaValidez(fecha: string, dias: number) {
+  try {
+    const d = new Date(fecha)
+    d.setDate(d.getDate() + (dias || 30))
+    return d.toLocaleDateString('es-ES', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    })
+  } catch {
+    return '—'
+  }
 }
 
 export default async function PresupuestosPage() {
   const supabase = await createClient()
 
-  const { data: presupuestos } = await supabase
-    .from("presupuestos")
+  const { data: presupuestos, error } = await supabase
+    .from('presupuestos')
     .select(
       `
       id,
       numero,
       fecha,
-      fecha_validez,
+      validez_dias,
       estado,
       total,
-      clientes ( nombre )
+      cliente:clientes(nombre_comercial)
     `
     )
-    .order("fecha", { ascending: false })
+    .order('fecha', { ascending: false })
+    .order('numero', { ascending: false })
     .limit(100)
 
+  if (error) {
+    console.error('[presupuestos] Error cargando lista:', error)
+  }
+
+  const lista = presupuestos ?? []
+
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+    <div className="max-w-7xl mx-auto space-y-6">
+      {/* HEADER */}
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Presupuestos</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            {presupuestos?.length ?? 0} presupuestos
+          <h1 className="text-3xl font-bold tracking-tight">Presupuestos</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {lista.length} {lista.length === 1 ? 'presupuesto' : 'presupuestos'}
           </p>
         </div>
         <Link
           href="/presupuestos/nuevo"
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium"
+          className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition"
         >
           + Nuevo presupuesto
         </Link>
       </div>
 
+      {/* TABLA */}
       <div className="bg-white rounded-lg border overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-gray-50 border-b">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 border-b">
             <tr>
-              <th className="text-left px-4 py-3 text-sm font-medium text-gray-700">
-                Número
-              </th>
-              <th className="text-left px-4 py-3 text-sm font-medium text-gray-700">
-                Fecha
-              </th>
-              <th className="text-left px-4 py-3 text-sm font-medium text-gray-700">
-                Cliente
-              </th>
-              <th className="text-left px-4 py-3 text-sm font-medium text-gray-700">
-                Válido hasta
-              </th>
-              <th className="text-left px-4 py-3 text-sm font-medium text-gray-700">
-                Estado
-              </th>
-              <th className="text-right px-4 py-3 text-sm font-medium text-gray-700">
-                Total
-              </th>
-              <th className="w-20"></th>
+              <th className="text-left px-4 py-3 font-semibold">Número</th>
+              <th className="text-left px-4 py-3 font-semibold">Fecha</th>
+              <th className="text-left px-4 py-3 font-semibold">Cliente</th>
+              <th className="text-left px-4 py-3 font-semibold">Válido hasta</th>
+              <th className="text-left px-4 py-3 font-semibold">Estado</th>
+              <th className="text-right px-4 py-3 font-semibold">Total</th>
             </tr>
           </thead>
           <tbody>
-            {presupuestos?.map((p: any) => {
-              const estado = ESTADOS[p.estado] ?? ESTADOS.borrador
-              return (
-                <tr key={p.id} className="border-b hover:bg-gray-50">
-                  <td className="px-4 py-3 font-mono text-sm">
-                    <Link
-                      href={`/presupuestos/${p.id}`}
-                      className="text-blue-600 hover:underline"
-                    >
-                      {p.numero}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    {new Date(p.fecha).toLocaleDateString("es-ES")}
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    {p.clientes?.nombre ?? "—"}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
-                    {p.fecha_validez
-                      ? new Date(p.fecha_validez).toLocaleDateString("es-ES")
-                      : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    <span
-                      className={`px-2 py-1 rounded-full text-xs font-medium ${estado.color}`}
-                    >
-                      {estado.label}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right font-medium">
-                    {Number(p.total ?? 0).toLocaleString("es-ES", {
-                      style: "currency",
-                      currency: "EUR",
-                    })}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <Link
-                      href={`/presupuestos/${p.id}`}
-                      className="text-xs text-blue-600 hover:text-blue-800"
-                    >
-                      Ver →
-                    </Link>
-                  </td>
-                </tr>
-              )
-            })}
-            {(!presupuestos || presupuestos.length === 0) && (
+            {lista.length === 0 ? (
               <tr>
                 <td
-                  colSpan={7}
-                  className="px-4 py-8 text-center text-gray-500 text-sm"
+                  colSpan={6}
+                  className="px-4 py-8 text-center text-muted-foreground"
                 >
-                  Aún no hay presupuestos. Pulsa "Nuevo presupuesto" para crear
-                  el primero.
+                  Aún no hay presupuestos. Pulsa "Nuevo presupuesto" para crear el primero.
                 </td>
               </tr>
+            ) : (
+              lista.map((p: any) => {
+                const estado = ESTADOS[p.estado] ?? ESTADOS.borrador
+                const cliente = Array.isArray(p.cliente) ? p.cliente[0] : p.cliente
+                return (
+                  <tr
+                    key={p.id}
+                    className="border-b hover:bg-slate-50 transition"
+                  >
+                    <td className="px-4 py-3">
+                      <Link
+                        href={`/presupuestos/${p.id}`}
+                        className="font-semibold text-blue-700 hover:underline"
+                      >
+                        {p.numero}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {fechaES(p.fecha)}
+                    </td>
+                    <td className="px-4 py-3">
+                      {cliente?.nombre_comercial ?? '—'}
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {fechaValidez(p.fecha, p.validez_dias)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium border ${estado.color}`}
+                      >
+                        {estado.label}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right font-semibold">
+                      {euro(Number(p.total ?? 0))}
+                    </td>
+                  </tr>
+                )
+              })
             )}
           </tbody>
         </table>
