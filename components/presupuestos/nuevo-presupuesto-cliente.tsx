@@ -43,12 +43,13 @@ import {
   UserPlus,
   Loader2,
   Lock,
+  Info,
 } from 'lucide-react'
 import SelectorColorDialog, { type ColorItem } from './selector-color-dialog'
 import NuevoClienteDialog from './nuevo-cliente-dialog'
 
 // ============================================================================
-// TIPOS
+// TIPOS (alineados con lib/types/erp.ts)
 // ============================================================================
 
 type Producto = {
@@ -58,17 +59,22 @@ type Producto = {
   unidad_tarificacion?: 'm2' | 'pieza'
 }
 type Tratamiento = { id: string; nombre: string }
+
+// Tarifa REAL según BD
 type Tarifa = {
   id: string
-  nombre?: string
+  nombre: string
   producto_id: string | null
-  color_id: string | null
-  tratamiento_id: string | null
-  precio_base: number | null
+  modo_precio: 'm2' | 'pieza' | 'ambos'
   precio_m2: number | null
-  precio_minimo: number | null
-  suplemento: number | null
+  precio_pieza: number | null
+  precio_minimo: number
+  coste_adicional_color: number
+  coste_adicional_tratamiento: number
+  coste_adicional_embalaje: number
+  activo: boolean
 }
+
 type NivelComplejidad = {
   id: number
   codigo: string
@@ -130,7 +136,7 @@ type Linea = {
 const uid = () => Math.random().toString(36).slice(2, 11)
 
 // ============================================================================
-// MOTOR DE CÁLCULO
+// MOTOR DE CÁLCULO v3 (con esquema real de Tarifa)
 // ============================================================================
 
 function lineaVacia(): Linea {
@@ -179,32 +185,54 @@ function calcularSuperficie(l: Linea): number {
   return Number((m2Cara * caras * (l.cantidad || 1)).toFixed(4))
 }
 
-function buscarTarifaAuto(
+/**
+ * Busca TODAS las tarifas candidatas para esta combinación:
+ * - Debe coincidir producto_id
+ * - Tarifa con tratamiento en el nombre (ej: "Frente cajón - Lacado estándar")
+ *   Si hay tratamiento seleccionado, filtra por nombre que contenga ese tratamiento
+ */
+function buscarTarifaCompatible(
   tarifas: Tarifa[],
   producto_id: string | null,
-  color_id: string | null,
-  tratamiento_id: string | null
+  tratamiento_id: string | null,
+  tratamientos: Tratamiento[],
+  modoLinea: 'm2' | 'pieza'
 ): Tarifa | null {
   if (!producto_id) return null
-  return (
-    tarifas.find(
-      (t) =>
-        t.producto_id === producto_id &&
-        (t.color_id === color_id || t.color_id === null) &&
-        (t.tratamiento_id === tratamiento_id || t.tratamiento_id === null)
-    ) ?? null
+  const candidatas = tarifas.filter((t) => t.producto_id === producto_id && t.activo !== false)
+  if (candidatas.length === 0) return null
+
+  // Si hay tratamiento, intentar match por nombre
+  if (tratamiento_id) {
+    const nombreTrat = tratamientos.find((t) => t.id === tratamiento_id)?.nombre
+    if (nombreTrat) {
+      const matchTrat = candidatas.find((t) =>
+        (t.nombre || '').toLowerCase().includes(nombreTrat.toLowerCase())
+      )
+      if (matchTrat) return matchTrat
+    }
+  }
+
+  // Si no match por tratamiento, preferir una compatible con modo
+  const compatibles = candidatas.filter(
+    (t) => t.modo_precio === modoLinea || t.modo_precio === 'ambos'
   )
+  if (compatibles.length > 0) return compatibles[0]
+
+  // Fallback: la primera
+  return candidatas[0]
 }
 
 function recalcularLinea(
   l: Linea,
   tarifas: Tarifa[],
   niveles: NivelComplejidad[],
-  colores: ColorItem[]
+  colores: ColorItem[],
+  tratamientos: Tratamiento[]
 ): Linea {
   const superficie_m2 = calcularSuperficie(l)
 
-  // Si hay precio pactado → manda él, ignora tarifa
+  // Si hay precio pactado → manda él
   if (l.precio_pactado !== null && l.precio_pactado > 0) {
     const total = l.precio_pactado * (l.cantidad || 1) + (l.suplemento_manual || 0)
     return {
@@ -215,9 +243,11 @@ function recalcularLinea(
     }
   }
 
+  // Buscar tarifa (si la línea ya tenía una fijada, úsala; si no, auto-buscar)
+  const tarifaFijada = tarifas.find((t) => t.id === l.tarifa_id)
   const tarifa =
-    tarifas.find((t) => t.id === l.tarifa_id) ??
-    buscarTarifaAuto(tarifas, l.producto_id, l.color_id, l.tratamiento_id)
+    tarifaFijada ??
+    buscarTarifaCompatible(tarifas, l.producto_id, l.tratamiento_id, tratamientos, l.modo_precio)
 
   if (!tarifa) {
     return {
@@ -228,26 +258,51 @@ function recalcularLinea(
     }
   }
 
-  const base = Number(tarifa.precio_base ?? 0)
-  const precioM2 = Number(tarifa.precio_m2 ?? 0)
-  const minimo = Number(tarifa.precio_minimo ?? 0)
-  const suplementoTarifa = Number(tarifa.suplemento ?? 0)
-
+  // Multiplicador por complejidad
   const nivel = niveles.find((n) => n.id === l.nivel_complejidad)
   const factor = nivel ? Number(nivel.multiplicador) : 1
 
-  const color = colores.find((c) => c.id === l.color_id)
-  const sobrecosteColor = color ? Number(color.sobrecoste || 0) : 0
+  // Sobrecostes adicionales de la tarifa (si hay color → sumar, si hay tratamiento → sumar, embalaje siempre)
+  const sobrecosteColorTarifa = l.color_id ? Number(tarifa.coste_adicional_color || 0) : 0
+  const sobrecosteTratamientoTarifa = l.tratamiento_id
+    ? Number(tarifa.coste_adicional_tratamiento || 0)
+    : 0
+  const sobrecosteEmbalaje = Number(tarifa.coste_adicional_embalaje || 0)
 
-  let precioUnidad: number
+  // Sobrecoste por color (del catálogo de colores - extra del RAL específico)
+  const color = colores.find((c) => c.id === l.color_id)
+  const sobrecosteColorCatalogo = color ? Number(color.sobrecoste || 0) : 0
+
+  // ¿Qué precio base usamos? Depende del modo_precio de la LÍNEA
+  let precioBase: number
   if (l.modo_precio === 'pieza') {
-    precioUnidad = (base + sobrecosteColor) * factor + suplementoTarifa
+    precioBase = Number(tarifa.precio_pieza ?? 0)
   } else {
+    // modo_precio = 'm2' → multiplicamos precio_m2 por los m² por UNIDAD
     const m2PorUnidad = superficie_m2 / Math.max(l.cantidad || 1, 1)
-    precioUnidad =
-      (base + (precioM2 + sobrecosteColor) * m2PorUnidad) * factor + suplementoTarifa
+    const precioM2 = Number(tarifa.precio_m2 ?? 0)
+    precioBase = precioM2 * m2PorUnidad
   }
 
+  // Si no hay precio (tarifa sin precio para ese modo), devolvemos 0
+  if (precioBase <= 0 && !sobrecosteColorCatalogo && !sobrecosteColorTarifa && !sobrecosteTratamientoTarifa) {
+    return {
+      ...l,
+      tarifa_id: tarifa.id,
+      superficie_m2,
+      precio_unitario: 0,
+      total_linea: l.suplemento_manual || 0,
+    }
+  }
+
+  // Precio por unidad = (base + sobrecostes) * factor_complejidad + embalaje
+  let precioUnidad =
+    (precioBase + sobrecosteColorCatalogo + sobrecosteColorTarifa + sobrecosteTratamientoTarifa) *
+      factor +
+    sobrecosteEmbalaje
+
+  // Aplicar mínimo
+  const minimo = Number(tarifa.precio_minimo || 0)
   if (minimo > 0 && precioUnidad < minimo) precioUnidad = minimo
 
   const total = precioUnidad * (l.cantidad || 1) + (l.suplemento_manual || 0)
@@ -272,7 +327,7 @@ export default function NuevoPresupuestoCliente() {
   const router = useRouter()
   const supabase = createClient()
 
-  // ESTADO DE DATOS CARGADOS (todo client-side)
+  // DATOS CARGADOS
   const [loading, setLoading] = useState(true)
   const [cargaError, setCargaError] = useState<string | null>(null)
   const [clientes, setClientes] = useState<Cliente[]>([])
@@ -282,16 +337,13 @@ export default function NuevoPresupuestoCliente() {
   const [tarifas, setTarifas] = useState<Tarifa[]>([])
   const [niveles, setNiveles] = useState<NivelComplejidad[]>([])
 
-  // CARGA INICIAL desde el navegador
   async function cargarTodo() {
     setLoading(true)
     setCargaError(null)
     try {
-      // Clientes (usando el servicio que funciona en /dashboard/clientes)
       const resCli = await listarClientes({ limite: 5000, pagina: 0 })
       setClientes(resCli.clientes ?? [])
 
-      // Catálogos en paralelo
       const [prodRes, colRes, trRes, tarRes, nvRes] = await Promise.all([
         supabase.from('productos').select('*').order('nombre'),
         supabase
@@ -301,7 +353,7 @@ export default function NuevoPresupuestoCliente() {
           .order('codigo')
           .range(0, 4999),
         supabase.from('tratamientos').select('id, nombre').order('nombre'),
-        supabase.from('tarifas').select('*').range(0, 999),
+        supabase.from('tarifas').select('*').eq('activo', true).range(0, 999),
         supabase
           .from('niveles_complejidad')
           .select('*')
@@ -327,7 +379,7 @@ export default function NuevoPresupuestoCliente() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ESTADO DEL PRESUPUESTO
+  // PRESUPUESTO
   const [clienteId, setClienteId] = useState('')
   const [buscadorCliente, setBuscadorCliente] = useState('')
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10))
@@ -338,7 +390,6 @@ export default function NuevoPresupuestoCliente() {
   const [descuentoPct, setDescuentoPct] = useState(0)
   const [ivaPct, setIvaPct] = useState(21)
 
-  // ESTADO UI
   const [lineas, setLineas] = useState<Linea[]>([])
   const [lineaExpandida, setLineaExpandida] = useState<string | null>(null)
   const [selectorColorAbierto, setSelectorColorAbierto] = useState<string | null>(null)
@@ -348,13 +399,11 @@ export default function NuevoPresupuestoCliente() {
     null
   )
 
-  // CLIENTE SELECCIONADO
   const clienteActual = useMemo(
     () => clientes.find((c) => c.id === clienteId) ?? null,
     [clienteId, clientes]
   )
 
-  // PIEZAS + PRESUPUESTOS ANTERIORES DEL CLIENTE
   const [piezas, setPiezas] = useState<PiezaGuardada[]>([])
   const [presupuestosAnteriores, setPresupuestosAnteriores] = useState<
     PresupuestoAnterior[]
@@ -390,14 +439,12 @@ export default function NuevoPresupuestoCliente() {
     })()
   }, [clienteId, supabase])
 
-  // AUTO-LIMPIAR MENSAJES
   useEffect(() => {
     if (!mensaje) return
     const t = setTimeout(() => setMensaje(null), 5000)
     return () => clearTimeout(t)
   }, [mensaje])
 
-  // FILTRO CLIENTES
   const clientesFiltrados = useMemo(() => {
     const q = buscadorCliente.trim().toLowerCase()
     if (!q) return clientes.slice(0, 50)
@@ -420,7 +467,7 @@ export default function NuevoPresupuestoCliente() {
     setLineas((prev) =>
       prev.map((l) =>
         l._uid === uidLinea
-          ? recalcularLinea({ ...l, ...cambios }, tarifas, niveles, colores)
+          ? recalcularLinea({ ...l, ...cambios }, tarifas, niveles, colores, tratamientos)
           : l
       )
     )
@@ -436,7 +483,13 @@ export default function NuevoPresupuestoCliente() {
       if (!orig) return prev
       return [
         ...prev,
-        recalcularLinea({ ...orig, _uid: uid() }, tarifas, niveles, colores),
+        recalcularLinea(
+          { ...orig, _uid: uid() },
+          tarifas,
+          niveles,
+          colores,
+          tratamientos
+        ),
       ]
     })
   }
@@ -477,7 +530,10 @@ export default function NuevoPresupuestoCliente() {
       precio_pactado: p.precio_pactado ?? null,
       cantidad: 1,
     }
-    setLineas((prev) => [...prev, recalcularLinea(base, tarifas, niveles, colores)])
+    setLineas((prev) => [
+      ...prev,
+      recalcularLinea(base, tarifas, niveles, colores, tratamientos),
+    ])
   }
 
   async function importarDePresupuestoAnterior(presId: string) {
@@ -516,16 +572,14 @@ export default function NuevoPresupuestoCliente() {
         },
         tarifas,
         niveles,
-        colores
+        colores,
+        tratamientos
       )
     )
     setLineas((prev) => [...prev, ...nuevas])
   }
 
-  // ============================================================
   // TOTALES
-  // ============================================================
-
   const totales = useMemo(() => {
     const subtotal = lineas.reduce((s, l) => s + (l.total_linea || 0), 0)
     const descuento_importe = subtotal * (descuentoPct / 100)
@@ -541,10 +595,7 @@ export default function NuevoPresupuestoCliente() {
     }
   }, [lineas, descuentoPct, ivaPct])
 
-  // ============================================================
   // GUARDAR
-  // ============================================================
-
   async function guardar() {
     setMensaje(null)
     if (!clienteId) {
@@ -567,14 +618,12 @@ export default function NuevoPresupuestoCliente() {
       } = await supabase.auth.getSession()
       if (!session) throw new Error('No hay sesión activa.')
 
-      // Número secuencial
       const { data: numeroData, error: errNum } = await supabase.rpc('get_next_sequence', {
         tipo: 'presupuesto',
       })
       if (errNum) throw errNum
       const numero = numeroData as string
 
-      // INSERT cabecera
       const { data: pres, error: errPres } = await supabase
         .from('presupuestos')
         .insert({
@@ -600,7 +649,6 @@ export default function NuevoPresupuestoCliente() {
 
       if (errPres) throw errPres
 
-      // INSERT líneas
       const filas = lineas.map((l, idx) => ({
         presupuesto_id: pres.id,
         orden: idx + 1,
@@ -641,10 +689,6 @@ export default function NuevoPresupuestoCliente() {
     }
   }
 
-  // ============================================================
-  // CLIENTE NUEVO CREADO → añadir a la lista y seleccionar
-  // ============================================================
-
   function onClienteCreado(nuevo: Cliente) {
     setClientes((prev) => [nuevo, ...prev])
     setClienteId(nuevo.id)
@@ -655,10 +699,28 @@ export default function NuevoPresupuestoCliente() {
     })
   }
 
-  // ============================================================
-  // RENDER
-  // ============================================================
+  // Helper: info de tarifa encontrada para UI
+  function infoTarifaLinea(l: Linea): {
+    tarifa: Tarifa | null
+    precioRef: number
+    modoRef: string
+  } {
+    const tarifa =
+      tarifas.find((t) => t.id === l.tarifa_id) ??
+      buscarTarifaCompatible(tarifas, l.producto_id, l.tratamiento_id, tratamientos, l.modo_precio)
+    if (!tarifa) return { tarifa: null, precioRef: 0, modoRef: '' }
+    const precioRef =
+      l.modo_precio === 'pieza'
+        ? Number(tarifa.precio_pieza || 0)
+        : Number(tarifa.precio_m2 || 0)
+    return {
+      tarifa,
+      precioRef,
+      modoRef: l.modo_precio === 'pieza' ? '€/pieza' : '€/m²',
+    }
+  }
 
+  // RENDER
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -687,9 +749,7 @@ export default function NuevoPresupuestoCliente() {
 
   return (
     <div className="flex gap-6 p-6">
-      {/* COLUMNA PRINCIPAL */}
       <div className="flex-1 min-w-0 space-y-6">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
@@ -721,7 +781,6 @@ export default function NuevoPresupuestoCliente() {
           </Alert>
         )}
 
-        {/* CLIENTE */}
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
@@ -808,7 +867,6 @@ export default function NuevoPresupuestoCliente() {
           </CardContent>
         </Card>
 
-        {/* DATOS GENERALES */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Datos generales</CardTitle>
@@ -853,7 +911,6 @@ export default function NuevoPresupuestoCliente() {
           </CardContent>
         </Card>
 
-        {/* LÍNEAS */}
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
@@ -892,8 +949,7 @@ export default function NuevoPresupuestoCliente() {
           <CardContent>
             {lineas.length === 0 ? (
               <div className="text-center py-10 text-sm text-muted-foreground border-2 border-dashed rounded-lg">
-                Sin líneas aún. Añade piezas desde el panel derecho o pulsa "Línea
-                manual".
+                Sin líneas aún. Pulsa "Línea manual" o añade piezas desde el panel derecho.
               </div>
             ) : (
               <div className="border rounded-md overflow-hidden">
@@ -912,14 +968,7 @@ export default function NuevoPresupuestoCliente() {
                     {lineas.map((l) => {
                       const expandida = lineaExpandida === l._uid
                       const color = colores.find((c) => c.id === l.color_id)
-                      const tieneTarifa =
-                        l.tarifa_id ||
-                        buscarTarifaAuto(
-                          tarifas,
-                          l.producto_id,
-                          l.color_id,
-                          l.tratamiento_id
-                        )
+                      const info = infoTarifaLinea(l)
                       const precioManual =
                         l.precio_pactado !== null && l.precio_pactado > 0
                       return (
@@ -975,12 +1024,21 @@ export default function NuevoPresupuestoCliente() {
                                     Precio fijo
                                   </Badge>
                                 )}
-                                {!tieneTarifa && !precioManual && (
+                                {info.tarifa && !precioManual && (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[10px] h-5 bg-green-50 text-green-800 border-green-300"
+                                  >
+                                    📋 {info.tarifa.nombre} · {euro(info.precioRef)}{' '}
+                                    {info.modoRef}
+                                  </Badge>
+                                )}
+                                {!info.tarifa && !precioManual && l.producto_id && (
                                   <Badge
                                     variant="destructive"
                                     className="text-[10px] h-5"
                                   >
-                                    ⚠ Sin tarifa — pon precio manual
+                                    ⚠ Sin tarifa para este producto — pon precio manual
                                   </Badge>
                                 )}
                               </div>
@@ -1054,6 +1112,7 @@ export default function NuevoPresupuestoCliente() {
                                       onValueChange={(v) =>
                                         actualizarLinea(l._uid, {
                                           producto_id: v || null,
+                                          tarifa_id: null, // reset para que recalcule
                                         })
                                       }
                                     >
@@ -1105,6 +1164,7 @@ export default function NuevoPresupuestoCliente() {
                                       onValueChange={(v) =>
                                         actualizarLinea(l._uid, {
                                           tratamiento_id: v || null,
+                                          tarifa_id: null,
                                         })
                                       }
                                     >
@@ -1138,6 +1198,33 @@ export default function NuevoPresupuestoCliente() {
                                       </SelectContent>
                                     </Select>
                                   </div>
+
+                                  {/* Info de la tarifa aplicada */}
+                                  {info.tarifa && (
+                                    <div className="col-span-4 bg-green-50 border border-green-200 rounded p-2 text-xs">
+                                      <div className="flex items-start gap-2">
+                                        <Info className="w-3.5 h-3.5 text-green-700 mt-0.5 shrink-0" />
+                                        <div>
+                                          <strong>Tarifa aplicada:</strong>{' '}
+                                          {info.tarifa.nombre}
+                                          <div className="mt-0.5 text-green-900">
+                                            €/m²: {euro(Number(info.tarifa.precio_m2 || 0))}{' '}
+                                            · €/pieza:{' '}
+                                            {euro(Number(info.tarifa.precio_pieza || 0))}{' '}
+                                            · Mín:{' '}
+                                            {euro(Number(info.tarifa.precio_minimo || 0))}{' '}
+                                            · Modo:{' '}
+                                            <Badge
+                                              variant="outline"
+                                              className="text-[10px] h-4 ml-1"
+                                            >
+                                              {info.tarifa.modo_precio}
+                                            </Badge>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
 
                                   <div className="space-y-1">
                                     <Label className="text-xs">Ancho (mm)</Label>
@@ -1237,7 +1324,6 @@ export default function NuevoPresupuestoCliente() {
                                     </div>
                                   </div>
 
-                                  {/* Precio pactado DESTACADO */}
                                   <div className="col-span-2 space-y-1 bg-amber-50 border border-amber-200 rounded p-3">
                                     <Label className="text-xs font-semibold flex items-center gap-1">
                                       <Lock className="w-3 h-3" />
@@ -1259,8 +1345,9 @@ export default function NuevoPresupuestoCliente() {
                                       placeholder="Deja vacío para calcular por tarifa"
                                     />
                                     <p className="text-[10px] text-amber-900">
-                                      Si rellenas este campo, <strong>ignora la tarifa</strong>{' '}
-                                      y usa este precio fijo por unidad.
+                                      Si rellenas este campo,{' '}
+                                      <strong>ignora la tarifa</strong> y usa este precio
+                                      fijo por unidad.
                                     </p>
                                   </div>
                                   <div className="col-span-2 space-y-1">
@@ -1293,7 +1380,6 @@ export default function NuevoPresupuestoCliente() {
           </CardContent>
         </Card>
 
-        {/* TOTALES */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Totales</CardTitle>
@@ -1357,7 +1443,6 @@ export default function NuevoPresupuestoCliente() {
           </CardContent>
         </Card>
 
-        {/* OBSERVACIONES */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Observaciones</CardTitle>
@@ -1396,7 +1481,6 @@ export default function NuevoPresupuestoCliente() {
         </div>
       </div>
 
-      {/* PANEL LATERAL: piezas guardadas */}
       <aside className="w-80 shrink-0">
         <Card className="sticky top-6">
           <CardHeader>
@@ -1471,7 +1555,6 @@ export default function NuevoPresupuestoCliente() {
         </Card>
       </aside>
 
-      {/* Modal selector de color */}
       <SelectorColorDialog
         abierto={selectorColorAbierto !== null}
         onCerrar={() => setSelectorColorAbierto(null)}
@@ -1487,7 +1570,6 @@ export default function NuevoPresupuestoCliente() {
         }}
       />
 
-      {/* Modal nuevo cliente */}
       <NuevoClienteDialog
         abierto={nuevoClienteAbierto}
         onCerrar={() => setNuevoClienteAbierto(false)}
