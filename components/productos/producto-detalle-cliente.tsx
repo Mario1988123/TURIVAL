@@ -2,15 +2,20 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import {
   actualizarProducto,
   listarProcesosCatalogo,
   listarProcesosDeProducto,
   guardarProcesosDeProducto,
-  type ProcesoProductoDetalle,
+  type ProcesoCatalogoExt,
   type ProcesoProductoForm,
 } from '@/lib/services/productos'
-import type { Producto, ProcesoCatalogo } from '@/lib/types/erp'
+import {
+  listarCategoriasProducto,
+  type CategoriaProducto,
+} from '@/lib/services/categorias-producto'
+import type { Producto } from '@/lib/types/erp'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -33,13 +38,16 @@ import {
   Save,
   Plus,
   Trash2,
-  GripVertical,
   Clock,
   Info,
   Loader2,
   ArrowUp,
   ArrowDown,
+  HelpCircle,
+  Settings,
 } from 'lucide-react'
+
+type ProductoExtendido = Producto & { categoria_id?: string | null }
 
 type Linea = ProcesoProductoForm & {
   _uid: string
@@ -47,33 +55,43 @@ type Linea = ProcesoProductoForm & {
   codigo_proceso?: string
   orden_tipico?: number
   color_gantt?: string
+  escala_por_m2?: boolean
 }
 
 const uid = () => Math.random().toString(36).slice(2, 11)
 
+// Tooltip simple inline
+function Tooltip({ texto }: { texto: string }) {
+  return (
+    <span
+      className="inline-flex items-center ml-1 text-slate-400 hover:text-slate-600 cursor-help"
+      title={texto}
+    >
+      <HelpCircle className="w-3 h-3" />
+    </span>
+  )
+}
+
 export default function ProductoDetalleCliente({
   productoInicial,
 }: {
-  productoInicial: Producto
+  productoInicial: ProductoExtendido
 }) {
   const router = useRouter()
-  const [producto, setProducto] = useState<Producto>(productoInicial)
-  const [mensaje, setMensaje] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(
-    null
-  )
+  const [producto, setProducto] = useState<ProductoExtendido>(productoInicial)
+  const [mensaje, setMensaje] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null)
+  const [categorias, setCategorias] = useState<CategoriaProducto[]>([])
 
-  // Tab Datos
   const [form, setForm] = useState({
     nombre: productoInicial.nombre,
-    categoria: productoInicial.categoria || '',
+    categoria_id: productoInicial.categoria_id || '',
     descripcion: productoInicial.descripcion || '',
     unidad_tarificacion: productoInicial.unidad_tarificacion,
     activo: productoInicial.activo,
   })
   const [guardandoDatos, setGuardandoDatos] = useState(false)
 
-  // Tab Procesos
-  const [catalogo, setCatalogo] = useState<ProcesoCatalogo[]>([])
+  const [catalogo, setCatalogo] = useState<ProcesoCatalogoExt[]>([])
   const [lineas, setLineas] = useState<Linea[]>([])
   const [cargandoProcesos, setCargandoProcesos] = useState(true)
   const [guardandoProcesos, setGuardandoProcesos] = useState(false)
@@ -81,11 +99,13 @@ export default function ProductoDetalleCliente({
   useEffect(() => {
     ;(async () => {
       try {
-        const [cat, asignados] = await Promise.all([
+        const [cat, asignados, cats] = await Promise.all([
           listarProcesosCatalogo(),
           listarProcesosDeProducto(producto.id),
+          listarCategoriasProducto(true),
         ])
         setCatalogo(cat)
+        setCategorias(cats)
         setLineas(
           asignados.map((a) => ({
             _uid: uid(),
@@ -103,6 +123,7 @@ export default function ProductoDetalleCliente({
             codigo_proceso: a.proceso.codigo,
             orden_tipico: a.proceso.orden_tipico,
             color_gantt: a.proceso.color_gantt,
+            escala_por_m2: a.proceso.escala_por_m2,
           }))
         )
       } catch (e: any) {
@@ -111,7 +132,6 @@ export default function ProductoDetalleCliente({
         setCargandoProcesos(false)
       }
     })()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [producto.id])
 
   useEffect(() => {
@@ -120,10 +140,6 @@ export default function ProductoDetalleCliente({
     return () => clearTimeout(t)
   }, [mensaje])
 
-  // ============================================================
-  // TAB DATOS
-  // ============================================================
-
   async function guardarDatos() {
     if (!form.nombre.trim()) {
       setMensaje({ tipo: 'error', texto: 'El nombre es obligatorio.' })
@@ -131,14 +147,16 @@ export default function ProductoDetalleCliente({
     }
     setGuardandoDatos(true)
     try {
+      const cat = categorias.find((c) => c.id === form.categoria_id)
       const actualizado = await actualizarProducto(producto.id, {
         nombre: form.nombre.trim(),
-        categoria: form.categoria.trim() || null,
+        categoria: cat?.nombre ?? null,
+        categoria_id: form.categoria_id || null,
         descripcion: form.descripcion.trim() || null,
         unidad_tarificacion: form.unidad_tarificacion,
         activo: form.activo,
       })
-      setProducto(actualizado)
+      setProducto({ ...actualizado, categoria_id: form.categoria_id || null })
       setMensaje({ tipo: 'ok', texto: 'Datos guardados.' })
     } catch (e: any) {
       setMensaje({ tipo: 'error', texto: e.message })
@@ -147,14 +165,9 @@ export default function ProductoDetalleCliente({
     }
   }
 
-  // ============================================================
-  // TAB PROCESOS
-  // ============================================================
-
   function anadirLinea(procesoId: string) {
     const proc = catalogo.find((c) => c.id === procesoId)
     if (!proc) return
-    // Calcular siguiente secuencia
     const maxSec = lineas.reduce((m, l) => Math.max(m, l.secuencia), 0)
     const nueva: Linea = {
       _uid: uid(),
@@ -172,14 +185,13 @@ export default function ProductoDetalleCliente({
       codigo_proceso: proc.codigo,
       orden_tipico: proc.orden_tipico,
       color_gantt: proc.color_gantt,
+      escala_por_m2: proc.escala_por_m2,
     }
     setLineas((prev) => [...prev, nueva])
   }
 
   function actualizarLinea(uidL: string, cambios: Partial<Linea>) {
-    setLineas((prev) =>
-      prev.map((l) => (l._uid === uidL ? { ...l, ...cambios } : l))
-    )
+    setLineas((prev) => prev.map((l) => (l._uid === uidL ? { ...l, ...cambios } : l)))
   }
 
   function eliminarLinea(uidL: string) {
@@ -202,14 +214,10 @@ export default function ProductoDetalleCliente({
   }
 
   async function guardarProcesos() {
-    // Validar secuencias únicas
     const seqs = lineas.map((l) => l.secuencia)
     const duplicadas = seqs.filter((s, i) => seqs.indexOf(s) !== i)
     if (duplicadas.length > 0) {
-      setMensaje({
-        tipo: 'error',
-        texto: `Hay secuencias duplicadas: ${duplicadas.join(', ')}`,
-      })
+      setMensaje({ tipo: 'error', texto: `Secuencias duplicadas: ${duplicadas.join(', ')}` })
       return
     }
     setGuardandoProcesos(true)
@@ -220,7 +228,7 @@ export default function ProductoDetalleCliente({
           proceso_id: l.proceso_id,
           secuencia: l.secuencia,
           tiempo_base_minutos: l.tiempo_base_minutos,
-          tiempo_por_m2_minutos: l.tiempo_por_m2_minutos,
+          tiempo_por_m2_minutos: l.escala_por_m2 ? l.tiempo_por_m2_minutos : 0,
           factor_simple: l.factor_simple,
           factor_media: l.factor_media,
           factor_compleja: l.factor_compleja,
@@ -229,7 +237,7 @@ export default function ProductoDetalleCliente({
           notas: l.notas,
         }))
       )
-      setMensaje({ tipo: 'ok', texto: 'Procesos guardados correctamente.' })
+      setMensaje({ tipo: 'ok', texto: 'Procesos guardados.' })
     } catch (e: any) {
       setMensaje({ tipo: 'error', texto: e.message })
     } finally {
@@ -237,20 +245,15 @@ export default function ProductoDetalleCliente({
     }
   }
 
-  // Procesos del catálogo que aún no están asignados
   const procesosDisponibles = catalogo.filter(
-    (c) => !lineas.some((l) => l.proceso_id === c.id && !c.permite_repetir)
+    (c) => !lineas.some((l) => l.proceso_id === c.id) || c.permite_repetir
   )
 
-  // Ordenar líneas por secuencia para mostrar
   const lineasOrdenadas = [...lineas].sort((a, b) => a.secuencia - b.secuencia)
 
-  // Tiempo total estimado con complejidad media + 1m² (aprox)
   const tiempoTotalMin = lineasOrdenadas.reduce((sum, l) => {
-    return (
-      sum +
-      (l.tiempo_base_minutos + l.tiempo_por_m2_minutos * 1) * l.factor_media
-    )
+    const porM2 = l.escala_por_m2 ? l.tiempo_por_m2_minutos * 1 : 0
+    return sum + (l.tiempo_base_minutos + porM2) * l.factor_media
   }, 0)
 
   return (
@@ -270,9 +273,7 @@ export default function ProductoDetalleCliente({
               <Package className="w-8 h-8" />
               {producto.nombre}
               {!producto.activo && (
-                <Badge variant="outline" className="text-muted-foreground">
-                  Inactivo
-                </Badge>
+                <Badge variant="outline" className="text-muted-foreground">Inactivo</Badge>
               )}
             </h1>
             <p className="text-muted-foreground mt-1">
@@ -289,13 +290,10 @@ export default function ProductoDetalleCliente({
         </Alert>
       )}
 
-      {/* TABS */}
       <Tabs defaultValue="datos">
         <TabsList>
           <TabsTrigger value="datos">Datos</TabsTrigger>
-          <TabsTrigger value="procesos">
-            Procesos ({lineas.length})
-          </TabsTrigger>
+          <TabsTrigger value="procesos">Procesos ({lineas.length})</TabsTrigger>
         </TabsList>
 
         {/* TAB DATOS */}
@@ -307,33 +305,46 @@ export default function ProductoDetalleCliente({
             <CardContent className="space-y-4 max-w-2xl">
               <div className="space-y-1">
                 <Label>Nombre *</Label>
-                <Input
-                  value={form.nombre}
-                  onChange={(e) => setForm({ ...form, nombre: e.target.value })}
-                />
+                <Input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <Label>Categoría</Label>
-                  <Input
-                    value={form.categoria}
-                    onChange={(e) =>
-                      setForm({ ...form, categoria: e.target.value })
-                    }
-                    placeholder="Ej: Muebles cocina"
-                  />
+                  <Label className="flex items-center">
+                    Categoría
+                    <Link
+                      href="/configuracion/categorias"
+                      className="ml-auto text-xs text-blue-600 hover:underline flex items-center gap-1"
+                    >
+                      <Settings className="w-3 h-3" /> Gestionar
+                    </Link>
+                  </Label>
+                  <Select
+                    value={form.categoria_id}
+                    onValueChange={(v) => setForm({ ...form, categoria_id: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Sin categoría" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">Sin categoría</SelectItem>
+                      {categorias.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>{c.nombre}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-1">
-                  <Label>Unidad de tarificación</Label>
+                  <Label className="flex items-center">
+                    Unidad de tarificación
+                    <Tooltip texto="Indica cómo se calcula el precio por defecto: por m² (superficie lacada) o por pieza (precio fijo)" />
+                  </Label>
                   <Select
                     value={form.unidad_tarificacion}
                     onValueChange={(v: 'm2' | 'pieza') =>
                       setForm({ ...form, unidad_tarificacion: v })
                     }
                   >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="m2">Por m²</SelectItem>
                       <SelectItem value="pieza">Por pieza</SelectItem>
@@ -343,26 +354,16 @@ export default function ProductoDetalleCliente({
               </div>
               <div className="space-y-1">
                 <Label>Descripción</Label>
-                <Textarea
-                  rows={3}
-                  value={form.descripcion}
-                  onChange={(e) =>
-                    setForm({ ...form, descripcion: e.target.value })
-                  }
-                />
+                <Textarea rows={3} value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} />
               </div>
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
                   id="activo"
                   checked={form.activo}
-                  onChange={(e) =>
-                    setForm({ ...form, activo: e.target.checked })
-                  }
+                  onChange={(e) => setForm({ ...form, activo: e.target.checked })}
                 />
-                <Label htmlFor="activo" className="cursor-pointer">
-                  Producto activo
-                </Label>
+                <Label htmlFor="activo" className="cursor-pointer">Producto activo</Label>
               </div>
               <div className="pt-2">
                 <Button onClick={guardarDatos} disabled={guardandoDatos}>
@@ -376,16 +377,21 @@ export default function ProductoDetalleCliente({
 
         {/* TAB PROCESOS */}
         <TabsContent value="procesos" className="mt-4 space-y-4">
-          {/* Info */}
+          {/* Leyenda explicativa completa */}
           <Alert>
             <Info className="w-4 h-4" />
-            <AlertDescription className="text-sm">
-              Configura la <strong>secuencia de procesos</strong> que sigue este
-              producto en producción. Cada proceso tiene un tiempo base (minutos)
-              y un tiempo por m² (si aplica). Los factores simple/media/compleja
-              ajustan el tiempo según complejidad de la pieza. Los pasos{' '}
-              <strong>opcionales</strong> pueden saltarse en producción según la
-              pieza (ej: Lijado 2, Fondeado 2).
+            <AlertDescription className="text-sm space-y-2">
+              <div>
+                <strong>¿Qué significa cada campo?</strong>
+              </div>
+              <ul className="text-xs space-y-1 list-disc ml-5">
+                <li><strong>Secuencia:</strong> orden del paso (1, 2, 3...). El sistema respeta este orden en Gantt.</li>
+                <li><strong>Tiempo base (min):</strong> tiempo fijo del paso, independiente del tamaño de la pieza (ej: preparar, limpiar mesa).</li>
+                <li><strong>Tiempo por m² (min):</strong> solo en procesos físicos (Lijado/Fondo/Lacado). Se multiplica por la superficie. No aparece en procesos administrativos (picking, revisión, recepción).</li>
+                <li><strong>Factor simple/media/compleja:</strong> multiplicador según complejidad. Pieza compleja = más tiempo.</li>
+                <li><strong>Depende de:</strong> qué paso debe terminar antes de empezar éste (para cálculos de Gantt).</li>
+                <li><strong>Paso opcional:</strong> si está marcado, la pieza puede saltarse este paso. Útil para Lijado 2/Fondeado 2.</li>
+              </ul>
             </AlertDescription>
           </Alert>
 
@@ -395,291 +401,208 @@ export default function ProductoDetalleCliente({
             </div>
           ) : (
             <>
-              {/* Añadir proceso */}
               <Card>
                 <CardContent className="flex items-center gap-3 py-4 flex-wrap">
                   <div className="flex-1 min-w-60">
                     <Label className="text-xs">Añadir proceso al flujo</Label>
-                    <Select
-                      onValueChange={(v) => {
-                        if (v) anadirLinea(v)
-                      }}
-                      value=""
-                    >
+                    <Select onValueChange={(v) => v && anadirLinea(v)} value="">
                       <SelectTrigger>
                         <SelectValue placeholder="Seleccionar proceso..." />
                       </SelectTrigger>
                       <SelectContent>
                         {procesosDisponibles.map((p) => (
                           <SelectItem key={p.id} value={p.id}>
-                            {p.orden_tipico}. {p.nombre}{' '}
-                            {p.permite_repetir && (
-                              <span className="text-muted-foreground text-xs">
-                                (repetible)
-                              </span>
-                            )}
+                            {p.nombre}{' '}
+                            <span className="text-muted-foreground text-xs">
+                              ({p.escala_por_m2 ? 'por m²' : 'tiempo fijo'})
+                            </span>
                           </SelectItem>
                         ))}
-                        {catalogo
-                          .filter((c) => c.permite_repetir)
-                          .map((p) => (
-                            <SelectItem key={`rep-${p.id}`} value={p.id}>
-                              {p.orden_tipico}. {p.nombre} (repetir)
-                            </SelectItem>
-                          ))}
                       </SelectContent>
                     </Select>
                   </div>
-                  <Button
-                    onClick={guardarProcesos}
-                    disabled={guardandoProcesos}
-                    size="default"
-                  >
+                  <Button onClick={guardarProcesos} disabled={guardandoProcesos}>
                     <Save className="w-4 h-4 mr-2" />
-                    {guardandoProcesos
-                      ? 'Guardando...'
-                      : 'Guardar flujo de procesos'}
+                    {guardandoProcesos ? 'Guardando...' : 'Guardar flujo'}
                   </Button>
                 </CardContent>
               </Card>
 
-              {/* Listado de procesos del producto */}
               {lineasOrdenadas.length === 0 ? (
                 <Card>
                   <CardContent className="text-center py-10 text-sm text-muted-foreground">
                     Este producto aún no tiene procesos asignados.
-                    <br />
-                    Añade uno desde el selector de arriba.
                   </CardContent>
                 </Card>
               ) : (
                 <div className="space-y-3">
-                  {lineasOrdenadas.map((l, idx) => (
-                    <Card key={l._uid}>
-                      <CardContent className="p-4">
-                        <div className="flex items-start gap-3">
-                          {/* Número secuencia + color */}
-                          <div
-                            className="w-10 h-10 rounded-md flex items-center justify-center text-white font-bold text-sm shrink-0"
-                            style={{
-                              backgroundColor: l.color_gantt || '#64748b',
-                            }}
-                          >
-                            {l.secuencia}
-                          </div>
-
-                          {/* Info proceso */}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-start justify-between gap-2 mb-3 flex-wrap">
-                              <div>
-                                <div className="font-semibold flex items-center gap-2 flex-wrap">
-                                  {l.nombre_proceso}
-                                  {l.es_opcional && (
-                                    <Badge
-                                      variant="outline"
-                                      className="bg-amber-50 text-amber-900 border-amber-300 text-xs"
-                                    >
-                                      Opcional
-                                    </Badge>
-                                  )}
+                  {lineasOrdenadas.map((l, idx) => {
+                    const escalaM2 = l.escala_por_m2 ?? true
+                    return (
+                      <Card key={l._uid}>
+                        <CardContent className="p-4">
+                          <div className="flex items-start gap-3">
+                            <div
+                              className="w-10 h-10 rounded-md flex items-center justify-center text-white font-bold text-sm shrink-0"
+                              style={{ backgroundColor: l.color_gantt || '#64748b' }}
+                            >
+                              {l.secuencia}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start justify-between gap-2 mb-3 flex-wrap">
+                                <div>
+                                  <div className="font-semibold flex items-center gap-2 flex-wrap">
+                                    {l.nombre_proceso}
+                                    {l.es_opcional && (
+                                      <Badge variant="outline" className="bg-amber-50 text-amber-900 border-amber-300 text-xs">
+                                        Opcional
+                                      </Badge>
+                                    )}
+                                    {!escalaM2 && (
+                                      <Badge variant="outline" className="bg-slate-50 text-slate-700 text-xs">
+                                        Tiempo fijo
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground font-mono">
+                                    {l.codigo_proceso}
+                                  </div>
                                 </div>
-                                <div className="text-xs text-muted-foreground font-mono">
-                                  {l.codigo_proceso}
+                                <div className="flex gap-1">
+                                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => moverLinea(l._uid, 'arriba')} disabled={idx === 0}>
+                                    <ArrowUp className="w-3.5 h-3.5" />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => moverLinea(l._uid, 'abajo')} disabled={idx === lineasOrdenadas.length - 1}>
+                                    <ArrowDown className="w-3.5 h-3.5" />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" className="h-7 w-7 text-red-600 hover:text-red-700" onClick={() => eliminarLinea(l._uid)}>
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </Button>
                                 </div>
                               </div>
-                              <div className="flex gap-1">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7"
-                                  onClick={() => moverLinea(l._uid, 'arriba')}
-                                  disabled={idx === 0}
-                                  title="Subir"
-                                >
-                                  <ArrowUp className="w-3.5 h-3.5" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7"
-                                  onClick={() => moverLinea(l._uid, 'abajo')}
-                                  disabled={idx === lineasOrdenadas.length - 1}
-                                  title="Bajar"
-                                >
-                                  <ArrowDown className="w-3.5 h-3.5" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 text-red-600 hover:text-red-700"
-                                  onClick={() => eliminarLinea(l._uid)}
-                                  title="Quitar del flujo"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </Button>
-                              </div>
-                            </div>
 
-                            {/* Tiempos */}
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                              <div className="space-y-1">
-                                <Label className="text-xs">
-                                  Tiempo base (min)
-                                </Label>
-                                <Input
-                                  type="number"
-                                  step="0.5"
-                                  min={0}
-                                  className="h-8"
-                                  value={l.tiempo_base_minutos}
-                                  onChange={(e) =>
-                                    actualizarLinea(l._uid, {
-                                      tiempo_base_minutos: Number(
-                                        e.target.value
-                                      ),
-                                    })
-                                  }
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">
-                                  Tiempo por m² (min)
-                                </Label>
-                                <Input
-                                  type="number"
-                                  step="0.5"
-                                  min={0}
-                                  className="h-8"
-                                  value={l.tiempo_por_m2_minutos}
-                                  onChange={(e) =>
-                                    actualizarLinea(l._uid, {
-                                      tiempo_por_m2_minutos: Number(
-                                        e.target.value
-                                      ),
-                                    })
-                                  }
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">Secuencia</Label>
-                                <Input
-                                  type="number"
-                                  min={1}
-                                  className="h-8"
-                                  value={l.secuencia}
-                                  onChange={(e) =>
-                                    actualizarLinea(l._uid, {
-                                      secuencia: Number(e.target.value),
-                                    })
-                                  }
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">Depende de (sec.)</Label>
-                                <Input
-                                  type="number"
-                                  min={0}
-                                  className="h-8"
-                                  placeholder="—"
-                                  value={l.depende_de_secuencia ?? ''}
-                                  onChange={(e) =>
-                                    actualizarLinea(l._uid, {
-                                      depende_de_secuencia:
-                                        e.target.value === ''
-                                          ? null
-                                          : Number(e.target.value),
-                                    })
-                                  }
-                                />
-                              </div>
-                            </div>
+                              {/* Tiempos — solo mostrar m² si aplica */}
+                              <div className={`grid gap-3 mb-3 ${escalaM2 ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-2 md:grid-cols-3'}`}>
+                                <div className="space-y-1">
+                                  <Label className="text-xs flex items-center">
+                                    Tiempo base (min)
+                                    <Tooltip texto="Minutos fijos del paso, siempre iguales" />
+                                  </Label>
+                                  <Input
+                                    type="number"
+                                    step="0.5"
+                                    min={0}
+                                    className="h-8"
+                                    value={l.tiempo_base_minutos}
+                                    onChange={(e) => actualizarLinea(l._uid, { tiempo_base_minutos: Number(e.target.value) })}
+                                  />
+                                </div>
 
-                            {/* Factores complejidad */}
-                            <div className="grid grid-cols-3 gap-3 mb-3">
-                              <div className="space-y-1">
-                                <Label className="text-xs">Factor simple ×</Label>
-                                <Input
-                                  type="number"
-                                  step="0.1"
-                                  min={0}
-                                  className="h-8 bg-green-50"
-                                  value={l.factor_simple}
-                                  onChange={(e) =>
-                                    actualizarLinea(l._uid, {
-                                      factor_simple: Number(e.target.value),
-                                    })
-                                  }
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">Factor media ×</Label>
-                                <Input
-                                  type="number"
-                                  step="0.1"
-                                  min={0}
-                                  className="h-8 bg-blue-50"
-                                  value={l.factor_media}
-                                  onChange={(e) =>
-                                    actualizarLinea(l._uid, {
-                                      factor_media: Number(e.target.value),
-                                    })
-                                  }
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">Factor compleja ×</Label>
-                                <Input
-                                  type="number"
-                                  step="0.1"
-                                  min={0}
-                                  className="h-8 bg-red-50"
-                                  value={l.factor_compleja}
-                                  onChange={(e) =>
-                                    actualizarLinea(l._uid, {
-                                      factor_compleja: Number(e.target.value),
-                                    })
-                                  }
-                                />
-                              </div>
-                            </div>
+                                {escalaM2 && (
+                                  <div className="space-y-1">
+                                    <Label className="text-xs flex items-center">
+                                      Tiempo por m² (min)
+                                      <Tooltip texto="Minutos adicionales por cada m² de superficie. Solo procesos físicos (lijado, fondo, lacado)." />
+                                    </Label>
+                                    <Input
+                                      type="number"
+                                      step="0.5"
+                                      min={0}
+                                      className="h-8"
+                                      value={l.tiempo_por_m2_minutos}
+                                      onChange={(e) => actualizarLinea(l._uid, { tiempo_por_m2_minutos: Number(e.target.value) })}
+                                    />
+                                  </div>
+                                )}
 
-                            {/* Opciones extra */}
-                            <div className="flex items-center gap-4 flex-wrap mb-2">
-                              <label className="flex items-center gap-2 text-xs cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={l.es_opcional}
-                                  onChange={(e) =>
-                                    actualizarLinea(l._uid, {
-                                      es_opcional: e.target.checked,
-                                    })
-                                  }
-                                />
-                                <span>Paso opcional (puede saltarse)</span>
-                              </label>
-                            </div>
+                                <div className="space-y-1">
+                                  <Label className="text-xs flex items-center">
+                                    Secuencia
+                                    <Tooltip texto="Orden del paso. 1=primer paso, 2=segundo..." />
+                                  </Label>
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    className="h-8"
+                                    value={l.secuencia}
+                                    onChange={(e) => actualizarLinea(l._uid, { secuencia: Number(e.target.value) })}
+                                  />
+                                </div>
 
-                            {/* Notas */}
-                            <div className="space-y-1">
-                              <Label className="text-xs">Notas internas</Label>
-                              <Input
-                                className="h-8"
-                                value={l.notas ?? ''}
-                                onChange={(e) =>
-                                  actualizarLinea(l._uid, {
-                                    notas: e.target.value || null,
-                                  })
-                                }
-                                placeholder="Indicaciones para el operario..."
-                              />
+                                <div className="space-y-1">
+                                  <Label className="text-xs flex items-center">
+                                    Depende de (sec.)
+                                    <Tooltip texto="Secuencia del paso anterior obligatorio. Déjalo vacío si no depende de nadie." />
+                                  </Label>
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    className="h-8"
+                                    placeholder="—"
+                                    value={l.depende_de_secuencia ?? ''}
+                                    onChange={(e) => actualizarLinea(l._uid, { depende_de_secuencia: e.target.value === '' ? null : Number(e.target.value) })}
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-3 gap-3 mb-3">
+                                <div className="space-y-1">
+                                  <Label className="text-xs flex items-center">
+                                    Factor simple ×
+                                    <Tooltip texto="Multiplicador para piezas simples. Normalmente <1 porque tardan menos." />
+                                  </Label>
+                                  <Input type="number" step="0.1" min={0} className="h-8 bg-green-50"
+                                    value={l.factor_simple}
+                                    onChange={(e) => actualizarLinea(l._uid, { factor_simple: Number(e.target.value) })} />
+                                </div>
+                                <div className="space-y-1">
+                                  <Label className="text-xs flex items-center">
+                                    Factor media ×
+                                    <Tooltip texto="Multiplicador para piezas medias. Valor de referencia (normalmente 1.0)." />
+                                  </Label>
+                                  <Input type="number" step="0.1" min={0} className="h-8 bg-blue-50"
+                                    value={l.factor_media}
+                                    onChange={(e) => actualizarLinea(l._uid, { factor_media: Number(e.target.value) })} />
+                                </div>
+                                <div className="space-y-1">
+                                  <Label className="text-xs flex items-center">
+                                    Factor compleja ×
+                                    <Tooltip texto="Multiplicador para piezas complejas (tallado, repintado, detalles). Normalmente >1." />
+                                  </Label>
+                                  <Input type="number" step="0.1" min={0} className="h-8 bg-red-50"
+                                    value={l.factor_compleja}
+                                    onChange={(e) => actualizarLinea(l._uid, { factor_compleja: Number(e.target.value) })} />
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-4 flex-wrap mb-2">
+                                <label className="flex items-center gap-2 text-xs cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={l.es_opcional}
+                                    onChange={(e) => actualizarLinea(l._uid, { es_opcional: e.target.checked })}
+                                  />
+                                  <span>Paso opcional (puede saltarse)</span>
+                                  <Tooltip texto="Marca esta casilla si este paso no siempre aplica. Ej: Lijado 2 solo en piezas que lo necesitan." />
+                                </label>
+                              </div>
+
+                              <div className="space-y-1">
+                                <Label className="text-xs">Notas internas</Label>
+                                <Input
+                                  className="h-8"
+                                  value={l.notas ?? ''}
+                                  onChange={(e) => actualizarLinea(l._uid, { notas: e.target.value || null })}
+                                  placeholder="Indicaciones para el operario..."
+                                />
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+                        </CardContent>
+                      </Card>
+                    )
+                  })}
 
-                  {/* Resumen tiempo total */}
                   <Card className="bg-slate-50">
                     <CardContent className="py-4 flex items-center gap-3">
                       <Clock className="w-5 h-5 text-slate-600" />
@@ -688,8 +611,7 @@ export default function ProductoDetalleCliente({
                           Tiempo estimado total (complejidad media, 1 m²)
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          Estimación orientativa. El sistema aprenderá con datos reales
-                          cuando se completen tareas.
+                          Estimación orientativa. El sistema aprenderá con datos reales.
                         </div>
                       </div>
                       <div className="text-2xl font-bold text-blue-700">
@@ -698,17 +620,10 @@ export default function ProductoDetalleCliente({
                     </CardContent>
                   </Card>
 
-                  {/* Botón guardar abajo también */}
                   <div className="flex justify-end pt-2">
-                    <Button
-                      onClick={guardarProcesos}
-                      disabled={guardandoProcesos}
-                      size="lg"
-                    >
+                    <Button onClick={guardarProcesos} disabled={guardandoProcesos} size="lg">
                       <Save className="w-4 h-4 mr-2" />
-                      {guardandoProcesos
-                        ? 'Guardando...'
-                        : 'Guardar flujo de procesos'}
+                      {guardandoProcesos ? 'Guardando...' : 'Guardar flujo de procesos'}
                     </Button>
                   </div>
                 </div>
