@@ -1,11 +1,10 @@
-import { createClient } from "@/lib/supabase/server"
-import { notFound } from "next/navigation"
-import VistaPresupuestoCliente from "@/components/presupuestos/vista-presupuesto-cliente"
-import { EMPRESA } from "@/lib/config/empresa"
+import { createClient } from '@/lib/supabase/server'
+import { redirect, notFound } from 'next/navigation'
+import VistaPresupuestoCliente from '@/components/presupuestos/vista-presupuesto-cliente'
 
-export const dynamic = "force-dynamic"
+export const dynamic = 'force-dynamic'
 
-export default async function PresupuestoDetallePage({
+export default async function VistaPresupuestoPage({
   params,
 }: {
   params: Promise<{ id: string }>
@@ -13,64 +12,41 @@ export default async function PresupuestoDetallePage({
   const { id } = await params
   const supabase = await createClient()
 
-  const { data: presupuesto, error } = await supabase
-    .from("presupuestos")
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) redirect('/auth/login')
+
+  // Cargar presupuesto con cliente
+  const { data: presupuesto, error: errPres } = await supabase
+    .from('presupuestos')
     .select(
       `
-      id,
-      numero,
-      fecha,
-      fecha_validez,
-      fecha_entrega_estimada,
-      estado,
-      subtotal,
-      iva,
-      iva_pct,
-      total,
-      observaciones,
-      cliente_id,
-      clientes (
-        id, nombre, cif, email, telefono, direccion
+      *,
+      cliente:clientes(
+        id, nombre_comercial, razon_social, cif_nif, email, telefono,
+        direccion, codigo_postal, ciudad, provincia, persona_contacto
       )
     `
     )
-    .eq("id", id)
+    .eq('id', id)
     .single()
 
-  if (error || !presupuesto) {
+  if (errPres || !presupuesto) {
     notFound()
   }
 
+  // Cargar líneas
   const { data: lineas } = await supabase
-    .from("lineas_presupuesto")
-    .select(
-      `
-      id,
-      orden,
-      descripcion,
-      ancho,
-      alto,
-      grosor,
-      caras,
-      cantidad,
-      superficie_m2,
-      precio_unitario,
-      descuento_pct,
-      subtotal,
-      nivel_complejidad,
-      productos ( nombre ),
-      colores ( nombre, ral ),
-      tratamientos ( nombre )
-    `
-    )
-    .eq("presupuesto_id", id)
-    .order("orden")
+    .from('lineas_presupuesto')
+    .select('*')
+    .eq('presupuesto_id', id)
+    .order('orden')
 
   return (
     <VistaPresupuestoCliente
-      presupuesto={presupuesto as any}
-      lineas={(lineas as any) ?? []}
-      empresa={EMPRESA}
+      presupuestoInicial={presupuesto as any}
+      lineasIniciales={(lineas ?? []) as any}
     />
   )
 }
