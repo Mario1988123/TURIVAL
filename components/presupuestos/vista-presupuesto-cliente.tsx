@@ -1,494 +1,661 @@
-"use client"
+'use client'
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
-import { createClient } from "@/lib/supabase/client"
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
+
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import {
+  FileText,
+  Printer,
+  Mail,
+  MessageCircle,
+  ArrowLeft,
+  Pencil,
+  Eye,
+  Trash2,
+  Square,
+  Minus,
+  Shapes,
+  RectangleHorizontal,
+} from 'lucide-react'
+import VisualizacionPiezaSVG from './visualizacion-pieza-svg'
+
+// ============================================================================
+// TIPOS
+// ============================================================================
 
 type Cliente = {
   id: string
-  nombre: string
-  cif: string | null
+  nombre_comercial: string
+  razon_social: string | null
+  cif_nif: string | null
   email: string | null
   telefono: string | null
   direccion: string | null
+  codigo_postal: string | null
+  ciudad: string | null
+  provincia: string | null
+  persona_contacto: string | null
 }
 
 type Presupuesto = {
   id: string
   numero: string
   fecha: string
-  fecha_validez: string | null
-  fecha_entrega_estimada: string | null
-  estado: string
-  subtotal: number
-  iva: number
-  iva_pct: number
-  total: number
-  observaciones: string | null
+  estado: 'borrador' | 'enviado' | 'aceptado' | 'rechazado' | 'caducado'
   cliente_id: string
-  clientes: Cliente
+  validez_dias: number
+  fecha_entrega_estimada: string | null
+  observaciones_comerciales: string | null
+  observaciones_internas: string | null
+  subtotal: number
+  descuento_porcentaje: number
+  descuento_importe: number
+  base_imponible: number
+  iva_porcentaje: number
+  iva_importe: number
+  total: number
+  created_at: string
+  cliente: Cliente | null
 }
 
 type Linea = {
   id: string
   orden: number
   descripcion: string
-  ancho: number
-  alto: number
-  grosor: number
-  caras: number
   cantidad: number
-  superficie_m2: number
-  precio_unitario: number
-  descuento_pct: number
-  subtotal: number
-  nivel_complejidad: string | null
-  productos: { nombre: string } | null
-  colores: { nombre: string; ral: string | null } | null
-  tratamientos: { nombre: string } | null
+  tipo_pieza: 'tablero' | 'frente' | 'moldura' | 'irregular' | null
+  modo_precio: 'm2' | 'pieza' | 'metro_lineal'
+  ancho: number | null
+  alto: number | null
+  grosor: number | null
+  longitud_ml: number | null
+  cara_frontal: boolean
+  cara_trasera: boolean
+  canto_superior: boolean
+  canto_inferior: boolean
+  canto_izquierdo: boolean
+  canto_derecho: boolean
+  superficie_m2: number | null
+  precio_unitario: number | null
+  total_linea: number
+  suplemento_manual: number
+  color_id: string | null
+  tratamiento_id: string | null
 }
 
-type Empresa = {
-  razonSocial: string
-  nombreComercial: string
-  cif: string
-  direccion: string
-  codigoPostal: string
-  ciudad: string
-  provincia: string
-  telefono: string
-  email: string
-  web: string
-  condiciones: readonly string[]
-  iban: string
-  logoUrl: string
+const ESTADOS: Record<Presupuesto['estado'], { label: string; color: string }> = {
+  borrador: { label: 'Borrador', color: 'bg-slate-100 text-slate-800 border-slate-300' },
+  enviado: { label: 'Enviado', color: 'bg-blue-100 text-blue-800 border-blue-300' },
+  aceptado: { label: 'Aceptado', color: 'bg-green-100 text-green-800 border-green-300' },
+  rechazado: { label: 'Rechazado', color: 'bg-red-100 text-red-800 border-red-300' },
+  caducado: { label: 'Caducado', color: 'bg-amber-100 text-amber-800 border-amber-300' },
 }
 
-const ESTADOS: Record<string, { label: string; color: string }> = {
-  borrador: { label: "Borrador", color: "bg-gray-100 text-gray-700" },
-  enviado: { label: "Enviado", color: "bg-blue-100 text-blue-700" },
-  aceptado: { label: "Aceptado", color: "bg-green-100 text-green-700" },
-  rechazado: { label: "Rechazado", color: "bg-red-100 text-red-700" },
-  caducado: { label: "Caducado", color: "bg-orange-100 text-orange-700" },
+const TIPO_PIEZA_ICONS = {
+  tablero: Square,
+  frente: RectangleHorizontal,
+  moldura: Minus,
+  irregular: Shapes,
 }
 
-const formatoEuro = (n: number) =>
-  Number(n).toLocaleString("es-ES", { style: "currency", currency: "EUR" })
+const euro = (n: number) =>
+  Number(n).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })
 
-const formatoFecha = (f: string | null) =>
-  f ? new Date(f).toLocaleDateString("es-ES") : "—"
+function fechaES(isoDate: string) {
+  try {
+    return new Date(isoDate).toLocaleDateString('es-ES', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric',
+    })
+  } catch {
+    return isoDate
+  }
+}
+
+function fechaValidez(fecha: string, dias: number): string {
+  try {
+    const d = new Date(fecha)
+    d.setDate(d.getDate() + dias)
+    return d.toLocaleDateString('es-ES', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric',
+    })
+  } catch {
+    return '—'
+  }
+}
+
+// ============================================================================
+// COMPONENTE
+// ============================================================================
 
 export default function VistaPresupuestoCliente({
-  presupuesto,
-  lineas,
-  empresa,
+  presupuestoInicial,
+  lineasIniciales,
 }: {
-  presupuesto: Presupuesto
-  lineas: Linea[]
-  empresa: Empresa
+  presupuestoInicial: Presupuesto
+  lineasIniciales: Linea[]
 }) {
   const router = useRouter()
   const supabase = createClient()
+
+  const [presupuesto, setPresupuesto] = useState<Presupuesto>(presupuestoInicial)
+  const [lineas] = useState<Linea[]>(lineasIniciales)
   const [cambiandoEstado, setCambiandoEstado] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [eliminando, setEliminando] = useState(false)
+  const [mensaje, setMensaje] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(
+    null
+  )
 
-  const cliente = presupuesto.clientes
-  const estado = ESTADOS[presupuesto.estado] ?? ESTADOS.borrador
+  const cliente = presupuesto.cliente
 
-  function imprimir() {
-    window.print()
+  async function cambiarEstado(nuevoEstado: Presupuesto['estado']) {
+    setCambiandoEstado(true)
+    setMensaje(null)
+    try {
+      const { error } = await supabase
+        .from('presupuestos')
+        .update({ estado: nuevoEstado })
+        .eq('id', presupuesto.id)
+      if (error) throw error
+      setPresupuesto({ ...presupuesto, estado: nuevoEstado })
+      setMensaje({ tipo: 'ok', texto: `Estado cambiado a "${ESTADOS[nuevoEstado].label}"` })
+    } catch (e: any) {
+      setMensaje({ tipo: 'error', texto: e.message })
+    } finally {
+      setCambiandoEstado(false)
+      setTimeout(() => setMensaje(null), 4000)
+    }
   }
 
-  function descargarPDF() {
-    window.open(`/api/presupuestos/${presupuesto.id}/pdf`, "_blank")
+  async function eliminarPresupuesto() {
+    if (
+      !confirm(
+        `¿Seguro que quieres eliminar el presupuesto ${presupuesto.numero}? Esta acción no se puede deshacer.`
+      )
+    ) {
+      return
+    }
+    setEliminando(true)
+    try {
+      // Eliminar líneas primero (por si no hay cascada)
+      await supabase
+        .from('lineas_presupuesto')
+        .delete()
+        .eq('presupuesto_id', presupuesto.id)
+      const { error } = await supabase
+        .from('presupuestos')
+        .delete()
+        .eq('id', presupuesto.id)
+      if (error) throw error
+      router.push('/presupuestos')
+    } catch (e: any) {
+      setMensaje({ tipo: 'error', texto: e.message })
+      setEliminando(false)
+    }
+  }
+
+  function abrirImprimible() {
+    window.open(`/presupuestos/${presupuesto.id}/imprimir`, '_blank')
   }
 
   function enviarWhatsApp() {
-    if (!cliente.telefono) {
-      alert(
-        "Este cliente no tiene teléfono. Añádelo en su ficha para enviar por WhatsApp."
-      )
+    if (!cliente?.telefono) {
+      setMensaje({
+        tipo: 'error',
+        texto: 'El cliente no tiene teléfono registrado.',
+      })
       return
     }
-    const tel = cliente.telefono.replace(/[^\d]/g, "")
-
-    const urlPDF =
-      typeof window !== "undefined"
-        ? `${window.location.origin}/api/presupuestos/${presupuesto.id}/pdf`
-        : ""
-
-    const texto = `Hola ${cliente.nombre},
-
-Le envío el presupuesto ${presupuesto.numero} con fecha ${formatoFecha(
-      presupuesto.fecha
-    )}.
-
-Importe total: ${formatoEuro(presupuesto.total)}
-Válido hasta: ${formatoFecha(presupuesto.fecha_validez)}
-
-Puede descargar el PDF aquí:
-${urlPDF}
-
-Quedo a su disposición para cualquier aclaración.
-
-Saludos,
-${empresa.nombreComercial}`
-
-    const url = `https://wa.me/${tel}?text=${encodeURIComponent(texto)}`
-    window.open(url, "_blank")
+    const tel = cliente.telefono.replace(/[^0-9]/g, '')
+    const mensaje = encodeURIComponent(
+      `Hola ${cliente.nombre_comercial},\n\nTe adjunto el presupuesto ${presupuesto.numero} por un importe de ${euro(presupuesto.total)}.\n\nPuedes consultarlo en: ${window.location.origin}/presupuestos/${presupuesto.id}/imprimir\n\nGracias,`
+    )
+    window.open(`https://wa.me/${tel}?text=${mensaje}`, '_blank')
   }
 
   function enviarEmail() {
-    if (!cliente.email) {
-      alert(
-        "Este cliente no tiene email. Añádelo en su ficha para enviar por correo."
-      )
+    if (!cliente?.email) {
+      setMensaje({
+        tipo: 'error',
+        texto: 'El cliente no tiene email registrado.',
+      })
       return
     }
+    const asunto = encodeURIComponent(`Presupuesto ${presupuesto.numero}`)
+    const cuerpo = encodeURIComponent(
+      `Hola ${cliente.nombre_comercial},
 
-    const urlPDF =
-      typeof window !== "undefined"
-        ? `${window.location.origin}/api/presupuestos/${presupuesto.id}/pdf`
-        : ""
+Te adjunto el presupuesto ${presupuesto.numero} por un importe de ${euro(presupuesto.total)}.
 
-    const asunto = `Presupuesto ${presupuesto.numero} — ${empresa.nombreComercial}`
-    const cuerpo = `Estimado/a ${cliente.nombre},
+Puedes consultarlo en: ${window.location.origin}/presupuestos/${presupuesto.id}/imprimir
 
-Adjunto le remito el presupuesto ${presupuesto.numero} con fecha ${formatoFecha(
-      presupuesto.fecha
-    )}.
+Tiene una validez de ${presupuesto.validez_dias} días desde la fecha de emisión.
 
-Importe total: ${formatoEuro(presupuesto.total)}
-Válido hasta: ${formatoFecha(presupuesto.fecha_validez)}
+Quedamos a tu disposición para cualquier aclaración.
 
-Puede descargar el PDF desde el siguiente enlace:
-${urlPDF}
-
-Quedo a su disposición para cualquier aclaración.
-
-Atentamente,
-${empresa.nombreComercial}
-${empresa.telefono}
-${empresa.email}`
-
-    const url = `mailto:${cliente.email}?subject=${encodeURIComponent(
-      asunto
-    )}&body=${encodeURIComponent(cuerpo)}`
-    window.location.href = url
+Un saludo,`
+    )
+    window.location.href = `mailto:${cliente.email}?subject=${asunto}&body=${cuerpo}`
   }
 
-  async function cambiarEstado(nuevoEstado: string) {
-    setCambiandoEstado(true)
-    setError(null)
-    const { error } = await supabase
-      .from("presupuestos")
-      .update({ estado: nuevoEstado })
-      .eq("id", presupuesto.id)
-
-    if (error) {
-      setError(error.message)
-    } else {
-      router.refresh()
-    }
-    setCambiandoEstado(false)
-  }
+  const estadoInfo = ESTADOS[presupuesto.estado]
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="bg-white border-b sticky top-0 z-10 print:hidden">
-        <div className="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => router.push("/presupuestos")}
-              className="text-sm text-gray-600 hover:text-gray-900"
-            >
-              ← Volver
-            </button>
-            <div className="text-sm">
-              <span className="font-mono font-medium">
-                {presupuesto.numero}
-              </span>
-              <span
-                className={`ml-3 px-2 py-0.5 rounded-full text-xs font-medium ${estado.color}`}
-              >
-                {estado.label}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <select
-              value={presupuesto.estado}
-              onChange={(e) => cambiarEstado(e.target.value)}
-              disabled={cambiandoEstado}
-              className="text-sm border rounded-lg px-2 py-1.5"
-            >
-              <option value="borrador">Borrador</option>
-              <option value="enviado">Enviado</option>
-              <option value="aceptado">Aceptado</option>
-              <option value="rechazado">Rechazado</option>
-              <option value="caducado">Caducado</option>
-            </select>
-
-            <div className="h-6 w-px bg-gray-300 mx-1" />
-
-            <button
-              onClick={imprimir}
-              className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg"
-              title="Imprimir"
-            >
-              🖨️ Imprimir
-            </button>
-            <button
-              onClick={descargarPDF}
-              className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg"
-              title="Descargar PDF"
-            >
-              📄 PDF
-            </button>
-            <button
-              onClick={enviarWhatsApp}
-              className="px-3 py-1.5 text-sm bg-green-100 hover:bg-green-200 text-green-800 rounded-lg"
-              title="Enviar por WhatsApp"
-            >
-              💬 WhatsApp
-            </button>
-            <button
-              onClick={enviarEmail}
-              className="px-3 py-1.5 text-sm bg-blue-100 hover:bg-blue-200 text-blue-800 rounded-lg"
-              title="Enviar por email"
-            >
-              ✉️ Email
-            </button>
+    <div className="space-y-6">
+      {/* HEADER */}
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex items-start gap-3">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => router.push('/presupuestos')}
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2 flex-wrap">
+              <FileText className="w-8 h-8" />
+              {presupuesto.numero}
+              <Badge className={`text-xs border ${estadoInfo.color}`}>
+                {estadoInfo.label}
+              </Badge>
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              {fechaES(presupuesto.fecha)} · Válido hasta{' '}
+              {fechaValidez(presupuesto.fecha, presupuesto.validez_dias)}
+            </p>
           </div>
         </div>
-        {error && (
-          <div className="max-w-5xl mx-auto px-6 pb-3">
-            <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-sm">
-              {error}
-            </div>
-          </div>
-        )}
+
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" onClick={abrirImprimible}>
+            <Printer className="w-4 h-4 mr-2" />
+            Imprimir / PDF
+          </Button>
+          <Button variant="outline" onClick={enviarWhatsApp}>
+            <MessageCircle className="w-4 h-4 mr-2" />
+            WhatsApp
+          </Button>
+          <Button variant="outline" onClick={enviarEmail}>
+            <Mail className="w-4 h-4 mr-2" />
+            Email
+          </Button>
+        </div>
       </div>
 
-      <div className="max-w-5xl mx-auto p-6 print:p-0">
-        <div className="bg-white border rounded-lg shadow-sm print:border-0 print:shadow-none p-10 print:p-0">
-          <div className="flex items-start justify-between border-b pb-6 mb-6">
-            <div>
-              {empresa.logoUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={empresa.logoUrl}
-                  alt={empresa.nombreComercial}
-                  className="h-16 mb-3"
-                />
-              ) : (
-                <div className="text-3xl font-bold tracking-tight text-gray-900 mb-2">
-                  {empresa.nombreComercial}
-                </div>
-              )}
-              <div className="text-xs text-gray-600 space-y-0.5">
-                <div className="font-medium">{empresa.razonSocial}</div>
-                <div>CIF: {empresa.cif}</div>
-                <div>{empresa.direccion}</div>
-                <div>
-                  {empresa.codigoPostal} {empresa.ciudad} ({empresa.provincia})
-                </div>
-                <div>
-                  Tel: {empresa.telefono} · {empresa.email}
-                </div>
-              </div>
-            </div>
+      {mensaje && (
+        <Alert variant={mensaje.tipo === 'error' ? 'destructive' : 'default'}>
+          <AlertDescription>{mensaje.texto}</AlertDescription>
+        </Alert>
+      )}
 
-            <div className="text-right">
-              <div className="text-xs uppercase tracking-wide text-gray-500">
-                Presupuesto
+      {/* ACCIONES DE ESTADO */}
+      <Card>
+        <CardContent className="flex items-center gap-3 flex-wrap py-4">
+          <div className="flex-1 min-w-40">
+            <Label className="text-xs">Estado del presupuesto</Label>
+            <Select
+              value={presupuesto.estado}
+              onValueChange={(v: Presupuesto['estado']) => cambiarEstado(v)}
+              disabled={cambiandoEstado}
+            >
+              <SelectTrigger className="max-w-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(ESTADOS).map(([k, v]) => (
+                  <SelectItem key={k} value={k}>
+                    {v.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push(`/presupuestos/nuevo?clonar=${presupuesto.id}`)}
+            >
+              <Pencil className="w-4 h-4 mr-1" />
+              Duplicar
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={eliminarPresupuesto}
+              disabled={eliminando}
+              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+            >
+              <Trash2 className="w-4 h-4 mr-1" />
+              Eliminar
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* CLIENTE */}
+      {cliente && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Cliente</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <div className="font-semibold text-lg">{cliente.nombre_comercial}</div>
+                {cliente.razon_social && (
+                  <div className="text-sm text-muted-foreground">
+                    {cliente.razon_social}
+                  </div>
+                )}
+                {cliente.cif_nif && (
+                  <div className="text-sm text-muted-foreground">
+                    CIF/NIF: {cliente.cif_nif}
+                  </div>
+                )}
               </div>
-              <div className="text-2xl font-bold font-mono mt-1">
-                {presupuesto.numero}
-              </div>
-              <div className="mt-4 text-sm space-y-1">
-                <div>
-                  <span className="text-gray-500">Fecha: </span>
-                  <span className="font-medium">
-                    {formatoFecha(presupuesto.fecha)}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-gray-500">Válido hasta: </span>
-                  <span className="font-medium">
-                    {formatoFecha(presupuesto.fecha_validez)}
-                  </span>
-                </div>
-                {presupuesto.fecha_entrega_estimada && (
+              <div className="text-sm space-y-0.5">
+                {cliente.persona_contacto && (
                   <div>
-                    <span className="text-gray-500">Entrega estimada: </span>
-                    <span className="font-medium">
-                      {formatoFecha(presupuesto.fecha_entrega_estimada)}
-                    </span>
+                    <span className="text-muted-foreground">Contacto:</span>{' '}
+                    {cliente.persona_contacto}
+                  </div>
+                )}
+                {cliente.email && (
+                  <div>
+                    <span className="text-muted-foreground">Email:</span> {cliente.email}
+                  </div>
+                )}
+                {cliente.telefono && (
+                  <div>
+                    <span className="text-muted-foreground">Teléfono:</span>{' '}
+                    {cliente.telefono}
+                  </div>
+                )}
+                {(cliente.direccion || cliente.ciudad) && (
+                  <div>
+                    <span className="text-muted-foreground">Dirección:</span>{' '}
+                    {[
+                      cliente.direccion,
+                      cliente.codigo_postal,
+                      cliente.ciudad,
+                      cliente.provincia,
+                    ]
+                      .filter(Boolean)
+                      .join(', ')}
                   </div>
                 )}
               </div>
             </div>
-          </div>
+          </CardContent>
+        </Card>
+      )}
 
-          <div className="mb-6">
-            <div className="text-xs uppercase tracking-wide text-gray-500 mb-2">
-              Cliente
+      {/* LÍNEAS */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">
+            Líneas{' '}
+            <span className="text-muted-foreground font-normal">
+              ({lineas.length})
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {lineas.length === 0 ? (
+            <div className="text-center py-8 text-sm text-muted-foreground">
+              Este presupuesto no tiene líneas.
             </div>
-            <div className="bg-gray-50 rounded-lg p-4 text-sm">
-              <div className="font-semibold text-base">{cliente.nombre}</div>
-              <div className="text-gray-600 mt-1 space-y-0.5">
-                {cliente.cif && <div>CIF/NIF: {cliente.cif}</div>}
-                {cliente.direccion && <div>{cliente.direccion}</div>}
-                <div>
-                  {cliente.email && <span>{cliente.email}</span>}
-                  {cliente.email && cliente.telefono && <span> · </span>}
-                  {cliente.telefono && <span>{cliente.telefono}</span>}
-                </div>
-              </div>
-            </div>
-          </div>
+          ) : (
+            <div className="space-y-4">
+              {lineas.map((l) => {
+                const tipo = l.tipo_pieza ?? 'tablero'
+                const IconTipo = TIPO_PIEZA_ICONS[tipo]
+                return (
+                  <div
+                    key={l.id}
+                    className="border rounded-lg p-4 bg-slate-50"
+                  >
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {/* Info */}
+                      <div className="md:col-span-2 space-y-2">
+                        <div className="flex items-start gap-2 flex-wrap">
+                          <Badge
+                            variant="outline"
+                            className="bg-white flex items-center gap-1"
+                          >
+                            <IconTipo className="w-3 h-3" />
+                            {tipo}
+                          </Badge>
+                          <div className="font-medium flex-1 min-w-40">
+                            {l.descripcion}
+                          </div>
+                        </div>
 
-          <div className="mb-6">
-            <div className="text-xs uppercase tracking-wide text-gray-500 mb-2">
-              Detalle
-            </div>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b-2 border-gray-300">
-                  <th className="text-left py-2 font-semibold">#</th>
-                  <th className="text-left py-2 font-semibold">Descripción</th>
-                  <th className="text-right py-2 font-semibold w-14">Uds</th>
-                  <th className="text-right py-2 font-semibold w-20">m²</th>
-                  <th className="text-right py-2 font-semibold w-24">
-                    € unit.
-                  </th>
-                  <th className="text-right py-2 font-semibold w-14">Dto %</th>
-                  <th className="text-right py-2 font-semibold w-28">
-                    Subtotal
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {lineas.map((l) => (
-                  <tr key={l.id} className="border-b border-gray-100 align-top">
-                    <td className="py-3 text-gray-500">{l.orden}</td>
-                    <td className="py-3 pr-2">
-                      <div className="font-medium">{l.descripcion}</div>
-                      <div className="text-xs text-gray-500 mt-0.5">
-                        {[
-                          l.productos?.nombre,
-                          l.colores?.nombre +
-                            (l.colores?.ral ? ` (${l.colores.ral})` : ""),
-                          l.tratamientos?.nombre,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                        {(l.ancho > 0 || l.alto > 0) && (
-                          <>
-                            {" · "}
-                            {l.ancho}×{l.alto}
-                            {l.grosor ? `×${l.grosor}` : ""} mm
-                          </>
-                        )}
-                        {l.caras > 0 && <> · {l.caras} caras</>}
+                        <div className="text-xs text-muted-foreground grid grid-cols-2 md:grid-cols-4 gap-x-3 gap-y-1">
+                          {tipo === 'moldura' ? (
+                            <>
+                              <div>
+                                Longitud:{' '}
+                                <strong>
+                                  {Number(l.longitud_ml ?? 0).toFixed(2)} m
+                                </strong>
+                              </div>
+                              <div>
+                                Perfil:{' '}
+                                <strong>
+                                  {l.ancho ?? '?'} × {l.grosor ?? '?'} mm
+                                </strong>
+                              </div>
+                            </>
+                          ) : tipo === 'irregular' ? (
+                            <div className="col-span-full">
+                              Pieza irregular — precio pactado
+                            </div>
+                          ) : (
+                            <>
+                              <div>
+                                Dimensiones:{' '}
+                                <strong>
+                                  {l.ancho ?? 0} × {l.alto ?? 0} × {l.grosor ?? 0} mm
+                                </strong>
+                              </div>
+                              <div>
+                                Superficie:{' '}
+                                <strong>
+                                  {Number(l.superficie_m2 ?? 0).toFixed(3)} m²
+                                </strong>
+                              </div>
+                              <div className="col-span-2">
+                                Caras lacadas:{' '}
+                                <strong>
+                                  {[
+                                    l.cara_frontal && 'Frontal',
+                                    l.cara_trasera && 'Trasera',
+                                    l.canto_superior && 'Canto sup.',
+                                    l.canto_inferior && 'Canto inf.',
+                                    l.canto_izquierdo && 'Canto izq.',
+                                    l.canto_derecho && 'Canto der.',
+                                  ]
+                                    .filter(Boolean)
+                                    .join(', ') || 'ninguna'}
+                                </strong>
+                              </div>
+                            </>
+                          )}
+                          <div>
+                            Modo:{' '}
+                            <strong>
+                              {l.modo_precio === 'm2'
+                                ? 'por m²'
+                                : l.modo_precio === 'pieza'
+                                ? 'por pieza'
+                                : 'por m.l.'}
+                            </strong>
+                          </div>
+                          <div>
+                            Cantidad: <strong>{l.cantidad}</strong>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 pt-1 text-sm">
+                          <span className="text-muted-foreground">
+                            Precio/ud:
+                          </span>
+                          <span className="font-medium">
+                            {euro(Number(l.precio_unitario ?? 0))}
+                          </span>
+                          {Number(l.suplemento_manual) > 0 && (
+                            <>
+                              <span className="text-muted-foreground">
+                                + Suplemento:
+                              </span>
+                              <span className="font-medium">
+                                {euro(Number(l.suplemento_manual))}
+                              </span>
+                            </>
+                          )}
+                          <span className="ml-auto text-lg font-bold text-blue-700">
+                            {euro(Number(l.total_linea))}
+                          </span>
+                        </div>
                       </div>
-                    </td>
-                    <td className="py-3 text-right">{l.cantidad}</td>
-                    <td className="py-3 text-right text-gray-600">
-                      {Number(l.superficie_m2).toFixed(3)}
-                    </td>
-                    <td className="py-3 text-right">
-                      {formatoEuro(l.precio_unitario)}
-                    </td>
-                    <td className="py-3 text-right text-gray-600">
-                      {Number(l.descuento_pct) > 0
-                        ? `${l.descuento_pct}%`
-                        : "—"}
-                    </td>
-                    <td className="py-3 text-right font-medium">
-                      {formatoEuro(l.subtotal)}
-                    </td>
-                  </tr>
-                ))}
-                {lineas.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={7}
-                      className="py-6 text-center text-sm text-gray-500"
-                    >
-                      Sin líneas.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
 
-          <div className="flex justify-end mb-8">
-            <div className="w-72 text-sm space-y-1">
-              <div className="flex justify-between py-1">
-                <span className="text-gray-600">Subtotal</span>
-                <span className="font-medium">
-                  {formatoEuro(presupuesto.subtotal)}
-                </span>
-              </div>
-              <div className="flex justify-between py-1">
-                <span className="text-gray-600">
-                  IVA ({presupuesto.iva_pct}%)
-                </span>
-                <span className="font-medium">
-                  {formatoEuro(presupuesto.iva)}
-                </span>
-              </div>
-              <div className="flex justify-between py-2 border-t-2 border-gray-300 text-base">
-                <span className="font-bold">TOTAL</span>
-                <span className="font-bold text-blue-700">
-                  {formatoEuro(presupuesto.total)}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {presupuesto.observaciones && (
-            <div className="mb-6">
-              <div className="text-xs uppercase tracking-wide text-gray-500 mb-2">
-                Observaciones
-              </div>
-              <div className="bg-gray-50 rounded-lg p-4 text-sm whitespace-pre-wrap">
-                {presupuesto.observaciones}
-              </div>
+                      {/* SVG pequeño */}
+                      <div className="md:col-span-1">
+                        <VisualizacionPiezaSVG
+                          datos={{
+                            tipo_pieza: tipo,
+                            ancho: Number(l.ancho ?? 0),
+                            alto: Number(l.alto ?? 0),
+                            grosor: Number(l.grosor ?? 0),
+                            longitud_ml: Number(l.longitud_ml ?? 0),
+                            cara_frontal: l.cara_frontal,
+                            cara_trasera: l.cara_trasera,
+                            canto_superior: l.canto_superior,
+                            canto_inferior: l.canto_inferior,
+                            canto_izquierdo: l.canto_izquierdo,
+                            canto_derecho: l.canto_derecho,
+                            color_hex: null,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           )}
+        </CardContent>
+      </Card>
 
-          <div className="border-t pt-6 text-xs text-gray-500">
-            <div className="font-semibold text-gray-700 mb-2">Condiciones</div>
-            <ul className="space-y-1 list-disc list-inside">
-              {empresa.condiciones.map((c, i) => (
-                <li key={i}>{c}</li>
-              ))}
-            </ul>
-            {empresa.iban && (
-              <div className="mt-3">
-                <span className="font-medium">IBAN:</span> {empresa.iban}
+      {/* TOTALES */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Totales</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="max-w-md ml-auto space-y-1 text-sm">
+            <div className="flex justify-between py-1">
+              <span className="text-muted-foreground">Subtotal</span>
+              <span className="font-medium">
+                {euro(Number(presupuesto.subtotal))}
+              </span>
+            </div>
+            {Number(presupuesto.descuento_porcentaje) > 0 && (
+              <div className="flex justify-between py-1">
+                <span className="text-muted-foreground">
+                  Descuento ({presupuesto.descuento_porcentaje}%)
+                </span>
+                <span className="font-medium text-red-600">
+                  −{euro(Number(presupuesto.descuento_importe))}
+                </span>
               </div>
             )}
+            <div className="flex justify-between py-1">
+              <span className="text-muted-foreground">Base imponible</span>
+              <span className="font-medium">
+                {euro(Number(presupuesto.base_imponible))}
+              </span>
+            </div>
+            <div className="flex justify-between py-1">
+              <span className="text-muted-foreground">
+                IVA ({presupuesto.iva_porcentaje}%)
+              </span>
+              <span className="font-medium">
+                {euro(Number(presupuesto.iva_importe))}
+              </span>
+            </div>
+            <div className="flex justify-between py-2 border-t mt-2 text-lg">
+              <span className="font-bold">TOTAL</span>
+              <span className="font-bold text-blue-700">
+                {euro(Number(presupuesto.total))}
+              </span>
+            </div>
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
-      <style jsx global>{`
-        @media print {
-          body {
-            background: white !important;
-          }
-          @page {
-            size: A4;
-            margin: 15mm;
-          }
-        }
-      `}</style>
+      {/* OBSERVACIONES */}
+      {(presupuesto.observaciones_comerciales ||
+        presupuesto.observaciones_internas) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Observaciones</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            {presupuesto.observaciones_comerciales && (
+              <div>
+                <div className="text-xs font-semibold text-muted-foreground mb-1">
+                  Para el cliente
+                </div>
+                <div className="bg-slate-50 rounded p-3 whitespace-pre-wrap">
+                  {presupuesto.observaciones_comerciales}
+                </div>
+              </div>
+            )}
+            {presupuesto.observaciones_internas && (
+              <div>
+                <div className="text-xs font-semibold text-muted-foreground mb-1">
+                  Internas (no se imprimen)
+                </div>
+                <div className="bg-amber-50 rounded p-3 whitespace-pre-wrap">
+                  {presupuesto.observaciones_internas}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
+}
+
+// Helper Label reimported (no estaba)
+function Label({ className = '', children }: { className?: string; children: any }) {
+  return <div className={`text-xs font-medium text-slate-700 mb-1 ${className}`}>{children}</div>
 }
