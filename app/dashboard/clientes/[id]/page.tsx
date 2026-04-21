@@ -1,5 +1,6 @@
 'use client'
 
+
 import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { obtenerCliente, obtenerEstadisticasCliente, cambiarTipoCliente } from '@/lib/services'
