@@ -391,11 +391,14 @@ export default function NuevoPresupuestoCliente() {
       setClientes(resCli.clientes ?? [])
       const [prodRes, colRes, trRes, tarRes, nvRes] = await Promise.all([
         supabase.from('productos').select('*').order('nombre'),
+        // R2a: colores ahora viven en tabla `materiales` con tipo='lacado'.
+        // Mapeamos el resultado a la forma ColorItem que espera este componente.
         supabase
-          .from('colores')
-          .select('id, codigo, nombre, tipo, hex_aproximado, sobrecoste, activo')
+          .from('materiales')
+          .select('id, codigo, nombre, familia, hex_aproximado, activo')
+          .eq('tipo', 'lacado')
           .eq('activo', true)
-          .order('codigo')
+          .order('codigo', { ascending: true, nullsFirst: false })
           .range(0, 4999),
         supabase.from('tratamientos').select('id, nombre').order('nombre'),
         supabase.from('tarifas').select('*').eq('activo', true).range(0, 999),
@@ -406,7 +409,17 @@ export default function NuevoPresupuestoCliente() {
           .order('orden'),
       ])
       setProductos((prodRes.data ?? []) as Producto[])
-      setColores((colRes.data ?? []) as ColorItem[])
+      setColores(
+        ((colRes.data ?? []) as any[]).map((m) => ({
+          id:             m.id,
+          codigo:         m.codigo ?? '',
+          nombre:         m.nombre,
+          tipo:           m.familia ?? 'referencia_interna',
+          hex_aproximado: m.hex_aproximado,
+          sobrecoste:     0, // deprecated R2a
+          activo:         Boolean(m.activo),
+        })) as ColorItem[]
+      )
       setTratamientos((trRes.data ?? []) as Tratamiento[])
       setTarifas((tarRes.data ?? []) as Tarifa[])
       setNiveles((nvRes.data ?? []) as NivelComplejidad[])
