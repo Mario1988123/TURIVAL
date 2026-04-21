@@ -68,7 +68,6 @@ function formatearMinutos(min: number | null | undefined): string {
 }
 
 function formatearDiferencia(ms: number): string {
-  // ms positivo = queda tiempo; negativo = se pasó
   const abs = Math.abs(ms)
   const mins = Math.floor(abs / 60000)
   if (mins < 1) return 'menos de 1 min'
@@ -113,22 +112,16 @@ export default function TareaCard({
   const prioridad = pedido?.prioridad ?? 'normal'
   const prioridadInfo = PRIORIDAD_BADGE[prioridad] ?? PRIORIDAD_BADGE.normal
 
-  // Cuenta atrás secado
   const finSecadoMs =
     estado === 'en_secado' && tarea?.fecha_fin_secado
       ? new Date(tarea.fecha_fin_secado).getTime() - ahora
       : null
   const secadoListo = finSecadoMs != null && finSecadoMs <= 0
 
-  // Cronómetro en progreso
   const transcurridoMs =
     estado === 'en_progreso' && tarea?.fecha_inicio_real
       ? ahora - new Date(tarea.fecha_inicio_real).getTime()
       : null
-
-  // =========================================================
-  // Acciones
-  // =========================================================
 
   function completar() {
     startTransition(async () => {
@@ -181,13 +174,8 @@ export default function TareaCard({
     })
   }
 
-  // =========================================================
-  // Render
-  // =========================================================
-
   return (
     <div className="bg-white rounded-lg border shadow-sm p-3 space-y-2 hover:shadow-md transition">
-      {/* Header: proceso + prioridad */}
       <div className="flex items-start justify-between gap-2">
         <div
           className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-sm font-bold text-white"
@@ -211,7 +199,6 @@ export default function TareaCard({
         </div>
       </div>
 
-      {/* Datos de la pieza */}
       <div className="space-y-0.5 text-xs">
         <div className="font-mono font-semibold text-sm flex items-center gap-1">
           <Package className="w-3.5 h-3.5" />
@@ -229,7 +216,7 @@ export default function TareaCard({
           <div className="flex items-center gap-1.5">
             <span
               className="w-3 h-3 rounded-full border"
-              style={{ backgroundColor: color.codigo_hex || '#ccc' }}
+              style={{ backgroundColor: color.hex_aproximado || '#ccc' }}
             />
             <span>{color.nombre}</span>
           </div>
@@ -241,7 +228,6 @@ export default function TareaCard({
         )}
       </div>
 
-      {/* Operario / cronómetro / cuenta atrás */}
       {operarioAsignado && (
         <div className="flex items-center gap-1.5 text-xs">
           <span
@@ -286,7 +272,6 @@ export default function TareaCard({
         </div>
       )}
 
-      {/* Botones según estado */}
       <div className="flex flex-wrap gap-1.5 pt-1">
         {(estado === 'pendiente' || estado === 'en_cola') && (
           <>
@@ -362,7 +347,6 @@ export default function TareaCard({
         )}
       </div>
 
-      {/* Modales */}
       {iniciarOpen && (
         <DialogIniciar
           open={iniciarOpen}
