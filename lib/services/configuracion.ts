@@ -1,7 +1,21 @@
 import { createClient } from '../supabase/client'
 
+/**
+ * Interfaz Configuración de Empresa — ampliada en R3 con parámetros ERP.
+ *
+ * Campos originales (datos fiscales, logo, textos) + campos nuevos del
+ * rediseño ERP añadidos por el script 022:
+ *   - Rendimientos kg/m² (lacado y fondo)
+ *   - Ratios de mezcla (catalizador y disolvente, separados lacado/fondo)
+ *   - Coste €/min operario + jornada horas
+ *   - % margen objetivo
+ *   - Ancho mínimo pistola cm (también ancho del ml)
+ *   - IDs de catalizador y disolvente por defecto
+ */
 export interface ConfiguracionEmpresa {
   id: number
+
+  // Datos fiscales
   razon_social: string | null
   nombre_comercial: string | null
   cif_nif: string | null
@@ -18,12 +32,27 @@ export interface ConfiguracionEmpresa {
   texto_pie_presupuesto: string | null
   condiciones_pago_default: string | null
   iva_default: number | null
+
+  // R3: Parámetros ERP (rediseño)
+  rendimiento_lacado_kg_m2: number
+  rendimiento_fondo_kg_m2:  number
+  ratio_cata_lacado:        number
+  ratio_dis_lacado:         number
+  ratio_cata_fondo:         number
+  ratio_dis_fondo:          number
+  coste_minuto_operario:    number
+  jornada_horas:            number
+  margen_objetivo_porcentaje: number
+  ancho_minimo_pistola_cm:  number
+  material_catalizador_default_id: string | null
+  material_disolvente_default_id:  string | null
+
   created_at: string
   updated_at: string
 }
 
 /**
- * Obtener configuración empresa (fila singleton id=1)
+ * Obtener configuración empresa (fila singleton id=1).
  */
 export async function obtenerConfiguracionEmpresa(): Promise<ConfiguracionEmpresa | null> {
   const supabase = createClient()
@@ -41,17 +70,19 @@ export async function obtenerConfiguracionEmpresa(): Promise<ConfiguracionEmpres
 }
 
 /**
- * Actualizar configuración empresa
+ * Actualizar configuración empresa.
  */
 export async function actualizarConfiguracionEmpresa(
   cambios: Partial<Omit<ConfiguracionEmpresa, 'id' | 'created_at' | 'updated_at'>>
 ): Promise<ConfiguracionEmpresa> {
   const supabase = createClient()
 
-  // UPSERT: si no existe fila singleton, la crea; si existe, la actualiza
   const { data, error } = await supabase
     .from('configuracion_empresa')
-    .upsert({ id: 1, ...cambios }, { onConflict: 'id' })
+    .upsert(
+      { id: 1, ...cambios, updated_at: new Date().toISOString() },
+      { onConflict: 'id' }
+    )
     .select('*')
     .single()
 
@@ -64,7 +95,6 @@ export async function actualizarConfiguracionEmpresa(
 
 /**
  * Subir logo al bucket Storage "empresa-assets" y devolver URL pública.
- * Sobrescribe el logo existente si lo hay.
  */
 export async function subirLogoEmpresa(file: File): Promise<string> {
   const supabase = createClient()
@@ -77,16 +107,14 @@ export async function subirLogoEmpresa(file: File): Promise<string> {
     throw new Error('Formato no permitido. Usa PNG, JPG, SVG o WEBP.')
   }
 
-  // Nombre único con extensión original
   const ext = file.name.split('.').pop() || 'png'
   const nombreArchivo = `logo-${Date.now()}.${ext}`
 
-  // Subir
-  const { data: uploadData, error: uploadError } = await supabase.storage
+  const { error: uploadError } = await supabase.storage
     .from('empresa-assets')
     .upload(nombreArchivo, file, {
       cacheControl: '3600',
-      upsert: false,
+      upsert: true,
     })
 
   if (uploadError) {
@@ -94,22 +122,30 @@ export async function subirLogoEmpresa(file: File): Promise<string> {
     throw uploadError
   }
 
-  // URL pública
-  const { data: urlData } = supabase.storage
+  const { data } = supabase.storage
     .from('empresa-assets')
-    .getPublicUrl(uploadData.path)
+    .getPublicUrl(nombreArchivo)
 
-  return urlData.publicUrl
+  return data.publicUrl
 }
 
 /**
- * Eliminar logo del Storage (opcional, no crítico)
+ * Helper: extraer solo los parámetros ERP de la configuración.
+ * Útil para pasarlos a los motores de cálculo sin arrastrar datos fiscales.
  */
-export async function eliminarLogoEmpresa(url: string): Promise<void> {
-  const supabase = createClient()
-  // Extraer nombre del archivo desde la URL
-  const partes = url.split('/empresa-assets/')
-  if (partes.length !== 2) return
-  const nombreArchivo = partes[1]
-  await supabase.storage.from('empresa-assets').remove([nombreArchivo])
+export function extraerConfigErp(c: ConfiguracionEmpresa) {
+  return {
+    rendimiento_lacado_kg_m2:   Number(c.rendimiento_lacado_kg_m2 ?? 0.12),
+    rendimiento_fondo_kg_m2:    Number(c.rendimiento_fondo_kg_m2  ?? 0.15),
+    ratio_cata_lacado:          Number(c.ratio_cata_lacado        ?? 8),
+    ratio_dis_lacado:           Number(c.ratio_dis_lacado         ?? 4),
+    ratio_cata_fondo:           Number(c.ratio_cata_fondo         ?? 12),
+    ratio_dis_fondo:            Number(c.ratio_dis_fondo          ?? 6),
+    coste_minuto_operario:      Number(c.coste_minuto_operario    ?? 0.40),
+    jornada_horas:              Number(c.jornada_horas            ?? 8),
+    margen_objetivo_porcentaje: Number(c.margen_objetivo_porcentaje ?? 30),
+    ancho_minimo_pistola_cm:    Number(c.ancho_minimo_pistola_cm  ?? 15),
+    material_catalizador_default_id: c.material_catalizador_default_id ?? null,
+    material_disolvente_default_id:  c.material_disolvente_default_id  ?? null,
+  }
 }
