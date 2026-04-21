@@ -52,16 +52,32 @@ function fechaInicioHoy(): string {
   return d.toISOString()
 }
 
+function formatearMinutos(m: number): string {
+  const mins = Math.max(0, Math.round(m))
+  if (mins < 1) return 'menos de 1 min'
+  if (mins < 60) return `${mins} min`
+  const h = Math.floor(mins / 60)
+  const r = mins % 60
+  return r === 0 ? `${h} h` : `${h} h ${r} min`
+}
+
+function etiquetaEstadoLegible(estado: string): string {
+  switch (estado) {
+    case 'pendiente':    return 'pendiente'
+    case 'en_cola':      return 'en cola'
+    case 'en_progreso':  return 'en progreso'
+    case 'en_secado':    return 'en secado'
+    case 'completada':   return 'completada'
+    case 'incidencia':   return 'con incidencia'
+    case 'anulada':      return 'anulada'
+    default:             return estado
+  }
+}
+
 // =============================================================
 // CONSULTAS
 // =============================================================
 
-/**
- * Tareas para el panel de producción.
- * Por defecto trae: pendiente, en_cola, en_progreso, en_secado + las
- * completadas de hoy (si incluirCompletadasHoy=true, default true).
- * Cada fila incluye info enriquecida de pieza, línea, pedido, color, etc.
- */
 export async function listarTareasParaPanel(filtros: FiltrosPanel = {}) {
   const supabase = await createClient()
   const incluirCompHoy = filtros.incluirCompletadasHoy ?? true
@@ -117,7 +133,6 @@ export async function listarTareasParaPanel(filtros: FiltrosPanel = {}) {
   if (error) throw error
   let rows: any[] = (data ?? []) as any[]
 
-  // Filtrar "completadas" para que solo muestre las de hoy
   if (incluirCompHoy) {
     const hoy = fechaInicioHoy()
     rows = rows.filter((t: any) => {
@@ -126,7 +141,6 @@ export async function listarTareasParaPanel(filtros: FiltrosPanel = {}) {
     })
   }
 
-  // Filtro por pedido (post-query)
   if (filtros.pedidoId) {
     rows = rows.filter(
       (t: any) => t?.pieza?.linea_pedido?.pedido?.id === filtros.pedidoId
@@ -136,7 +150,6 @@ export async function listarTareasParaPanel(filtros: FiltrosPanel = {}) {
   return rows
 }
 
-/** Tareas de una pieza concreta, en orden de secuencia. */
 export async function listarTareasPorPieza(piezaId: string) {
   const supabase = await createClient()
   const { data, error } = await supabase
@@ -153,11 +166,6 @@ export async function listarTareasPorPieza(piezaId: string) {
   return (data ?? []) as any[]
 }
 
-/**
- * Al escanear QR: devuelve la pieza + la tarea "actual" (la primera
- * no completada, que debería ser la que toca). Si hay tareas en
- * en_progreso o en_secado las prioriza.
- */
 export async function obtenerTareaActivaPorQr(qrCodigo: string) {
   const supabase = await createClient()
 
@@ -196,11 +204,14 @@ export async function obtenerTareaActivaPorQr(qrCodigo: string) {
 
 /**
  * Iniciar una tarea. Valida que todas las tareas con secuencia menor
- * estén 'completada' (no 'en_secado', no 'en_progreso').
+ * estén 'completada'. Si alguna bloquea, devuelve un mensaje que
+ * indica QUÉ proceso está pendiente y cuánto tiempo estimado falta
+ * para poder iniciar esta tarea.
  */
 export async function iniciarTarea(tareaId: string, operarioId: string) {
   const supabase = await createClient()
 
+  // 1. Cargar la tarea que queremos iniciar
   const { data: tarea, error: errT } = await supabase
     .from('tareas_produccion')
     .select('id, pieza_id, secuencia, estado, proceso_id')
@@ -208,30 +219,82 @@ export async function iniciarTarea(tareaId: string, operarioId: string) {
     .single()
   if (errT) throw errT
   if (!tarea) throw new Error('Tarea no encontrada')
-  if (!['pendiente', 'en_cola'].includes((tarea as any).estado)) {
+  const tareaActual: any = tarea
+  if (!['pendiente', 'en_cola'].includes(tareaActual.estado)) {
     throw new Error(
-      `La tarea no se puede iniciar desde estado "${(tarea as any).estado}"`
+      `La tarea no se puede iniciar desde estado "${etiquetaEstadoLegible(tareaActual.estado)}"`
     )
   }
 
-  // Validar secuencia: no hay tareas previas no completadas
+  // 2. Cargar tareas previas (secuencia menor) con info de proceso
+  //    para poder decir "Lijado" en vez de "secuencia 1"
   const { data: previas, error: errPrev } = await supabase
     .from('tareas_produccion')
-    .select('id, secuencia, estado')
-    .eq('pieza_id', (tarea as any).pieza_id)
-    .lt('secuencia', (tarea as any).secuencia)
+    .select(`
+      id, secuencia, estado,
+      tiempo_estimado_minutos, fecha_inicio_real, fecha_fin_secado,
+      proceso:procesos_catalogo(
+        id, nombre, abreviatura, requiere_secado, tiempo_secado_minutos
+      )
+    `)
+    .eq('pieza_id', tareaActual.pieza_id)
+    .lt('secuencia', tareaActual.secuencia)
+    .order('secuencia', { ascending: true })
   if (errPrev) throw errPrev
 
-  const bloqueante = (previas ?? []).find(
+  const bloqueantes = (previas ?? []).filter(
     (p: any) => !['completada', 'anulada'].includes(p.estado)
-  )
-  if (bloqueante) {
-    throw new Error(
-      `No se puede iniciar: la tarea de secuencia ${bloqueante.secuencia} está en estado "${bloqueante.estado}".`
-    )
+  ) as any[]
+
+  if (bloqueantes.length > 0) {
+    // Primera bloqueante (la más próxima a completarse) para el mensaje principal
+    const primera = bloqueantes[0]
+    const procPrimera = Array.isArray(primera.proceso)
+      ? primera.proceso[0]
+      : primera.proceso
+    const nombrePrimera = procPrimera?.nombre ?? `secuencia ${primera.secuencia}`
+
+    // Calcular tiempo restante estimado hasta poder iniciar ESTA tarea
+    const ahora = Date.now()
+    let minutosRestantes = 0
+    let estimacionIncompleta = false
+
+    for (const b of bloqueantes) {
+      const proc = Array.isArray(b.proceso) ? b.proceso[0] : b.proceso
+      const estimTrab = Number(b.tiempo_estimado_minutos ?? 0)
+      const estimSec = proc?.requiere_secado
+        ? Number(proc.tiempo_secado_minutos ?? 0)
+        : 0
+
+      if (b.estado === 'en_secado' && b.fecha_fin_secado) {
+        const faltan = (new Date(b.fecha_fin_secado).getTime() - ahora) / 60000
+        minutosRestantes += Math.max(0, faltan)
+      } else if (b.estado === 'en_progreso' && b.fecha_inicio_real) {
+        const transcurridos = (ahora - new Date(b.fecha_inicio_real).getTime()) / 60000
+        minutosRestantes += Math.max(0, estimTrab - transcurridos) + estimSec
+      } else {
+        // pendiente / en_cola / incidencia: sumo estimado completo + secado
+        minutosRestantes += estimTrab + estimSec
+      }
+
+      if (estimTrab === 0 && b.estado !== 'en_secado') {
+        estimacionIncompleta = true
+      }
+    }
+
+    // Construcción del mensaje
+    let msg = `No se puede iniciar todavía: falta que termine "${nombrePrimera}" (${etiquetaEstadoLegible(primera.estado)}).`
+    if (bloqueantes.length > 1) {
+      msg += ` Hay ${bloqueantes.length} tareas previas por completar.`
+    }
+    if (minutosRestantes > 0) {
+      const prefijo = estimacionIncompleta ? 'aprox. ' : ''
+      msg += ` Tiempo estimado restante: ${prefijo}${formatearMinutos(minutosRestantes)}.`
+    }
+    throw new Error(msg)
   }
 
-  // Validar operario existe y activo
+  // 3. Validar operario activo
   const { data: op, error: errOp } = await supabase
     .from('operarios')
     .select('id, activo, nombre')
@@ -242,7 +305,7 @@ export async function iniciarTarea(tareaId: string, operarioId: string) {
     throw new Error('El operario no está activo')
   }
 
-  // Update
+  // 4. Update
   const { data: actualizada, error: errU } = await supabase
     .from('tareas_produccion')
     .update({
@@ -255,21 +318,15 @@ export async function iniciarTarea(tareaId: string, operarioId: string) {
     .single()
   if (errU) throw errU
 
-  // Si la pieza estaba en sin_producir, pasa a en_produccion
   await supabase
     .from('piezas')
     .update({ estado: 'en_produccion' })
-    .eq('id', (tarea as any).pieza_id)
+    .eq('id', tareaActual.pieza_id)
     .eq('estado', 'sin_producir')
 
   return actualizada
 }
 
-/**
- * Completar una tarea en progreso.
- * Si el proceso requiere secado → pasa a 'en_secado' con fecha_fin_secado.
- * Si no → pasa a 'completada' y se propaga.
- */
 export async function completarTarea(tareaId: string) {
   const supabase = await createClient()
   const ahora = new Date()
@@ -293,7 +350,7 @@ export async function completarTarea(tareaId: string) {
 
   const t: any = tarea
   if (t.estado !== 'en_progreso') {
-    throw new Error(`Solo se pueden completar tareas en "en_progreso" (actual: "${t.estado}")`)
+    throw new Error(`Solo se pueden completar tareas en "en progreso" (actual: "${etiquetaEstadoLegible(t.estado)}")`)
   }
 
   let tiempoReal: number | null = null
@@ -356,9 +413,6 @@ export async function completarTarea(tareaId: string) {
   return { tarea: data, estado: 'completada' as const }
 }
 
-/**
- * Forzar fin de secado: pasa de 'en_secado' a 'completada'.
- */
 export async function forzarSeco(tareaId: string) {
   const supabase = await createClient()
   const ahora = new Date()
@@ -373,7 +427,7 @@ export async function forzarSeco(tareaId: string) {
   const t: any = tarea
   if (t.estado !== 'en_secado') {
     throw new Error(
-      `Solo se puede forzar seco desde estado "en_secado" (actual: "${t.estado}")`
+      `Solo se puede forzar seco desde estado "en secado" (actual: "${etiquetaEstadoLegible(t.estado)}")`
     )
   }
 
@@ -400,7 +454,6 @@ export async function forzarSeco(tareaId: string) {
   return data
 }
 
-/** Reportar incidencia: la tarea pasa a 'incidencia'. */
 export async function reportarIncidencia(
   tareaId: string,
   motivo?: string | null
@@ -433,9 +486,6 @@ export async function reportarIncidencia(
   return data
 }
 
-/**
- * Duplicar una tarea para rehacer. Secuencia = max(secuencia) + 1.
- */
 export async function duplicarTarea(tareaId: string) {
   const supabase = await createClient()
 
@@ -492,10 +542,6 @@ export async function duplicarTarea(tareaId: string) {
   return nueva
 }
 
-// =============================================================
-// ASIGNACIÓN DE CANDIDATOS
-// =============================================================
-
 export async function asignarCandidatos(
   tareaId: string,
   operarioIds: string[]
@@ -521,10 +567,6 @@ export async function asignarCandidatos(
 
   return { insertados: operarioIds.length }
 }
-
-// =============================================================
-// PROPAGACIÓN pieza → pedido
-// =============================================================
 
 async function propagarCompletado(piezaId: string) {
   const supabase = await createClient()
