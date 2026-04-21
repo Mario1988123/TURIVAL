@@ -105,12 +105,20 @@ export default function TareaCard({
   const linea = pieza?.linea_pedido ?? {}
   const pedido = linea?.pedido ?? {}
   const cliente = pedido?.cliente ?? {}
+  const producto = linea?.producto ?? null
   const color = pieza?.color ?? null
   const operarioAsignado: Operario | null = tarea?.operario ?? null
   const estado: string = tarea?.estado
   const estadoInfo = ESTADO_BADGE[estado] ?? ESTADO_BADGE.pendiente
   const prioridad = pedido?.prioridad ?? 'normal'
   const prioridadInfo = PRIORIDAD_BADGE[prioridad] ?? PRIORIDAD_BADGE.normal
+
+  // Descripción visible de la pieza: prefiere descripción de la línea,
+  // si no hay, el nombre del producto
+  const descripcionPieza =
+    (typeof linea?.descripcion === 'string' && linea.descripcion.trim()) ||
+    producto?.nombre ||
+    null
 
   const finSecadoMs =
     estado === 'en_secado' && tarea?.fecha_fin_secado
@@ -204,6 +212,11 @@ export default function TareaCard({
           <Package className="w-3.5 h-3.5" />
           {pieza?.numero ?? '—'}
         </div>
+        {descripcionPieza && (
+          <div className="text-sm text-slate-800 font-medium leading-tight">
+            {descripcionPieza}
+          </div>
+        )}
         {pedido?.numero && (
           <div>
             Pedido <span className="font-mono">{pedido.numero}</span>

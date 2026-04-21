@@ -22,14 +22,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 
 import type { Operario } from '@/lib/services/operarios'
 import TareaCard from './tarea-card'
@@ -103,42 +95,29 @@ export default function ProduccionCliente({
   } | null>(null)
   const [refrescando, setRefrescando] = useState(false)
 
-  // =========================================================
-  // Sincronizar con prop tras refresh del server
-  // =========================================================
   useEffect(() => {
     setTareas(tareasIniciales)
   }, [tareasIniciales])
 
-  // =========================================================
-  // Tick cada 30s para refrescar cuentas atrás de secado
-  // =========================================================
   const [ahora, setAhora] = useState<number>(() => Date.now())
   useEffect(() => {
     const id = setInterval(() => setAhora(Date.now()), 30_000)
     return () => clearInterval(id)
   }, [])
 
-  // =========================================================
-  // Toast
-  // =========================================================
   const notificar = useCallback((tipo: 'ok' | 'error', texto: string) => {
     setMensaje({ tipo, texto })
     setTimeout(() => setMensaje(null), 3000)
   }, [])
 
-  // =========================================================
-  // Refresco manual
-  // =========================================================
   async function refrescar() {
     setRefrescando(true)
     router.refresh()
-    // Simulamos un pequeño delay visual; el refresh real llega vía prop.
     setTimeout(() => setRefrescando(false), 600)
   }
 
   // =========================================================
-  // Derivadas: procesos únicos, pedidos únicos
+  // Derivadas: procesos únicos, pedidos únicos (con cliente)
   // =========================================================
   const procesosDisponibles = useMemo(() => {
     const m = new Map<string, { id: string; nombre: string; abrev: string | null }>()
@@ -157,28 +136,28 @@ export default function ProduccionCliente({
   }, [tareas])
 
   const pedidosDisponibles = useMemo(() => {
-    const m = new Map<string, { id: string; numero: string }>()
+    const m = new Map<
+      string,
+      { id: string; numero: string; cliente: string | null }
+    >()
     for (const t of tareas) {
       const p = t?.pieza?.linea_pedido?.pedido
       if (!p?.id) continue
-      if (!m.has(p.id)) m.set(p.id, { id: p.id, numero: p.numero ?? '?' })
+      const cliente = p?.cliente?.nombre_comercial ?? null
+      if (!m.has(p.id)) {
+        m.set(p.id, { id: p.id, numero: p.numero ?? '?', cliente })
+      }
     }
     return Array.from(m.values()).sort((a, b) => a.numero.localeCompare(b.numero))
   }, [tareas])
 
-  // =========================================================
-  // Aplicar filtros
-  // =========================================================
   const tareasFiltradas = useMemo(() => {
     return tareas.filter((t) => {
       if (filtroProceso !== SIN_FILTRO && t?.proceso?.id !== filtroProceso) {
         return false
       }
       if (filtroOperario !== SIN_FILTRO) {
-        // Si el operario asignado es ese O bien está entre los candidatos
-        const asignado = t?.operario_id === filtroOperario
-        // No tenemos candidatos en la carga actual — solo filtrar por operario asignado
-        if (!asignado) return false
+        if (t?.operario_id !== filtroOperario) return false
       }
       if (filtroPedido !== SIN_FILTRO) {
         const pedId = t?.pieza?.linea_pedido?.pedido?.id
@@ -199,9 +178,6 @@ export default function ProduccionCliente({
     setFiltroPedido(SIN_FILTRO)
   }
 
-  // =========================================================
-  // Agrupación para Kanban
-  // =========================================================
   const tareasPorColumna = useMemo(() => {
     const map = new Map<string, any[]>()
     for (const col of ESTADOS_COLUMNAS) map.set(col.key, [])
@@ -212,9 +188,6 @@ export default function ProduccionCliente({
     return map
   }, [tareasFiltradas])
 
-  // =========================================================
-  // Render
-  // =========================================================
   return (
     <div className="space-y-4 pb-20">
       {/* Header */}
@@ -302,7 +275,7 @@ export default function ProduccionCliente({
             </Select>
 
             <Select value={filtroPedido} onValueChange={setFiltroPedido}>
-              <SelectTrigger className="h-8 w-auto min-w-[150px]">
+              <SelectTrigger className="h-8 w-auto min-w-[200px]">
                 <SelectValue placeholder="Pedido" />
               </SelectTrigger>
               <SelectContent>
@@ -310,6 +283,7 @@ export default function ProduccionCliente({
                 {pedidosDisponibles.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
                     {p.numero}
+                    {p.cliente ? ` · ${p.cliente}` : ''}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -384,10 +358,6 @@ export default function ProduccionCliente({
   )
 }
 
-// =============================================================
-// Estado vacío
-// =============================================================
-
 function EstadoVacio({ titulo, mensaje }: { titulo: string; mensaje: string }) {
   return (
     <Card>
@@ -399,10 +369,6 @@ function EstadoVacio({ titulo, mensaje }: { titulo: string; mensaje: string }) {
     </Card>
   )
 }
-
-// =============================================================
-// Vista Kanban
-// =============================================================
 
 function VistaKanban({
   tareasPorColumna,
@@ -472,10 +438,6 @@ function agruparPorProceso(tareas: any[]): Map<string, any[]> {
   return m
 }
 
-// =============================================================
-// Vista Lista
-// =============================================================
-
 function VistaLista({
   tareas,
   operarios,
@@ -487,7 +449,6 @@ function VistaLista({
   ahora: number
   onNotificar: (tipo: 'ok' | 'error', texto: string) => void
 }) {
-  // Ordenar: urgentes primero, luego por fecha de entrega
   const ordenadas = useMemo(() => {
     const pesos: Record<string, number> = {
       urgente: 0,
