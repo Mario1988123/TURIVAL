@@ -38,6 +38,7 @@ import {
   accionConvertirPresupuestoAPedido,
   accionObtenerDatosParaConversion,
   type LineaParaConversion,
+  type PresupuestoParaConversion,
 } from '@/lib/actions/pedidos'
 import type { PrioridadPedido } from '@/lib/services/pedidos'
 
@@ -54,7 +55,7 @@ interface Props {
 }
 
 // =============================================================
-// Helpers de formato
+// Helpers
 // =============================================================
 
 function formatoEuros(n: number): string {
@@ -62,6 +63,23 @@ function formatoEuros(n: number): string {
     style: 'currency',
     currency: 'EUR',
   }).format(n)
+}
+
+/**
+ * Construye una dirección de entrega por defecto a partir del cliente.
+ * Devuelve string vacío si el cliente no tiene datos.
+ */
+function direccionDefectoCliente(
+  cli: PresupuestoParaConversion['cliente']
+): string {
+  if (!cli) return ''
+  const partes = [
+    cli.direccion,
+    cli.codigo_postal,
+    cli.ciudad,
+    cli.provincia,
+  ].filter(Boolean)
+  return partes.join(', ')
 }
 
 // =============================================================
@@ -76,12 +94,14 @@ export function ConvertirAPedidoModal({
   const router = useRouter()
   const [open, setOpen] = useState(false)
 
-  // Estado de carga de datos
+  // Carga de datos
   const [cargando, setCargando] = useState(false)
+  const [presupuesto, setPresupuesto] =
+    useState<PresupuestoParaConversion | null>(null)
   const [lineas, setLineas] = useState<LineaParaConversion[]>([])
   const [errorCarga, setErrorCarga] = useState<string | null>(null)
 
-  // Form
+  // Form state
   const [seleccion, setSeleccion] = useState<Map<string, number>>(new Map())
   const [fechaEntrega, setFechaEntrega] = useState('')
   const [prioridad, setPrioridad] = useState<PrioridadPedido>('normal')
@@ -96,7 +116,7 @@ export function ConvertirAPedidoModal({
   const [errorSubmit, setErrorSubmit] = useState<string | null>(null)
 
   // =============================================================
-  // Cargar datos al abrir
+  // Cargar datos al abrir + PRECARGA
   // =============================================================
 
   useEffect(() => {
@@ -109,9 +129,27 @@ export function ConvertirAPedidoModal({
     accionObtenerDatosParaConversion(presupuestoId)
       .then((res) => {
         if (cancelado) return
-        if (res.ok) {
+        if (res.ok && res.presupuesto) {
+          setPresupuesto(res.presupuesto)
           setLineas(res.lineas)
-        } else {
+
+          // PRECARGA de campos con los datos del presupuesto/cliente
+          if (res.presupuesto.fecha_entrega_estimada) {
+            setFechaEntrega(res.presupuesto.fecha_entrega_estimada)
+          }
+          if (res.presupuesto.observaciones_comerciales) {
+            setObsComerciales(res.presupuesto.observaciones_comerciales)
+          }
+          if (res.presupuesto.observaciones_internas) {
+            setObsInternas(res.presupuesto.observaciones_internas)
+          }
+          const cli = res.presupuesto.cliente
+          if (cli) {
+            setDireccionEntrega(direccionDefectoCliente(cli))
+            setContactoEntrega(cli.persona_contacto ?? '')
+            setTelefonoEntrega(cli.telefono ?? '')
+          }
+        } else if (!res.ok) {
           setErrorCarga(res.error ?? 'Error cargando datos')
         }
       })
@@ -166,6 +204,7 @@ export function ConvertirAPedidoModal({
     setTelefonoEntrega('')
     setErrorSubmit(null)
     setErrorCarga(null)
+    setPresupuesto(null)
     setLineas([])
   }
 
@@ -184,7 +223,6 @@ export function ConvertirAPedidoModal({
       return
     }
 
-    // Validación cliente contra lo que tenemos cargado
     const mapPend = new Map(lineas.map((l) => [l.id, l.cantidad_pendiente]))
     for (const sel of lineasInput) {
       const pend = mapPend.get(sel.lineaPresupuestoId) ?? 0
@@ -274,7 +312,11 @@ export function ConvertirAPedidoModal({
             {presupuestoNumero && (
               <>
                 Presupuesto{' '}
-                <span className="font-mono">{presupuestoNumero}</span>.{' '}
+                <span className="font-mono">{presupuestoNumero}</span>
+                {presupuesto?.cliente?.nombre_comercial && (
+                  <> · Cliente: <strong>{presupuesto.cliente.nombre_comercial}</strong></>
+                )}
+                {'. '}
               </>
             )}
             Selecciona las líneas y cantidades a pedir. Puedes hacer pedidos
@@ -429,13 +471,13 @@ export function ConvertirAPedidoModal({
 
               <div className="space-y-1.5 md:col-span-2">
                 <Label htmlFor="direccionEntrega">
-                  Dirección entrega (opcional)
+                  Dirección entrega
                 </Label>
                 <Input
                   id="direccionEntrega"
                   value={direccionEntrega}
                   onChange={(e) => setDireccionEntrega(e.target.value)}
-                  placeholder="Déjalo vacío si es la misma que la del cliente"
+                  placeholder="Se rellena con la del cliente. Edítala si la entrega es a otro sitio."
                 />
               </div>
 
