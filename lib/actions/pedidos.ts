@@ -4,9 +4,16 @@
 /**
  * Server Actions de PEDIDOS — Capa 4
  *
- * Puente entre Client Components (modales, botones) y el service de pedidos.
- * Todas las acciones devuelven un objeto discriminado { ok: true, ... } |
- * { ok: false, error } para que el cliente pueda manejar errores sin try/catch.
+ * Acciones:
+ *  - accionConvertirPresupuestoAPedido
+ *  - accionObtenerDatosParaConversion
+ *  - accionListarUbicacionesActivas
+ *  - accionConfirmarPedido
+ *  - accionArrancarProduccion
+ *  - accionCancelarPedido
+ *  - accionMoverPieza            (Iter D)
+ *  - accionAñadirLineasAPedido   (Feature B)
+ *  - accionEliminarLineaPedido   (Feature B)
  */
 
 import { revalidatePath } from 'next/cache'
@@ -16,36 +23,14 @@ import {
   confirmarPedido,
   arrancarProduccion,
   cancelarPedido,
+  moverPieza,
   type ConvertirPresupuestoInput,
   type ConfirmarPedidoInput,
 } from '@/lib/services/pedidos'
 import { createClient } from '@/lib/supabase/server'
 
 // =============================================================
-// convertirPresupuestoAPedido
-// =============================================================
-
-export async function accionConvertirPresupuestoAPedido(
-  input: ConvertirPresupuestoInput
-) {
-  try {
-    const pedido = await convertirPresupuestoAPedido(input)
-    revalidatePath('/pedidos')
-    revalidatePath(`/presupuestos/${input.presupuestoId}`)
-    return { ok: true as const, pedido: pedido as any }
-  } catch (e: any) {
-    return {
-      ok: false as const,
-      error: e?.message ?? 'Error inesperado al convertir el presupuesto',
-    }
-  }
-}
-
-// =============================================================
-// obtenerDatosParaConversion
-//
-// Trae datos del presupuesto (fecha entrega estimada, observaciones,
-// cliente completo con dirección) para pre-rellenar el modal.
+// TIPOS compartidos
 // =============================================================
 
 export interface LineaParaConversion {
@@ -77,11 +62,41 @@ export interface PresupuestoParaConversion {
   } | null
 }
 
+export interface UbicacionOpcion {
+  id: string
+  codigo: string
+  nombre: string
+  tipo: 'carrito' | 'estanteria' | 'libre'
+}
+
+// =============================================================
+// convertirPresupuestoAPedido
+// =============================================================
+
+export async function accionConvertirPresupuestoAPedido(
+  input: ConvertirPresupuestoInput
+) {
+  try {
+    const pedido = await convertirPresupuestoAPedido(input)
+    revalidatePath('/pedidos')
+    revalidatePath(`/presupuestos/${input.presupuestoId}`)
+    return { ok: true as const, pedido: pedido as any }
+  } catch (e: any) {
+    return {
+      ok: false as const,
+      error: e?.message ?? 'Error al convertir el presupuesto',
+    }
+  }
+}
+
+// =============================================================
+// obtenerDatosParaConversion
+// =============================================================
+
 export async function accionObtenerDatosParaConversion(presupuestoId: string) {
   try {
     const supabase = await createClient()
 
-    // 1. Cabecera presupuesto + cliente completo
     const { data: presupuesto, error: errP } = await supabase
       .from('presupuestos')
       .select(
@@ -101,7 +116,6 @@ export async function accionObtenerDatosParaConversion(presupuestoId: string) {
     if (errP) throw errP
     if (!presupuesto) throw new Error('Presupuesto no encontrado')
 
-    // 2. Líneas del presupuesto
     const { data: lineasRaw, error: errL } = await supabase
       .from('lineas_presupuesto')
       .select('id, descripcion, cantidad, precio_unitario, orden')
@@ -128,7 +142,6 @@ export async function accionObtenerDatosParaConversion(presupuestoId: string) {
 
     const lineaIds = lineasList.map((l) => l.id)
 
-    // 3. Lineas_pedido que apuntan a estas líneas
     const { data: lineasPed, error: errLP } = await supabase
       .from('lineas_pedido')
       .select('linea_presupuesto_origen_id, cantidad, pedido_id')
@@ -141,7 +154,6 @@ export async function accionObtenerDatosParaConversion(presupuestoId: string) {
       pedido_id: string
     }>
 
-    // 4. Estados de los pedidos implicados (para filtrar cancelados)
     let noCanceladosIds = new Set<string>()
     if (lineasPedList.length > 0) {
       const pedidoIds = [...new Set(lineasPedList.map((l) => l.pedido_id))]
@@ -157,7 +169,6 @@ export async function accionObtenerDatosParaConversion(presupuestoId: string) {
       )
     }
 
-    // 5. Cantidad ya pedida por línea (excluyendo pedidos cancelados)
     const pedidoPorLinea = new Map<string, number>()
     for (const lp of lineasPedList) {
       if (!noCanceladosIds.has(lp.pedido_id)) continue
@@ -168,7 +179,6 @@ export async function accionObtenerDatosParaConversion(presupuestoId: string) {
       )
     }
 
-    // 6. Construir resultado
     const lineas: LineaParaConversion[] = lineasList.map((l) => {
       const orig = Number(l.cantidad ?? 0)
       const pedido = pedidoPorLinea.get(l.id) ?? 0
@@ -199,13 +209,6 @@ export async function accionObtenerDatosParaConversion(presupuestoId: string) {
 // =============================================================
 // listarUbicacionesActivas
 // =============================================================
-
-export interface UbicacionOpcion {
-  id: string
-  codigo: string
-  nombre: string
-  tipo: 'carrito' | 'estanteria' | 'libre'
-}
 
 export async function accionListarUbicacionesActivas() {
   try {
@@ -287,6 +290,328 @@ export async function accionCancelarPedido(
     return {
       ok: false as const,
       error: e?.message ?? 'Error al cancelar el pedido',
+    }
+  }
+}
+
+// =============================================================
+// moverPieza (Iter D)
+// =============================================================
+
+export async function accionMoverPieza(input: {
+  piezaId: string
+  nuevaUbicacionId: string
+  motivo?: string | null
+}) {
+  try {
+    const pieza = await moverPieza(input)
+    // Sin path específico fácil de calcular: revalidamos /pedidos en general
+    revalidatePath('/pedidos')
+    return { ok: true as const, pieza: pieza as any }
+  } catch (e: any) {
+    return {
+      ok: false as const,
+      error: e?.message ?? 'Error al mover la pieza',
+    }
+  }
+}
+
+// =============================================================
+// HELPER interno: recalcular totales de un pedido
+// =============================================================
+
+async function recalcularTotalesPedido(pedidoId: string, supabase: any) {
+  const { data: pedido, error: errP } = await supabase
+    .from('pedidos')
+    .select('descuento_porcentaje, iva_porcentaje')
+    .eq('id', pedidoId)
+    .single()
+  if (errP) throw errP
+
+  const { data: lineas, error: errL } = await supabase
+    .from('lineas_pedido')
+    .select('total_linea')
+    .eq('pedido_id', pedidoId)
+  if (errL) throw errL
+
+  const subtotal = Number(
+    ((lineas ?? []) as Array<{ total_linea: number | null }>)
+      .reduce((s, l) => s + Number(l.total_linea ?? 0), 0)
+      .toFixed(2)
+  )
+  const descPct = Number(pedido?.descuento_porcentaje ?? 0)
+  const descImp = Number(((subtotal * descPct) / 100).toFixed(2))
+  const baseImp = Number((subtotal - descImp).toFixed(2))
+  const ivaPct = Number(pedido?.iva_porcentaje ?? 21)
+  const ivaImp = Number(((baseImp * ivaPct) / 100).toFixed(2))
+  const total = Number((baseImp + ivaImp).toFixed(2))
+
+  const { error: errU } = await supabase
+    .from('pedidos')
+    .update({
+      subtotal,
+      descuento_importe: descImp,
+      base_imponible: baseImp,
+      iva_importe: ivaImp,
+      total,
+    })
+    .eq('id', pedidoId)
+  if (errU) throw errU
+}
+
+// =============================================================
+// añadirLineasAPedido (Feature B)
+// =============================================================
+
+interface SeleccionAñadir {
+  lineaPresupuestoId: string
+  cantidad: number
+}
+
+export async function accionAñadirLineasAPedido(input: {
+  pedidoId: string
+  lineas: SeleccionAñadir[]
+}) {
+  try {
+    if (!input.lineas || input.lineas.length === 0) {
+      throw new Error('No hay líneas para añadir')
+    }
+
+    const supabase = await createClient()
+
+    // 1. Validar que el pedido existe y está en borrador
+    const { data: pedido, error: errP } = await supabase
+      .from('pedidos')
+      .select('id, estado, presupuesto_origen_id')
+      .eq('id', input.pedidoId)
+      .single()
+    if (errP) throw errP
+    if (!pedido) throw new Error('Pedido no encontrado')
+    if ((pedido as any).estado !== 'borrador') {
+      throw new Error(
+        `Solo se pueden añadir líneas a pedidos en estado "borrador" (actual: "${(pedido as any).estado}")`
+      )
+    }
+    if (!(pedido as any).presupuesto_origen_id) {
+      throw new Error(
+        'Este pedido no tiene presupuesto de origen, no se pueden añadir líneas desde un presupuesto'
+      )
+    }
+
+    // 2. Cargar las líneas del presupuesto que se van a añadir
+    const lineaIds = input.lineas.map((l) => l.lineaPresupuestoId)
+    const { data: lineasPres, error: errLP } = await supabase
+      .from('lineas_presupuesto')
+      .select('*')
+      .in('id', lineaIds)
+    if (errLP) throw errLP
+
+    const lineasPresMap = new Map<string, any>(
+      ((lineasPres ?? []) as any[]).map((l) => [l.id, l])
+    )
+
+    // Todas las líneas deben pertenecer al presupuesto origen
+    for (const lp of (lineasPres ?? []) as any[]) {
+      if (lp.presupuesto_id !== (pedido as any).presupuesto_origen_id) {
+        throw new Error(
+          'Al menos una línea no pertenece al presupuesto de origen del pedido'
+        )
+      }
+    }
+
+    // 3. Validar cantidades contra pendiente (calculado en vivo)
+    // Cargar todas las lineas_pedido que apuntan + sus estados
+    const { data: lineasPedPrev, error: errLPed } = await supabase
+      .from('lineas_pedido')
+      .select('linea_presupuesto_origen_id, cantidad, pedido_id')
+      .in('linea_presupuesto_origen_id', lineaIds)
+    if (errLPed) throw errLPed
+
+    const lineasPedPrevList = (lineasPedPrev ?? []) as Array<{
+      linea_presupuesto_origen_id: string
+      cantidad: number | null
+      pedido_id: string
+    }>
+
+    let noCanceladosIds = new Set<string>()
+    if (lineasPedPrevList.length > 0) {
+      const pedidoIds = [...new Set(lineasPedPrevList.map((l) => l.pedido_id))]
+      const { data: peds, error: errPeds } = await supabase
+        .from('pedidos')
+        .select('id, estado')
+        .in('id', pedidoIds)
+      if (errPeds) throw errPeds
+      noCanceladosIds = new Set(
+        ((peds ?? []) as Array<{ id: string; estado: string }>)
+          .filter((p) => p.estado !== 'cancelado')
+          .map((p) => p.id)
+      )
+    }
+
+    const pedidoPorLinea = new Map<string, number>()
+    for (const lp of lineasPedPrevList) {
+      if (!noCanceladosIds.has(lp.pedido_id)) continue
+      const prev = pedidoPorLinea.get(lp.linea_presupuesto_origen_id) ?? 0
+      pedidoPorLinea.set(
+        lp.linea_presupuesto_origen_id,
+        prev + Number(lp.cantidad ?? 0)
+      )
+    }
+
+    // Validar cantidades
+    for (const sel of input.lineas) {
+      if (sel.cantidad <= 0) {
+        throw new Error('Todas las cantidades deben ser mayores que 0')
+      }
+      const linea = lineasPresMap.get(sel.lineaPresupuestoId)
+      if (!linea) throw new Error('Línea de presupuesto no encontrada')
+      const original = Number(linea.cantidad ?? 0)
+      const yaPedido = pedidoPorLinea.get(sel.lineaPresupuestoId) ?? 0
+      const pendiente = original - yaPedido
+      if (sel.cantidad > pendiente) {
+        throw new Error(
+          `Una línea solicita ${sel.cantidad} pero solo quedan ${pendiente} pendientes`
+        )
+      }
+    }
+
+    // 4. Construir payload insert
+    const payload = input.lineas.map((sel) => {
+      const src: any = lineasPresMap.get(sel.lineaPresupuestoId)
+      const precioUnitario = Number(src.precio_unitario ?? 0)
+      return {
+        pedido_id: input.pedidoId,
+        linea_presupuesto_origen_id: src.id,
+        producto_id: src.producto_id,
+        tarifa_id: src.tarifa_id,
+        referencia_cliente_id: src.referencia_cliente_id,
+        acabado_id: src.acabado_id,
+        acabado_texto: src.acabado_texto,
+        descripcion: src.descripcion,
+        orden: src.orden,
+        notas: src.notas,
+        nivel_complejidad: src.nivel_complejidad ?? 2,
+        color_id: src.color_id,
+        tratamiento_id: src.tratamiento_id,
+        tipo_pieza: src.tipo_pieza,
+        modo_precio: src.modo_precio,
+        unidad: src.unidad,
+        cantidad: sel.cantidad,
+        ancho: src.ancho,
+        alto: src.alto,
+        grosor: src.grosor,
+        longitud_ml: src.longitud_ml,
+        superficie_m2: src.superficie_m2,
+        cara_frontal: src.cara_frontal,
+        cara_trasera: src.cara_trasera,
+        canto_superior: src.canto_superior,
+        canto_inferior: src.canto_inferior,
+        canto_izquierdo: src.canto_izquierdo,
+        canto_derecho: src.canto_derecho,
+        precio_unitario: precioUnitario,
+        precio_m2: src.precio_m2,
+        precio_pieza: src.precio_pieza,
+        precio_minimo: src.precio_minimo,
+        suplemento_manual: src.suplemento_manual,
+        suplemento_descripcion: src.suplemento_descripcion,
+        total_linea: Number((precioUnitario * sel.cantidad).toFixed(2)),
+        tiempo_estimado: src.tiempo_estimado,
+        extras: src.extras,
+        material_disponible: false,
+      }
+    })
+
+    // 5. Insert
+    const { error: errIns, data: creadas } = await supabase
+      .from('lineas_pedido')
+      .insert(payload)
+      .select('id')
+    if (errIns) throw errIns
+
+    // 6. Recalcular totales
+    await recalcularTotalesPedido(input.pedidoId, supabase)
+
+    revalidatePath(`/pedidos/${input.pedidoId}`)
+    revalidatePath('/pedidos')
+
+    return {
+      ok: true as const,
+      lineasAñadidas: (creadas ?? []).length,
+    }
+  } catch (e: any) {
+    return {
+      ok: false as const,
+      error: e?.message ?? 'Error al añadir líneas',
+    }
+  }
+}
+
+// =============================================================
+// eliminarLineaPedido (Feature B)
+// =============================================================
+
+export async function accionEliminarLineaPedido(input: {
+  pedidoId: string
+  lineaPedidoId: string
+}) {
+  try {
+    const supabase = await createClient()
+
+    // 1. Pedido en borrador
+    const { data: pedido, error: errP } = await supabase
+      .from('pedidos')
+      .select('id, estado')
+      .eq('id', input.pedidoId)
+      .single()
+    if (errP) throw errP
+    if (!pedido) throw new Error('Pedido no encontrado')
+    if ((pedido as any).estado !== 'borrador') {
+      throw new Error(
+        `Solo se pueden eliminar líneas de pedidos en estado "borrador"`
+      )
+    }
+
+    // 2. La línea pertenece al pedido y no tiene piezas
+    const { data: linea, error: errL } = await supabase
+      .from('lineas_pedido')
+      .select('id, pedido_id')
+      .eq('id', input.lineaPedidoId)
+      .single()
+    if (errL) throw errL
+    if (!linea) throw new Error('Línea no encontrada')
+    if ((linea as any).pedido_id !== input.pedidoId) {
+      throw new Error('La línea no pertenece al pedido indicado')
+    }
+
+    const { count, error: errCount } = await supabase
+      .from('piezas')
+      .select('*', { count: 'exact', head: true })
+      .eq('linea_pedido_id', input.lineaPedidoId)
+    if (errCount) throw errCount
+    if ((count ?? 0) > 0) {
+      throw new Error(
+        `No se puede eliminar: la línea tiene ${count} pieza${count === 1 ? '' : 's'} asociada${count === 1 ? '' : 's'}. Cancela el pedido si necesitas deshacer.`
+      )
+    }
+
+    // 3. Delete
+    const { error: errDel } = await supabase
+      .from('lineas_pedido')
+      .delete()
+      .eq('id', input.lineaPedidoId)
+    if (errDel) throw errDel
+
+    // 4. Recalcular totales
+    await recalcularTotalesPedido(input.pedidoId, supabase)
+
+    revalidatePath(`/pedidos/${input.pedidoId}`)
+    revalidatePath('/pedidos')
+
+    return { ok: true as const }
+  } catch (e: any) {
+    return {
+      ok: false as const,
+      error: e?.message ?? 'Error al eliminar línea',
     }
   }
 }
