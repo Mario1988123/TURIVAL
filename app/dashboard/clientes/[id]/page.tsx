@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ArrowLeft, Edit, Mail, Phone, MapPin, Building, FileText, ShoppingCart } from 'lucide-react'
 import type { Cliente } from '@/lib/types/erp'
+import PiezasRecurrentesSeccion from '@/components/clientes/piezas-recurrentes-seccion'
 
 export default function ClienteDetailPage() {
   const router = useRouter()
@@ -242,17 +243,7 @@ export default function ClienteDetailPage() {
         </TabsContent>
 
         <TabsContent value="referencias">
-          <Card>
-            <CardHeader>
-              <CardTitle>Referencias del Cliente</CardTitle>
-              <CardDescription>Productos y referencias habituales</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-muted-foreground text-center py-8">
-                Funcionalidad en desarrollo
-              </p>
-            </CardContent>
-          </Card>
+          <PiezasRecurrentesSeccion clienteId={clienteId} />
         </TabsContent>
       </Tabs>
     </div>
