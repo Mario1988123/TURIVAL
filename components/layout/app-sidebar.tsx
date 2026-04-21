@@ -24,6 +24,7 @@ import {
   X,
   Shield,
   Settings,
+  MapPin,
 } from 'lucide-react'
 
 const MENU_ITEMS = [
@@ -40,6 +41,7 @@ const MENU_ITEMS = [
   { label: 'Tarifas', href: '/tarifas', icon: Euro },
   { label: 'Trazabilidad', href: '/trazabilidad', icon: QrCode },
   { label: 'Informes', href: '/informes', icon: BarChart3 },
+  { label: 'Ubicaciones', href: '/configuracion/ubicaciones', icon: MapPin },
   { label: 'Configuración', href: '/configuracion', icon: Settings },
 ]
 
