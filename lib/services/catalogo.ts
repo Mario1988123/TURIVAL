@@ -67,19 +67,69 @@ export async function actualizarProducto(
 
 /**
  * ========== COLORES ==========
+ * REDISEÑO R2a: La tabla `colores` se renombró a `colores_legacy`
+ * en el script 019. Todos los colores se migraron a la tabla
+ * `materiales` con tipo='lacado'. Estas funciones siguen exponiendo
+ * la interfaz `Color` por compatibilidad con el código antiguo, pero
+ * por dentro consultan `materiales`. El campo `sobrecoste` queda
+ * deprecated y siempre devuelve 0 (se retira en R7).
+ *
+ * Para usar el modelo nuevo directamente, ver lib/services/materiales.ts.
  */
+
+const TIPOS_COLOR_PERMITIDOS = ['RAL', 'NCS', 'referencia_interna', 'muestra_cliente'] as const
+
+function mapMaterialAColor(m: any): Color {
+  const familiaValida = TIPOS_COLOR_PERMITIDOS.includes(m.familia)
+    ? m.familia
+    : 'referencia_interna'
+  return {
+    id:             m.id,
+    codigo:         m.codigo ?? '',
+    nombre:         m.nombre,
+    tipo:           familiaValida as Color['tipo'],
+    hex_aproximado: m.hex_aproximado ?? null,
+    observaciones:  m.observaciones ?? null,
+    sobrecoste:     0, // deprecated
+    activo:         Boolean(m.activo),
+    created_at:     m.created_at,
+  }
+}
+
+async function getProveedorLacadoDefault(): Promise<string | null> {
+  const supabase = createClient()
+  const { data } = await supabase
+    .from('proveedores')
+    .select('id')
+    .eq('tipo_material', 'lacado')
+    .eq('activo', true)
+    .order('nombre')
+    .limit(1)
+    .maybeSingle()
+  return data?.id ?? null
+}
 
 export async function crearColor(datos: Omit<Color, 'id' | 'created_at'>): Promise<Color> {
   const supabase = createClient()
+  const proveedor_id = await getProveedorLacadoDefault()
 
   const { data, error } = await supabase
-    .from('colores')
-    .insert(datos)
+    .from('materiales')
+    .insert({
+      tipo:           'lacado',
+      codigo:         datos.codigo,
+      nombre:         datos.nombre,
+      familia:        datos.tipo, // RAL | NCS | referencia_interna | muestra_cliente
+      hex_aproximado: datos.hex_aproximado,
+      observaciones:  datos.observaciones,
+      proveedor_id,
+      activo:         datos.activo,
+    })
     .select()
     .single()
 
   if (error) throw error
-  return data as Color
+  return mapMaterialAColor(data)
 }
 
 export async function listarColores(
@@ -87,10 +137,15 @@ export async function listarColores(
 ) {
   const supabase = createClient()
 
-  let query = supabase.from('colores').select('*').order('codigo')
+  let query = supabase
+    .from('materiales')
+    .select('*')
+    .eq('tipo', 'lacado')
+    .order('codigo', { ascending: true, nullsFirst: false })
+    .range(0, 9999)
 
   if (filtros.tipo) {
-    query = query.eq('tipo', filtros.tipo)
+    query = query.eq('familia', filtros.tipo)
   }
 
   if (filtros.activos_solo !== false) {
@@ -100,33 +155,35 @@ export async function listarColores(
   const { data, error } = await query
 
   if (error) throw error
-  return data as Color[]
+  return (data ?? []).map(mapMaterialAColor) as Color[]
 }
 
 export async function obtenerColor(color_id: string): Promise<Color> {
   const supabase = createClient()
 
   const { data, error } = await supabase
-    .from('colores')
+    .from('materiales')
     .select('*')
     .eq('id', color_id)
+    .eq('tipo', 'lacado')
     .single()
 
   if (error) throw error
-  return data as Color
+  return mapMaterialAColor(data)
 }
 
 export async function buscarColorPorCodigo(codigo: string): Promise<Color | null> {
   const supabase = createClient()
 
   const { data, error } = await supabase
-    .from('colores')
+    .from('materiales')
     .select('*')
+    .eq('tipo', 'lacado')
     .eq('codigo', codigo)
-    .single()
+    .maybeSingle()
 
   if (error || !data) return null
-  return data as Color
+  return mapMaterialAColor(data)
 }
 
 export async function actualizarColor(
@@ -135,15 +192,27 @@ export async function actualizarColor(
 ): Promise<Color> {
   const supabase = createClient()
 
+  const payload: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  }
+  if (datos.codigo !== undefined)         payload.codigo = datos.codigo
+  if (datos.nombre !== undefined)         payload.nombre = datos.nombre
+  if (datos.tipo !== undefined)           payload.familia = datos.tipo
+  if (datos.hex_aproximado !== undefined) payload.hex_aproximado = datos.hex_aproximado
+  if (datos.observaciones !== undefined)  payload.observaciones = datos.observaciones
+  if (datos.activo !== undefined)         payload.activo = datos.activo
+  // datos.sobrecoste se ignora — deprecated
+
   const { data, error } = await supabase
-    .from('colores')
-    .update(datos)
+    .from('materiales')
+    .update(payload)
     .eq('id', color_id)
+    .eq('tipo', 'lacado')
     .select()
     .single()
 
   if (error) throw error
-  return data as Color
+  return mapMaterialAColor(data)
 }
 
 /**
@@ -235,7 +304,6 @@ export async function listarAcabados(activos_solo: boolean = true) {
     .select(
       `
       *,
-      colores: color_id (codigo, nombre, hex_aproximado),
       tratamientos: tratamiento_id (nombre)
     `
     )
@@ -259,7 +327,6 @@ export async function obtenerAcabado(acabado_id: string): Promise<Acabado> {
     .select(
       `
       *,
-      colores: color_id (codigo, nombre, hex_aproximado),
       tratamientos: tratamiento_id (nombre)
     `
     )

@@ -207,7 +207,6 @@ export async function obtenerPedido(pedidoId: string) {
         *,
         producto:productos(id, nombre),
         tarifa:tarifas(id, nombre),
-        color:colores(id, nombre),
         tratamiento:tratamientos(id, nombre),
         piezas:piezas(
           id, numero, estado, ubicacion_id, fecha_prevista_fabricacion,
