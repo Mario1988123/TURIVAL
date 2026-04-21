@@ -41,6 +41,7 @@ const MENU_ITEMS = [
   { label: 'Tarifas', href: '/tarifas', icon: Euro },
   { label: 'Trazabilidad', href: '/trazabilidad', icon: QrCode },
   { label: 'Informes', href: '/informes', icon: BarChart3 },
+  { label: 'Operarios', href: '/configuracion/operarios', icon: Users },
   { label: 'Ubicaciones', href: '/configuracion/ubicaciones', icon: MapPin },
   { label: 'Configuración', href: '/configuracion', icon: Settings },
 ]
@@ -89,13 +90,11 @@ export function AppLayout({ children, title }: AppLayoutProps) {
 
   return (
     <div className="flex h-screen bg-slate-100">
-      {/* Sidebar */}
       <aside
         className={`fixed inset-y-0 left-0 z-50 w-72 bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 text-white shadow-2xl transition-transform duration-300 ease-out md:relative md:translate-x-0 flex flex-col ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        {/* Logo */}
         <div className="px-6 py-8 border-b border-white/10">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-400 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25">
@@ -108,7 +107,6 @@ export function AppLayout({ children, title }: AppLayoutProps) {
           </div>
         </div>
 
-        {/* Navigation */}
         <nav className="flex-1 overflow-y-auto py-6 px-4 space-y-1 scrollbar-thin">
           {MENU_ITEMS.map((item) => {
             const Icon = item.icon
@@ -128,7 +126,6 @@ export function AppLayout({ children, title }: AppLayoutProps) {
           })}
         </nav>
 
-        {/* User Section */}
         <div className="border-t border-white/10 p-4 space-y-3">
           {user && (
             <div className="px-4 py-3 bg-white/5 rounded-xl">
@@ -164,7 +161,6 @@ export function AppLayout({ children, title }: AppLayoutProps) {
         </div>
       </aside>
 
-      {/* Mobile Toggle */}
       <button
         className="md:hidden fixed top-4 left-4 z-[60] p-3 bg-slate-900 text-white rounded-xl shadow-lg"
         onClick={() => setIsOpen(!isOpen)}
@@ -172,7 +168,6 @@ export function AppLayout({ children, title }: AppLayoutProps) {
         {isOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
       </button>
 
-      {/* Mobile Overlay */}
       {isOpen && (
         <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden"
@@ -180,9 +175,7 @@ export function AppLayout({ children, title }: AppLayoutProps) {
         />
       )}
 
-      {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
         <header className="bg-white border-b border-slate-200 px-8 py-5 shadow-sm">
           <div className="flex items-center justify-between">
             <div className="md:hidden w-10" />
@@ -200,7 +193,6 @@ export function AppLayout({ children, title }: AppLayoutProps) {
           </div>
         </header>
 
-        {/* Page Content */}
         <main className="flex-1 overflow-auto">
           <div className="p-6 md:p-8 max-w-7xl mx-auto">
             {children}
