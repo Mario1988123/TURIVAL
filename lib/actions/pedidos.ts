@@ -13,7 +13,11 @@ import { revalidatePath } from 'next/cache'
 
 import {
   convertirPresupuestoAPedido,
+  confirmarPedido,
+  arrancarProduccion,
+  cancelarPedido,
   type ConvertirPresupuestoInput,
+  type ConfirmarPedidoInput,
 } from '@/lib/services/pedidos'
 import { createClient } from '@/lib/supabase/server'
 
@@ -39,11 +43,6 @@ export async function accionConvertirPresupuestoAPedido(
 
 // =============================================================
 // obtenerDatosParaConversion
-//
-// Trae las líneas del presupuesto + la cantidad PENDIENTE de cada una
-// (original - suma de cantidades ya pedidas en pedidos no cancelados).
-//
-// Usa 3 queries en batch (no N+1): líneas + lineas_pedido + estados pedidos.
 // =============================================================
 
 export interface LineaParaConversion {
@@ -58,7 +57,6 @@ export async function accionObtenerDatosParaConversion(presupuestoId: string) {
   try {
     const supabase = await createClient()
 
-    // 1. Cabecera presupuesto (para mostrar cliente/número en el modal)
     const { data: presupuesto, error: errP } = await supabase
       .from('presupuestos')
       .select(
@@ -72,7 +70,6 @@ export async function accionObtenerDatosParaConversion(presupuestoId: string) {
     if (errP) throw errP
     if (!presupuesto) throw new Error('Presupuesto no encontrado')
 
-    // 2. Líneas del presupuesto
     const { data: lineasRaw, error: errL } = await supabase
       .from('lineas_presupuesto')
       .select('id, descripcion, cantidad, precio_unitario, orden')
@@ -99,7 +96,6 @@ export async function accionObtenerDatosParaConversion(presupuestoId: string) {
 
     const lineaIds = lineasList.map((l) => l.id)
 
-    // 3. Lineas_pedido que apuntan a estas líneas
     const { data: lineasPed, error: errLP } = await supabase
       .from('lineas_pedido')
       .select('linea_presupuesto_origen_id, cantidad, pedido_id')
@@ -112,7 +108,6 @@ export async function accionObtenerDatosParaConversion(presupuestoId: string) {
       pedido_id: string
     }>
 
-    // 4. Estados de los pedidos implicados (para filtrar cancelados)
     let noCanceladosIds = new Set<string>()
     if (lineasPedList.length > 0) {
       const pedidoIds = [...new Set(lineasPedList.map((l) => l.pedido_id))]
@@ -128,7 +123,6 @@ export async function accionObtenerDatosParaConversion(presupuestoId: string) {
       )
     }
 
-    // 5. Cantidad ya pedida por línea (excluyendo pedidos cancelados)
     const pedidoPorLinea = new Map<string, number>()
     for (const lp of lineasPedList) {
       if (!noCanceladosIds.has(lp.pedido_id)) continue
@@ -139,7 +133,6 @@ export async function accionObtenerDatosParaConversion(presupuestoId: string) {
       )
     }
 
-    // 6. Construir resultado
     const lineas: LineaParaConversion[] = lineasList.map((l) => {
       const orig = Number(l.cantidad ?? 0)
       const pedido = pedidoPorLinea.get(l.id) ?? 0
@@ -163,6 +156,102 @@ export async function accionObtenerDatosParaConversion(presupuestoId: string) {
       error: e?.message ?? 'Error cargando datos del presupuesto',
       presupuesto: null,
       lineas: [] as LineaParaConversion[],
+    }
+  }
+}
+
+// =============================================================
+// listarUbicacionesActivas
+// (para poblar el selector del modal "Confirmar pedido")
+// =============================================================
+
+export interface UbicacionOpcion {
+  id: string
+  codigo: string
+  nombre: string
+  tipo: 'carrito' | 'estanteria' | 'libre'
+}
+
+export async function accionListarUbicacionesActivas() {
+  try {
+    const supabase = await createClient()
+    const { data, error } = await supabase
+      .from('ubicaciones')
+      .select('id, codigo, nombre, tipo')
+      .eq('activo', true)
+      .order('codigo', { ascending: true })
+    if (error) throw error
+    return {
+      ok: true as const,
+      ubicaciones: (data ?? []) as UbicacionOpcion[],
+    }
+  } catch (e: any) {
+    return {
+      ok: false as const,
+      error: e?.message ?? 'Error cargando ubicaciones',
+      ubicaciones: [] as UbicacionOpcion[],
+    }
+  }
+}
+
+// =============================================================
+// confirmarPedido
+// =============================================================
+
+export async function accionConfirmarPedido(input: ConfirmarPedidoInput) {
+  try {
+    const resultado = await confirmarPedido(input)
+    revalidatePath('/pedidos')
+    revalidatePath(`/pedidos/${input.pedidoId}`)
+    return {
+      ok: true as const,
+      pedido: resultado.pedido as any,
+      piezasCreadas: resultado.piezasCreadas,
+      tareasCreadas: resultado.tareasCreadas,
+    }
+  } catch (e: any) {
+    return {
+      ok: false as const,
+      error: e?.message ?? 'Error al confirmar el pedido',
+    }
+  }
+}
+
+// =============================================================
+// arrancarProduccion
+// =============================================================
+
+export async function accionArrancarProduccion(pedidoId: string) {
+  try {
+    const pedido = await arrancarProduccion(pedidoId)
+    revalidatePath('/pedidos')
+    revalidatePath(`/pedidos/${pedidoId}`)
+    return { ok: true as const, pedido: pedido as any }
+  } catch (e: any) {
+    return {
+      ok: false as const,
+      error: e?.message ?? 'Error al arrancar producción',
+    }
+  }
+}
+
+// =============================================================
+// cancelarPedido
+// =============================================================
+
+export async function accionCancelarPedido(
+  pedidoId: string,
+  motivo?: string | null
+) {
+  try {
+    const pedido = await cancelarPedido(pedidoId, motivo ?? null)
+    revalidatePath('/pedidos')
+    revalidatePath(`/pedidos/${pedidoId}`)
+    return { ok: true as const, pedido: pedido as any }
+  } catch (e: any) {
+    return {
+      ok: false as const,
+      error: e?.message ?? 'Error al cancelar el pedido',
     }
   }
 }
