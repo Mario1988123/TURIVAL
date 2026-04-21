@@ -108,7 +108,6 @@ export async function listarTareasParaPanel(filtros: FiltrosPanel = {}) {
         id, numero, estado, ubicacion_id, superficie_m2,
         color_id, tratamiento_id,
         ubicacion:ubicaciones(id, codigo, nombre, tipo),
-        color:colores(id, nombre, hex_aproximado),
         linea_pedido:lineas_pedido(
           id, descripcion, cantidad, producto_id,
           producto:productos(id, nombre),
