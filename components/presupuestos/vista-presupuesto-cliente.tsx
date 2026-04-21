@@ -31,6 +31,7 @@ import {
   Copy,
 } from 'lucide-react'
 import VisualizacionPiezaSVG from './visualizacion-pieza-svg'
+import ConvertirAPedidoModal from '@/components/pedidos/convertir-a-pedido-modal'
 
 type Cliente = {
   id: string
@@ -310,6 +311,14 @@ Un saludo,`
             <Mail className="w-4 h-4 mr-2" />
             Email
           </Button>
+
+          {/* Botón Convertir a pedido — solo visible si el presupuesto está ACEPTADO */}
+          {presupuesto.estado === 'aceptado' && (
+            <ConvertirAPedidoModal
+              presupuestoId={presupuesto.id}
+              presupuestoNumero={presupuesto.numero}
+            />
+          )}
         </div>
       </div>
 
