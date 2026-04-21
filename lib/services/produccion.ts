@@ -46,12 +46,6 @@ export interface FiltrosPanel {
 // Helpers internos
 // =============================================================
 
-async function getUserIdOrThrow(): Promise<string | null> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  return user?.id ?? null
-}
-
 function fechaInicioHoy(): string {
   const d = new Date()
   d.setHours(0, 0, 0, 0)
@@ -98,7 +92,7 @@ export async function listarTareasParaPanel(filtros: FiltrosPanel = {}) {
         id, numero, estado, ubicacion_id, superficie_m2,
         color_id, tratamiento_id,
         ubicacion:ubicaciones(id, codigo, nombre, tipo),
-        color:colores(id, nombre, codigo_hex),
+        color:colores(id, nombre, hex_aproximado),
         linea_pedido:lineas_pedido(
           id, descripcion, cantidad, producto_id,
           producto:productos(id, nombre),
@@ -112,16 +106,8 @@ export async function listarTareasParaPanel(filtros: FiltrosPanel = {}) {
 
   if (filtros.procesoId) q = q.eq('proceso_id', filtros.procesoId)
   if (filtros.operarioId) q = q.eq('operario_id', filtros.operarioId)
-  if (filtros.pedidoId) {
-    // filtrar por pedido requiere join; hacemos en memoria después
-  }
   if (filtros.soloDeHoy) {
     q = q.gte('fecha_inicio_real', fechaInicioHoy())
-  }
-  if (incluirCompHoy) {
-    // No podemos combinar "in estados" + "completada solo de hoy" en la misma
-    // query. Hacemos 2 queries y mezclamos en memoria.
-    // Simplificación: filtramos las completadas en cliente después.
   }
 
   const { data, error } = await q
@@ -192,10 +178,6 @@ export async function obtenerTareaActivaPorQr(qrCodigo: string) {
 
   const tareas = await listarTareasPorPieza((pieza as any).id)
 
-  // Tarea "activa" = la primera de este orden:
-  //   1) en_progreso
-  //   2) en_secado
-  //   3) en_cola / pendiente (con secuencia menor)
   const enProgreso = tareas.find((t: any) => t.estado === 'en_progreso')
   if (enProgreso) return { pieza, tarea: enProgreso, tareas }
 
@@ -292,7 +274,6 @@ export async function completarTarea(tareaId: string) {
   const supabase = await createClient()
   const ahora = new Date()
 
-  // Cargar tarea con info del proceso y posible override por producto
   const { data: tarea, error: errT } = await supabase
     .from('tareas_produccion')
     .select(`
@@ -315,7 +296,6 @@ export async function completarTarea(tareaId: string) {
     throw new Error(`Solo se pueden completar tareas en "en_progreso" (actual: "${t.estado}")`)
   }
 
-  // Tiempo real trabajado
   let tiempoReal: number | null = null
   if (t.fecha_inicio_real) {
     const ini = new Date(t.fecha_inicio_real).getTime()
@@ -326,7 +306,6 @@ export async function completarTarea(tareaId: string) {
   const requiereSecado = proceso?.requiere_secado === true
   let minutosSecado = Number(proceso?.tiempo_secado_minutos ?? 0)
 
-  // Override por producto
   if (requiereSecado) {
     const productoId = t.pieza?.linea_pedido?.producto_id
     if (productoId) {
@@ -360,7 +339,6 @@ export async function completarTarea(tareaId: string) {
     return { tarea: data, estado: 'en_secado' as const, finSecado }
   }
 
-  // Sin secado → completada directa
   const { data, error } = await supabase
     .from('tareas_produccion')
     .update({
@@ -380,8 +358,6 @@ export async function completarTarea(tareaId: string) {
 
 /**
  * Forzar fin de secado: pasa de 'en_secado' a 'completada'.
- * Guarda minutos_secado_pendiente_al_forzar: positivo = se forzó antes;
- * cero = justo a tiempo; negativo = se forzó después de expirar.
  */
 export async function forzarSeco(tareaId: string) {
   const supabase = await createClient()
@@ -458,10 +434,7 @@ export async function reportarIncidencia(
 }
 
 /**
- * Duplicar una tarea para rehacer. Típicamente llamado tras una
- * incidencia. Se crea nueva fila con la misma configuración, estado
- * 'pendiente', secuencia = max(secuencia) + 0.5 para que vaya después
- * de las existentes sin chocar con la UNIQUE INDEX (pieza_id, secuencia).
+ * Duplicar una tarea para rehacer. Secuencia = max(secuencia) + 1.
  */
 export async function duplicarTarea(tareaId: string) {
   const supabase = await createClient()
@@ -475,7 +448,6 @@ export async function duplicarTarea(tareaId: string) {
   if (!tarea) throw new Error('Tarea no encontrada')
   const t: any = tarea
 
-  // Buscar máxima secuencia actual para esta pieza
   const { data: maxRow, error: errMax } = await supabase
     .from('tareas_produccion')
     .select('secuencia')
@@ -487,8 +459,6 @@ export async function duplicarTarea(tareaId: string) {
   const maxSec = Number((maxRow as any)?.secuencia ?? t.secuencia)
   const nuevaSec = maxSec + 1
 
-  // NOTA: la tabla tiene UNIQUE (pieza_id, secuencia) e integer, así que
-  // no podemos usar fracciones; incrementamos +1.
   const { data: nueva, error: errIns } = await supabase
     .from('tareas_produccion')
     .insert({
@@ -505,7 +475,6 @@ export async function duplicarTarea(tareaId: string) {
     .single()
   if (errIns) throw errIns
 
-  // También copiar candidatos asignados
   const { data: candidatos } = await supabase
     .from('operarios_tareas_candidatos')
     .select('operario_id')
@@ -527,10 +496,6 @@ export async function duplicarTarea(tareaId: string) {
 // ASIGNACIÓN DE CANDIDATOS
 // =============================================================
 
-/**
- * Reemplaza completamente los candidatos de una tarea.
- * Si operarioIds está vacío, la tarea queda sin candidatos (abierta).
- */
 export async function asignarCandidatos(
   tareaId: string,
   operarioIds: string[]
@@ -561,16 +526,9 @@ export async function asignarCandidatos(
 // PROPAGACIÓN pieza → pedido
 // =============================================================
 
-/**
- * Cuando una tarea pasa a 'completada', si TODAS las tareas de la
- * pieza (no anuladas, no incidencia) están completadas, la pieza pasa
- * a 'completada'. Y si TODAS las piezas del pedido están 'completada',
- * 'entregada' o 'cancelada', el pedido pasa a 'completado'.
- */
 async function propagarCompletado(piezaId: string) {
   const supabase = await createClient()
 
-  // 1. Todas las tareas "vivas" de la pieza
   const { data: tareas, error: errT } = await supabase
     .from('tareas_produccion')
     .select('id, estado')
@@ -584,7 +542,6 @@ async function propagarCompletado(piezaId: string) {
   const todasCompletadas = vivas.every((t: any) => t.estado === 'completada')
   if (!todasCompletadas) return
 
-  // Pieza → completada (solo si no estaba ya en un estado final)
   const { data: piezaActual } = await supabase
     .from('piezas')
     .select('id, estado, linea_pedido_id')
@@ -602,7 +559,6 @@ async function propagarCompletado(piezaId: string) {
     })
     .eq('id', piezaId)
 
-  // 2. Comprobar el pedido entero
   const { data: linea } = await supabase
     .from('lineas_pedido')
     .select('id, pedido_id')
@@ -611,7 +567,6 @@ async function propagarCompletado(piezaId: string) {
   const pedidoId = (linea as any)?.pedido_id
   if (!pedidoId) return
 
-  // Todas las piezas del pedido
   const { data: lineas } = await supabase
     .from('lineas_pedido')
     .select('id')
@@ -631,7 +586,6 @@ async function propagarCompletado(piezaId: string) {
   const todasFinal = piezasList.every((p) => estadosFinales.includes(p.estado))
   if (!todasFinal) return
 
-  // Pedido → completado (solo si aún está en_produccion/confirmado)
   const { data: pedido } = await supabase
     .from('pedidos')
     .select('id, estado')
@@ -645,10 +599,6 @@ async function propagarCompletado(piezaId: string) {
     .update({ estado: 'completado' })
     .eq('id', pedidoId)
 }
-
-// =============================================================
-// Export opcional del helper por si un admin quiere forzar recálculo
-// =============================================================
 
 export async function recomputarEstadoPiezaYPedido(piezaId: string) {
   return propagarCompletado(piezaId)
