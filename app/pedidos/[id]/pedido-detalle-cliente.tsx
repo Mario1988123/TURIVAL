@@ -6,7 +6,6 @@ import Link from 'next/link'
 import {
   ArrowLeft,
   Package,
-  FileText,
   CheckCircle,
   Play,
   XCircle,
@@ -14,6 +13,8 @@ import {
   Loader2,
   MapPin,
   Factory,
+  Plus,
+  Trash2,
 } from 'lucide-react'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -51,9 +52,12 @@ import {
   accionArrancarProduccion,
   accionCancelarPedido,
   accionListarUbicacionesActivas,
+  accionEliminarLineaPedido,
   type UbicacionOpcion,
 } from '@/lib/actions/pedidos'
 import type { EstadoPedido, PrioridadPedido } from '@/lib/services/pedidos'
+import MoverPiezaModal from '@/components/pedidos/mover-pieza-modal'
+import AgregarLineasPedidoModal from '@/components/pedidos/agregar-lineas-pedido-modal'
 
 // =============================================================
 // Labels / colores
@@ -146,16 +150,26 @@ export default function PedidoDetalleCliente({
   pedidoInicial: any
 }) {
   const router = useRouter()
-  const [pedido, setPedido] = useState<any>(pedidoInicial)
+  const [pedido] = useState<any>(pedidoInicial)
   const [mensaje, setMensaje] = useState<{
     tipo: 'ok' | 'error'
     texto: string
   } | null>(null)
 
-  // Dialogs
+  // Dialogs de acciones sobre pedido
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [arrancarOpen, setArrancarOpen] = useState(false)
   const [cancelarOpen, setCancelarOpen] = useState(false)
+  const [añadirLineasOpen, setAñadirLineasOpen] = useState(false)
+
+  // Dialog mover pieza
+  const [moverState, setMoverState] = useState<{
+    open: boolean
+    piezaId: string
+    piezaNumero: string
+    ubicacionActualId: string | null
+    ubicacionActualCodigo?: string
+  } | null>(null)
 
   const estadoActual: EstadoPedido = pedido.estado
   const prioridadActual: PrioridadPedido = pedido.prioridad ?? 'normal'
@@ -165,8 +179,10 @@ export default function PedidoDetalleCliente({
   const puedeCancelar = !['entregado', 'facturado', 'cancelado'].includes(
     estadoActual
   )
+  const puedeEditarLineas =
+    estadoActual === 'borrador' && pedido.presupuesto_origen?.id
+  const puedeMoverPiezas = !['cancelado'].includes(estadoActual)
 
-  // Total piezas estimado (se crean al confirmar)
   const totalPiezasEstimado = useMemo(() => {
     if (!pedido.lineas) return 0
     return pedido.lineas.reduce(
@@ -175,7 +191,6 @@ export default function PedidoDetalleCliente({
     )
   }, [pedido.lineas])
 
-  // Total piezas reales (ya confirmadas)
   const totalPiezasReales = useMemo(() => {
     if (!pedido.lineas) return 0
     return pedido.lineas.reduce(
@@ -187,6 +202,16 @@ export default function PedidoDetalleCliente({
   function notificar(tipo: 'ok' | 'error', texto: string) {
     setMensaje({ tipo, texto })
     setTimeout(() => setMensaje(null), 5000)
+  }
+
+  function abrirMoverPieza(pieza: any) {
+    setMoverState({
+      open: true,
+      piezaId: pieza.id,
+      piezaNumero: pieza.numero,
+      ubicacionActualId: pieza.ubicacion_id,
+      ubicacionActualCodigo: pieza.ubicacion?.codigo,
+    })
   }
 
   return (
@@ -314,9 +339,7 @@ export default function PedidoDetalleCliente({
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">
-              Presupuesto de origen
-            </CardTitle>
+            <CardTitle className="text-base">Presupuesto de origen</CardTitle>
           </CardHeader>
           <CardContent className="text-sm space-y-1">
             {pedido.presupuesto_origen ? (
@@ -356,7 +379,7 @@ export default function PedidoDetalleCliente({
         </Card>
       </div>
 
-      {/* DIRECCIÓN ENTREGA (si hay) */}
+      {/* DIRECCIÓN ENTREGA */}
       {(pedido.direccion_entrega ||
         pedido.contacto_entrega ||
         pedido.telefono_entrega) && (
@@ -389,23 +412,43 @@ export default function PedidoDetalleCliente({
 
       {/* LÍNEAS */}
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle className="text-base">
             Líneas{' '}
             <span className="text-muted-foreground font-normal">
               ({pedido.lineas?.length ?? 0})
             </span>
           </CardTitle>
+          {puedeEditarLineas && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setAñadirLineasOpen(true)}
+            >
+              <Plus className="w-4 h-4 mr-1" />
+              Añadir líneas
+            </Button>
+          )}
         </CardHeader>
         <CardContent>
           {!pedido.lineas || pedido.lineas.length === 0 ? (
             <div className="text-center py-8 text-sm text-muted-foreground">
               Este pedido no tiene líneas.
+              {puedeEditarLineas && ' Pulsa "Añadir líneas" arriba.'}
             </div>
           ) : (
             <div className="space-y-4">
               {pedido.lineas.map((l: any) => (
-                <LineaCard key={l.id} linea={l} />
+                <LineaCard
+                  key={l.id}
+                  linea={l}
+                  pedidoId={pedido.id}
+                  permiteEliminar={estadoActual === 'borrador'}
+                  permiteMoverPiezas={puedeMoverPiezas}
+                  onEliminada={(texto) => notificar('ok', texto)}
+                  onError={(texto) => notificar('error', texto)}
+                  onMoverPieza={abrirMoverPieza}
+                />
               ))}
             </div>
           )}
@@ -524,17 +567,83 @@ export default function PedidoDetalleCliente({
           if (ok) router.refresh()
         }}
       />
+
+      {pedido.presupuesto_origen?.id && (
+        <AgregarLineasPedidoModal
+          open={añadirLineasOpen}
+          onOpenChange={setAñadirLineasOpen}
+          pedidoId={pedido.id}
+          presupuestoOrigenId={pedido.presupuesto_origen.id}
+          onDone={(ok, texto) => notificar(ok ? 'ok' : 'error', texto)}
+        />
+      )}
+
+      {moverState && (
+        <MoverPiezaModal
+          open={moverState.open}
+          onOpenChange={(o) =>
+            setMoverState((prev) => (prev ? { ...prev, open: o } : null))
+          }
+          piezaId={moverState.piezaId}
+          piezaNumero={moverState.piezaNumero}
+          ubicacionActualId={moverState.ubicacionActualId}
+          ubicacionActualCodigo={moverState.ubicacionActualCodigo}
+          onDone={(ok, texto) => notificar(ok ? 'ok' : 'error', texto)}
+        />
+      )}
     </div>
   )
 }
 
 // =============================================================
-// LineaCard — una línea del pedido con piezas asociadas
+// LineaCard — con botón eliminar (borrador) y botón mover por pieza
 // =============================================================
 
-function LineaCard({ linea }: { linea: any }) {
+function LineaCard({
+  linea,
+  pedidoId,
+  permiteEliminar,
+  permiteMoverPiezas,
+  onEliminada,
+  onError,
+  onMoverPieza,
+}: {
+  linea: any
+  pedidoId: string
+  permiteEliminar: boolean
+  permiteMoverPiezas: boolean
+  onEliminada: (texto: string) => void
+  onError: (texto: string) => void
+  onMoverPieza: (pieza: any) => void
+}) {
   const tipoPieza = linea.tipo_pieza ?? 'tablero'
   const piezas = (linea.piezas ?? []) as any[]
+  const [eliminando, setEliminando] = useState(false)
+
+  async function eliminar() {
+    if (
+      !confirm(
+        `¿Quitar esta línea del pedido? (${linea.cantidad} unidades × ${linea.descripcion ?? 'sin descripción'})`
+      )
+    ) {
+      return
+    }
+    setEliminando(true)
+    const res = await accionEliminarLineaPedido({
+      pedidoId,
+      lineaPedidoId: linea.id,
+    })
+    setEliminando(false)
+    if (res.ok) {
+      onEliminada('Línea eliminada del pedido')
+      // La revalidación del server action refresca; forzar refresh del router
+      // se hace arriba en el onDone principal vía router.refresh.
+      // Aquí basta con notificar.
+      window.location.reload()
+    } else {
+      onError(res.error ?? 'Error al eliminar')
+    }
+  }
 
   return (
     <div className="border rounded-lg p-4 bg-slate-50">
@@ -553,6 +662,22 @@ function LineaCard({ linea }: { linea: any }) {
             {euro(Number(linea.total_linea))}
           </div>
         </div>
+        {permiteEliminar && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={eliminar}
+            disabled={eliminando}
+            title="Quitar línea del pedido"
+            className="text-red-600 hover:bg-red-50"
+          >
+            {eliminando ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Trash2 className="w-4 h-4" />
+            )}
+          </Button>
+        )}
       </div>
 
       <div className="text-xs text-muted-foreground grid grid-cols-2 md:grid-cols-4 gap-x-3 gap-y-1 mb-2">
@@ -560,9 +685,7 @@ function LineaCard({ linea }: { linea: any }) {
           <>
             <div>
               Longitud:{' '}
-              <strong>
-                {Number(linea.longitud_ml ?? 0).toFixed(2)} m
-              </strong>
+              <strong>{Number(linea.longitud_ml ?? 0).toFixed(2)} m</strong>
             </div>
             <div>
               Perfil:{' '}
@@ -580,15 +703,12 @@ function LineaCard({ linea }: { linea: any }) {
             <div>
               Dimensiones:{' '}
               <strong>
-                {linea.ancho ?? 0} × {linea.alto ?? 0} ×{' '}
-                {linea.grosor ?? 0} mm
+                {linea.ancho ?? 0} × {linea.alto ?? 0} × {linea.grosor ?? 0} mm
               </strong>
             </div>
             <div>
               Superficie:{' '}
-              <strong>
-                {Number(linea.superficie_m2 ?? 0).toFixed(3)} m²
-              </strong>
+              <strong>{Number(linea.superficie_m2 ?? 0).toFixed(3)} m²</strong>
             </div>
           </>
         )}
@@ -617,6 +737,7 @@ function LineaCard({ linea }: { linea: any }) {
                 <TableHead>Estado</TableHead>
                 <TableHead>Ubicación</TableHead>
                 <TableHead>Entrega prev.</TableHead>
+                <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -628,9 +749,7 @@ function LineaCard({ linea }: { linea: any }) {
                   <TableCell>
                     <Badge
                       variant="outline"
-                      className={
-                        ESTADOS_PIEZA_COLORS[p.estado] ?? ''
-                      }
+                      className={ESTADOS_PIEZA_COLORS[p.estado] ?? ''}
                     >
                       {ESTADOS_PIEZA_LABELS[p.estado] ?? p.estado}
                     </Badge>
@@ -639,21 +758,29 @@ function LineaCard({ linea }: { linea: any }) {
                     {p.ubicacion ? (
                       <span className="inline-flex items-center gap-1 text-xs">
                         <MapPin className="w-3 h-3 text-muted-foreground" />
-                        <span className="font-mono">
-                          {p.ubicacion.codigo}
-                        </span>
+                        <span className="font-mono">{p.ubicacion.codigo}</span>
                         <span className="text-muted-foreground">
                           {p.ubicacion.nombre}
                         </span>
                       </span>
                     ) : (
-                      <span className="text-xs text-muted-foreground">
-                        —
-                      </span>
+                      <span className="text-xs text-muted-foreground">—</span>
                     )}
                   </TableCell>
                   <TableCell className="text-xs">
                     {fechaES(p.fecha_prevista_fabricacion)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {permiteMoverPiezas && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => onMoverPieza(p)}
+                        title="Mover pieza"
+                      >
+                        <MapPin className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
@@ -666,7 +793,7 @@ function LineaCard({ linea }: { linea: any }) {
 }
 
 // =============================================================
-// Dialog Confirmar Pedido (con selector de ubicación)
+// Dialog Confirmar Pedido
 // =============================================================
 
 function DialogConfirmarPedido({
@@ -762,8 +889,8 @@ function DialogConfirmarPedido({
         {!cargando && !errorCarga && ubicaciones.length === 0 && (
           <Alert variant="destructive">
             <AlertDescription>
-              No hay ubicaciones activas. Crea alguna desde la BD antes de
-              confirmar pedidos.
+              No hay ubicaciones activas. Ve a /configuracion/ubicaciones y
+              crea o activa alguna antes de confirmar pedidos.
             </AlertDescription>
           </Alert>
         )}
@@ -997,11 +1124,7 @@ function DialogCancelarPedido({
           >
             Volver
           </Button>
-          <Button
-            onClick={submit}
-            disabled={isPending}
-            variant="destructive"
-          >
+          <Button onClick={submit} disabled={isPending} variant="destructive">
             {isPending ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin mr-2" />
