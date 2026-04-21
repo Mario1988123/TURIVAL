@@ -466,3 +466,137 @@ export interface TareaProduccion {
   created_at: string
   updated_at: string
 }
+
+// =====================================================================
+// REDISEÑO ERP TURIVAL — Tipos añadidos en R2 (rama DESARROLLO-CLAUDE)
+// =====================================================================
+// El tipo Color de arriba es LEGACY: la tabla colores se renombró a
+// colores_legacy tras el script 019. Mantenemos el tipo solo porque
+// otros archivos lo importan, pero por dentro catalogo.ts consulta
+// la tabla `materiales` con tipo='lacado'. Las funciones de /colores
+// devuelven objetos Color con sobrecoste=0 (campo deprecated que se
+// retirará en R7).
+// =====================================================================
+
+export type TipoMaterial = 'lacado' | 'fondo' | 'catalizador' | 'disolvente'
+
+export interface Proveedor {
+  id: string
+  nombre: string
+  tipo_material: TipoMaterial
+  precio_base_kg: number
+  telefono: string | null
+  email: string | null
+  notas: string | null
+  activo: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface Material {
+  id: string
+  tipo: TipoMaterial
+
+  codigo: string | null
+  nombre: string
+  familia: string | null
+  hex_aproximado: string | null
+
+  proveedor_id: string | null
+  precio_kg_sobrescrito: number | null        // null = usa proveedor.precio_base_kg
+  formato_compra_kg: number | null
+
+  rendimiento_kg_m2_sobrescrito: number | null // null = usa config global
+
+  stock_fisico_kg: number
+  stock_reservado_kg: number
+  stock_minimo_kg: number
+
+  observaciones: string | null
+  activo: boolean
+  created_at: string
+  updated_at: string
+}
+
+/** Material con el proveedor embebido (para vistas que hacen join). */
+export interface MaterialConProveedor extends Material {
+  proveedor: Pick<Proveedor, 'id' | 'nombre' | 'tipo_material' | 'precio_base_kg'> | null
+}
+
+export interface CategoriaPieza {
+  id: string
+  codigo: string
+  nombre: string
+  descripcion: string | null
+  orden: number
+  color: string
+  caras_default: 1 | 2 | 4 | 6
+  contabilizar_grosor_default: boolean
+  modo_precio_default: 'm2' | 'pieza' | 'ml' | 'manual'
+  permite_ml: boolean
+  /** Array de {proceso_codigo, orden}. */
+  procesos_default: Array<{ proceso_codigo: string; orden: number }>
+  activo: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type EstadoReserva = 'activa' | 'consumida' | 'liberada'
+
+export interface ReservaStock {
+  id: string
+  pedido_id: string
+  material_id: string
+  cantidad_reservada_kg: number
+  estado: EstadoReserva
+  fecha_reserva: string
+  fecha_cierre: string | null
+  observaciones: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type TipoMovimientoStock =
+  | 'entrada'
+  | 'consumo'
+  | 'ajuste'
+  | 'merma'
+  | 'reserva'
+  | 'liberacion_reserva'
+
+export interface MovimientoStock {
+  id: string
+  fecha: string
+  material_id: string
+  tipo: TipoMovimientoStock
+  cantidad_kg: number
+  pedido_id: string | null
+  pieza_id: string | null
+  tarea_produccion_id: string | null
+  reserva_id: string | null
+  operario_id: string | null
+  stock_antes_kg: number
+  stock_despues_kg: number
+  motivo: string | null
+  created_at: string
+}
+
+// --- Configuración global ampliada ------------------------------------
+// Los campos tradicionales de configuracion_empresa (razon_social, cif_nif,
+// direccion, etc.) los declaras en tu propio tipo Configuracion existente.
+// Este tipo cubre SOLO los campos ERP que añadió el script 022.
+
+export interface ConfigErp {
+  rendimiento_lacado_kg_m2: number
+  rendimiento_fondo_kg_m2: number
+  ratio_cata_lacado: number
+  ratio_dis_lacado: number
+  ratio_cata_fondo: number
+  ratio_dis_fondo: number
+  coste_minuto_operario: number
+  jornada_horas: number
+  margen_objetivo_porcentaje: number
+  ancho_minimo_pistola_cm: number
+  material_catalizador_default_id: string | null
+  material_disolvente_default_id: string | null
+}
