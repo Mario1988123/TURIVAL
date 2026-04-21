@@ -43,6 +43,9 @@ export async function accionConvertirPresupuestoAPedido(
 
 // =============================================================
 // obtenerDatosParaConversion
+//
+// Trae datos del presupuesto (fecha entrega estimada, observaciones,
+// cliente completo con dirección) para pre-rellenar el modal.
 // =============================================================
 
 export interface LineaParaConversion {
@@ -53,16 +56,44 @@ export interface LineaParaConversion {
   precio_unitario: number
 }
 
+export interface PresupuestoParaConversion {
+  id: string
+  numero: string
+  cliente_id: string
+  estado: string
+  total: number | null
+  fecha_entrega_estimada: string | null
+  observaciones_comerciales: string | null
+  observaciones_internas: string | null
+  cliente: {
+    id: string
+    nombre_comercial: string
+    direccion: string | null
+    codigo_postal: string | null
+    ciudad: string | null
+    provincia: string | null
+    persona_contacto: string | null
+    telefono: string | null
+  } | null
+}
+
 export async function accionObtenerDatosParaConversion(presupuestoId: string) {
   try {
     const supabase = await createClient()
 
+    // 1. Cabecera presupuesto + cliente completo
     const { data: presupuesto, error: errP } = await supabase
       .from('presupuestos')
       .select(
         `
         id, numero, cliente_id, estado, total,
-        cliente:clientes(id, nombre_comercial)
+        fecha_entrega_estimada,
+        observaciones_comerciales, observaciones_internas,
+        cliente:clientes(
+          id, nombre_comercial,
+          direccion, codigo_postal, ciudad, provincia,
+          persona_contacto, telefono
+        )
       `
       )
       .eq('id', presupuestoId)
@@ -70,6 +101,7 @@ export async function accionObtenerDatosParaConversion(presupuestoId: string) {
     if (errP) throw errP
     if (!presupuesto) throw new Error('Presupuesto no encontrado')
 
+    // 2. Líneas del presupuesto
     const { data: lineasRaw, error: errL } = await supabase
       .from('lineas_presupuesto')
       .select('id, descripcion, cantidad, precio_unitario, orden')
@@ -89,13 +121,14 @@ export async function accionObtenerDatosParaConversion(presupuestoId: string) {
     if (lineasList.length === 0) {
       return {
         ok: true as const,
-        presupuesto: presupuesto as any,
+        presupuesto: presupuesto as unknown as PresupuestoParaConversion,
         lineas: [] as LineaParaConversion[],
       }
     }
 
     const lineaIds = lineasList.map((l) => l.id)
 
+    // 3. Lineas_pedido que apuntan a estas líneas
     const { data: lineasPed, error: errLP } = await supabase
       .from('lineas_pedido')
       .select('linea_presupuesto_origen_id, cantidad, pedido_id')
@@ -108,6 +141,7 @@ export async function accionObtenerDatosParaConversion(presupuestoId: string) {
       pedido_id: string
     }>
 
+    // 4. Estados de los pedidos implicados (para filtrar cancelados)
     let noCanceladosIds = new Set<string>()
     if (lineasPedList.length > 0) {
       const pedidoIds = [...new Set(lineasPedList.map((l) => l.pedido_id))]
@@ -123,6 +157,7 @@ export async function accionObtenerDatosParaConversion(presupuestoId: string) {
       )
     }
 
+    // 5. Cantidad ya pedida por línea (excluyendo pedidos cancelados)
     const pedidoPorLinea = new Map<string, number>()
     for (const lp of lineasPedList) {
       if (!noCanceladosIds.has(lp.pedido_id)) continue
@@ -133,6 +168,7 @@ export async function accionObtenerDatosParaConversion(presupuestoId: string) {
       )
     }
 
+    // 6. Construir resultado
     const lineas: LineaParaConversion[] = lineasList.map((l) => {
       const orig = Number(l.cantidad ?? 0)
       const pedido = pedidoPorLinea.get(l.id) ?? 0
@@ -147,7 +183,7 @@ export async function accionObtenerDatosParaConversion(presupuestoId: string) {
 
     return {
       ok: true as const,
-      presupuesto: presupuesto as any,
+      presupuesto: presupuesto as unknown as PresupuestoParaConversion,
       lineas,
     }
   } catch (e: any) {
@@ -162,7 +198,6 @@ export async function accionObtenerDatosParaConversion(presupuestoId: string) {
 
 // =============================================================
 // listarUbicacionesActivas
-// (para poblar el selector del modal "Confirmar pedido")
 // =============================================================
 
 export interface UbicacionOpcion {
