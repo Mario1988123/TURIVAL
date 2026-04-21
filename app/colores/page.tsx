@@ -76,7 +76,6 @@ export default function ColoresPage() {
     tipo: 'RAL' as TipoColor,
     hex_aproximado: '#FFFFFF',
     observaciones: '',
-    sobrecoste: 0,
     activo: true,
   })
 
@@ -89,18 +88,33 @@ export default function ColoresPage() {
 
   async function cargar() {
     setLoading(true)
-    // IMPORTANTE: pedimos explícitamente hasta 5000 filas con .range(0, 4999)
-    // para evitar el límite implícito de Supabase que recorta la respuesta.
+    // R2a: consultamos la tabla `materiales` con tipo='lacado' (antes
+    // era la tabla `colores`, renombrada a `colores_legacy` en R1).
+    // Mapeamos al tipo Color por compatibilidad con el UI existente.
     const { data, error } = await supabase
-      .from('colores')
-      .select('*')
-      .order('codigo', { ascending: true })
+      .from('materiales')
+      .select('id, codigo, nombre, familia, hex_aproximado, observaciones, activo, created_at')
+      .eq('tipo', 'lacado')
+      .order('codigo', { ascending: true, nullsFirst: false })
       .range(0, 4999)
 
     if (error) {
       setMensaje({ tipo: 'error', texto: `Error cargando colores: ${error.message}` })
     } else {
-      setColores((data || []) as Color[])
+      const mapped: Color[] = (data ?? []).map((m: any) => ({
+        id:             m.id,
+        codigo:         m.codigo ?? '',
+        nombre:         m.nombre,
+        tipo:           (['RAL','NCS','referencia_interna','muestra_cliente'].includes(m.familia)
+                          ? m.familia
+                          : 'referencia_interna') as Color['tipo'],
+        hex_aproximado: m.hex_aproximado,
+        observaciones:  m.observaciones,
+        sobrecoste:     0, // deprecated R2a
+        activo:         Boolean(m.activo),
+        created_at:     m.created_at,
+      }))
+      setColores(mapped)
     }
     setLoading(false)
   }
@@ -156,7 +170,6 @@ export default function ColoresPage() {
       tipo: 'referencia_interna',
       hex_aproximado: '#FFFFFF',
       observaciones: '',
-      sobrecoste: 0,
       activo: true,
     })
     setDialogoAbierto(true)
@@ -170,7 +183,6 @@ export default function ColoresPage() {
       tipo: c.tipo,
       hex_aproximado: c.hex_aproximado || '#FFFFFF',
       observaciones: c.observaciones || '',
-      sobrecoste: Number(c.sobrecoste) || 0,
       activo: c.activo,
     })
     setDialogoAbierto(true)
@@ -188,29 +200,43 @@ export default function ColoresPage() {
 
     try {
       if (editando) {
+        // R2a: UPDATE sobre materiales (tipo=lacado). sobrecoste deprecated.
         const { error } = await supabase
-          .from('colores')
+          .from('materiales')
           .update({
-            codigo: form.codigo.trim(),
-            nombre: form.nombre.trim(),
-            tipo: form.tipo,
+            codigo:         form.codigo.trim(),
+            nombre:         form.nombre.trim(),
+            familia:        form.tipo,
             hex_aproximado: form.hex_aproximado || null,
-            observaciones: form.observaciones.trim() || null,
-            sobrecoste: form.sobrecoste,
-            activo: form.activo,
+            observaciones:  form.observaciones.trim() || null,
+            activo:         form.activo,
+            updated_at:     new Date().toISOString(),
           })
           .eq('id', editando.id)
+          .eq('tipo', 'lacado')
         if (error) throw error
         setMensaje({ tipo: 'ok', texto: 'Color actualizado.' })
       } else {
-        const { error } = await supabase.from('colores').insert({
-          codigo: form.codigo.trim(),
-          nombre: form.nombre.trim(),
-          tipo: form.tipo,
+        // R2a: INSERT sobre materiales (tipo=lacado). Asignamos el
+        // primer proveedor de lacado como default.
+        const { data: provDefault } = await supabase
+          .from('proveedores')
+          .select('id')
+          .eq('tipo_material', 'lacado')
+          .eq('activo', true)
+          .order('nombre')
+          .limit(1)
+          .maybeSingle()
+
+        const { error } = await supabase.from('materiales').insert({
+          tipo:           'lacado',
+          codigo:         form.codigo.trim(),
+          nombre:         form.nombre.trim(),
+          familia:        form.tipo,
           hex_aproximado: form.hex_aproximado || null,
-          observaciones: form.observaciones.trim() || null,
-          sobrecoste: form.sobrecoste,
-          activo: form.activo,
+          observaciones:  form.observaciones.trim() || null,
+          proveedor_id:   provDefault?.id ?? null,
+          activo:         form.activo,
         })
         if (error) throw error
         setMensaje({ tipo: 'ok', texto: 'Color creado.' })
@@ -230,9 +256,10 @@ export default function ColoresPage() {
   async function toggleActivo(c: Color) {
     try {
       const { error } = await supabase
-        .from('colores')
-        .update({ activo: !c.activo })
+        .from('materiales')
+        .update({ activo: !c.activo, updated_at: new Date().toISOString() })
         .eq('id', c.id)
+        .eq('tipo', 'lacado')
       if (error) throw error
       await cargar()
     } catch (err: any) {
@@ -400,38 +427,24 @@ export default function ColoresPage() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label>Color (hex)</Label>
-                <div className="flex gap-2">
-                  <input
-                    type="color"
-                    value={form.hex_aproximado}
-                    onChange={(e) =>
-                      setForm({ ...form, hex_aproximado: e.target.value.toUpperCase() })
-                    }
-                    className="h-10 w-14 rounded border cursor-pointer"
-                  />
-                  <Input
-                    value={form.hex_aproximado}
-                    onChange={(e) =>
-                      setForm({ ...form, hex_aproximado: e.target.value.toUpperCase() })
-                    }
-                    placeholder="#FFFFFF"
-                    className="font-mono"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1">
-                <Label>Sobrecoste (€ / m²)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={form.sobrecoste}
+            <div className="space-y-1">
+              <Label>Color (hex)</Label>
+              <div className="flex gap-2">
+                <input
+                  type="color"
+                  value={form.hex_aproximado}
                   onChange={(e) =>
-                    setForm({ ...form, sobrecoste: parseFloat(e.target.value) || 0 })
+                    setForm({ ...form, hex_aproximado: e.target.value.toUpperCase() })
                   }
+                  className="h-10 w-14 rounded border cursor-pointer"
+                />
+                <Input
+                  value={form.hex_aproximado}
+                  onChange={(e) =>
+                    setForm({ ...form, hex_aproximado: e.target.value.toUpperCase() })
+                  }
+                  placeholder="#FFFFFF"
+                  className="font-mono"
                 />
               </div>
             </div>
@@ -513,7 +526,6 @@ function TarjetaColor({
   onEditar: (c: Color) => void
 }) {
   const hex = color.hex_aproximado || '#DDDDDD'
-  const textoClaro = esColorOscuro(hex)
 
   return (
     <button
@@ -529,18 +541,6 @@ function TarjetaColor({
         {!color.activo && (
           <Badge variant="secondary" className="text-xs">
             Inactivo
-          </Badge>
-        )}
-        {color.sobrecoste > 0 && (
-          <Badge
-            variant="outline"
-            className={`absolute top-1 right-1 text-xs ${
-              textoClaro
-                ? 'bg-white/90 text-slate-900'
-                : 'bg-slate-900/80 text-white border-slate-700'
-            }`}
-          >
-            +{Number(color.sobrecoste).toFixed(2)}€
           </Badge>
         )}
       </div>
@@ -573,7 +573,6 @@ function VistaTabla({
                 <TableHead>Nombre</TableHead>
                 <TableHead>Tipo</TableHead>
                 <TableHead>Hex</TableHead>
-                <TableHead className="text-right">Sobrecoste</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead className="text-right w-40">Acciones</TableHead>
               </TableRow>
@@ -594,11 +593,6 @@ function VistaTabla({
                   </TableCell>
                   <TableCell className="font-mono text-xs">
                     {c.hex_aproximado || '—'}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {Number(c.sobrecoste) > 0
-                      ? `+${Number(c.sobrecoste).toFixed(2)}€`
-                      : '—'}
                   </TableCell>
                   <TableCell>
                     <Badge variant={c.activo ? 'default' : 'secondary'}>
