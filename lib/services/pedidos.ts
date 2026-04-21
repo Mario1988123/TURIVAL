@@ -8,6 +8,7 @@
  *  3. calcularCantidadPendiente  — cuánto queda por pedir de una línea de presupuesto
  *  4. convertirPresupuestoAPedido— crea pedido en estado 'borrador' con líneas parciales
  *  5. confirmarPedido            — genera piezas, asigna ubicación y crea tareas 'pendiente'
+ *                                  + auto-asigna candidatos según rol del proceso (Capa 5)
  *  6. moverPieza                 — cambia ubicación y registra movimiento en histórico
  *  7. arrancarProduccion         — pedido 'confirmado' → 'en_produccion', tareas → 'en_cola'
  *  8. cancelarPedido             — revierte cantidades, marca piezas/tareas como canceladas/anuladas
@@ -51,6 +52,7 @@ export type EstadoTarea =
   | 'pendiente'
   | 'en_cola'
   | 'en_progreso'
+  | 'en_secado'
   | 'completada'
   | 'incidencia'
   | 'anulada'
@@ -459,7 +461,7 @@ export async function convertirPresupuestoAPedido(
 }
 
 // =============================================================
-// 5. CONFIRMAR PEDIDO → piezas + ubicación + tareas
+// 5. CONFIRMAR PEDIDO → piezas + ubicación + tareas + candidatos
 // =============================================================
 
 export async function confirmarPedido(input: ConfirmarPedidoInput) {
@@ -537,12 +539,26 @@ export async function confirmarPedido(input: ConfirmarPedidoInput) {
   const { data: piezasCreadas, error: errPi } = await supabase
     .from('piezas')
     .insert(payloadPiezas)
-    .select('id, linea_pedido_id')
+    .select('id, linea_pedido_id, numero')
   if (errPi) throw errPi
   if (!piezasCreadas) throw new Error('No se pudieron crear las piezas')
 
+  // 3 bis. Rellenar qr_codigo de cada pieza con su propio número
+  //        (para trazabilidad: QR y Code128 leen el mismo valor PIE-YYYY-NNNN)
+  const piezasArr = piezasCreadas as Array<{
+    id: string
+    linea_pedido_id: string
+    numero: string
+  }>
+  for (const p of piezasArr) {
+    await supabase
+      .from('piezas')
+      .update({ qr_codigo: p.numero })
+      .eq('id', p.id)
+  }
+
   // 4. Registrar primer movimiento de cada pieza (origen null → destino ubicacion)
-  const movsPayload = (piezasCreadas as any[]).map((p) => ({
+  const movsPayload = piezasArr.map((p) => ({
     pieza_id: p.id,
     fecha: ahora,
     ubicacion_origen_id: null,
@@ -572,7 +588,7 @@ export async function confirmarPedido(input: ConfirmarPedidoInput) {
         tiempo_base_minutos, tiempo_por_m2_minutos,
         factor_simple, factor_media, factor_compleja,
         es_opcional, depende_de_secuencia, activo,
-        proceso:procesos_catalogo(id, codigo, escala_por_m2, activo)
+        proceso:procesos_catalogo(id, codigo, escala_por_m2, activo, rol_operario_requerido)
       `
       )
       .in('producto_id', productosIds)
@@ -590,13 +606,20 @@ export async function confirmarPedido(input: ConfirmarPedidoInput) {
     procesosPorProducto.get(p.producto_id)!.push(p)
   }
 
+  // Mapa proceso_id → rol_operario_requerido (para auto-asignación posterior)
+  const rolPorProcesoId = new Map<string, string | null>()
+  for (const p of procesos) {
+    const pc = Array.isArray(p.proceso) ? p.proceso[0] : p.proceso
+    rolPorProcesoId.set(p.proceso_id, pc?.rol_operario_requerido ?? null)
+  }
+
   const tareasPayload: any[] = []
-  for (const pieza of piezasCreadas as any[]) {
+  for (const pieza of piezasArr) {
     const linea = lineasPorId.get(pieza.linea_pedido_id)
     if (!linea || !linea.producto_id) continue
     const procs = procesosPorProducto.get(linea.producto_id) ?? []
     for (const pp of procs) {
-      const pc = pp.proceso ?? {}
+      const pc = Array.isArray(pp.proceso) ? pp.proceso[0] : (pp.proceso ?? {})
       if (pc?.activo === false) continue
       const tiempoEst = calcularTiempoTarea(
         pp,
@@ -616,11 +639,84 @@ export async function confirmarPedido(input: ConfirmarPedidoInput) {
     }
   }
 
+  // Insertar tareas y recoger las IDs creadas (necesarias para candidatos)
+  let tareasCreadasArr: Array<{ id: string; proceso_id: string }> = []
   if (tareasPayload.length > 0) {
-    const { error: errT } = await supabase
+    const { data: tareasIns, error: errT } = await supabase
       .from('tareas_produccion')
       .insert(tareasPayload)
+      .select('id, proceso_id')
     if (errT) throw errT
+    tareasCreadasArr = (tareasIns ?? []) as typeof tareasCreadasArr
+  }
+
+  // 5.5. AUTO-ASIGNAR CANDIDATOS según rol_operario_requerido del proceso
+  //      Regla: si hay operarios activos con ese rol, se insertan TODOS como
+  //      candidatos (cualquiera puede cogerla). Si no hay ninguno con el rol
+  //      requerido, la tarea queda sin candidatos → queda "abierta" para
+  //      que cualquiera la coja desde el panel.
+  //      Si falla, se loguea pero NO rompe la confirmación.
+  let candidatosCreados = 0
+  try {
+    if (tareasCreadasArr.length > 0) {
+      // Recolectar roles únicos que necesitan candidatos
+      const rolesNecesarios = new Set<string>()
+      for (const t of tareasCreadasArr) {
+        const rol = rolPorProcesoId.get(t.proceso_id)
+        if (rol) rolesNecesarios.add(rol)
+      }
+
+      if (rolesNecesarios.size > 0) {
+        // Una sola query para traer todos los operarios activos de esos roles
+        const { data: operarios } = await supabase
+          .from('operarios')
+          .select('id, rol')
+          .eq('activo', true)
+          .in('rol', Array.from(rolesNecesarios))
+
+        const operariosPorRol = new Map<string, string[]>()
+        for (const o of (operarios ?? []) as Array<{ id: string; rol: string }>) {
+          if (!operariosPorRol.has(o.rol)) operariosPorRol.set(o.rol, [])
+          operariosPorRol.get(o.rol)!.push(o.id)
+        }
+
+        // Construir payload de candidatos
+        const candidatosPayload: Array<{
+          tarea_id: string
+          operario_id: string
+        }> = []
+        for (const t of tareasCreadasArr) {
+          const rol = rolPorProcesoId.get(t.proceso_id)
+          if (!rol) continue
+          const ops = operariosPorRol.get(rol) ?? []
+          for (const opId of ops) {
+            candidatosPayload.push({
+              tarea_id: t.id,
+              operario_id: opId,
+            })
+          }
+        }
+
+        if (candidatosPayload.length > 0) {
+          const { error: errCand } = await supabase
+            .from('operarios_tareas_candidatos')
+            .insert(candidatosPayload)
+          if (errCand) {
+            console.error(
+              '[confirmarPedido] Auto-asignación de candidatos falló:',
+              errCand.message
+            )
+          } else {
+            candidatosCreados = candidatosPayload.length
+          }
+        }
+      }
+    }
+  } catch (e: any) {
+    console.error(
+      '[confirmarPedido] Error no crítico al asignar candidatos:',
+      e?.message ?? e
+    )
   }
 
   // 6. Pedido → 'confirmado'
@@ -634,8 +730,9 @@ export async function confirmarPedido(input: ConfirmarPedidoInput) {
 
   return {
     pedido: pedidoConfirmado,
-    piezasCreadas: (piezasCreadas as any[]).length,
+    piezasCreadas: piezasArr.length,
     tareasCreadas: tareasPayload.length,
+    candidatosCreados,
   }
 }
 
