@@ -419,3 +419,188 @@ async function insertarLineaConMotor(
     tiempo_estimado: Math.round(tiempoMinTotal),
   }
 }
+
+// =================================================================
+// SIMULACIÓN SIN GUARDAR — Calcular precio antes de guardar
+// =================================================================
+/**
+ * Calcula el precio, tiempo y coste de una pieza personalizada SIN
+ * insertarla en BD. Usado por el formulario "Nueva pieza" del
+ * presupuestador v2 para que el usuario vea el precio antes de
+ * confirmar Guardar.
+ *
+ * Misma lógica que insertarLineaConMotor pero sin insert final.
+ * La llamada es un server action desde el cliente.
+ */
+export interface SimularPrecioInput {
+  cantidad: number
+  modo_precio: 'm2' | 'pieza' | 'ml'
+  ancho: number | null
+  alto: number | null
+  grosor: number | null
+  longitud_ml: number | null
+  cara_frontal: boolean
+  cara_trasera: boolean
+  canto_superior: boolean
+  canto_inferior: boolean
+  canto_izquierdo: boolean
+  canto_derecho: boolean
+  contabilizar_grosor: boolean
+  categoria_pieza_id: string | null
+  material_lacado_id: string | null
+  material_fondo_id: string | null
+  factor_complejidad: FactorComplejidad
+  descuento_porcentaje: number
+  procesos: Array<{
+    proceso_codigo: string
+    orden: number
+  }>
+}
+
+export interface SimularPrecioResultado {
+  superficie_unitaria_m2: number
+  tiempo_minutos_unitario: number
+  tiempo_minutos_total: number
+  coste_materiales_unitario: number
+  coste_mano_obra_unitario: number
+  coste_unitario: number
+  precio_unitario: number
+  precio_total: number
+  detalle: {
+    kg_lacado: number
+    kg_fondo: number
+    kg_cata: number
+    kg_dis: number
+    coste_lacado: number
+    coste_fondo: number
+    coste_cata: number
+    coste_dis: number
+    avisos: string[]
+  }
+}
+
+export async function simularPrecioLineaPersonalizada(
+  input: SimularPrecioInput
+): Promise<SimularPrecioResultado> {
+  const supabase = createClient()
+  const configRow = await obtenerConfiguracionEmpresa(supabase)
+  const cfg = extraerConfigErp(configRow)
+
+  // Precios efectivos de materiales
+  let precio_lacado = null as { precio_kg: number; rendimiento_kg_m2: number } | null
+  let precio_fondo  = null as { precio_kg: number; rendimiento_kg_m2: number } | null
+  let precio_cata_kg = 0
+  let precio_dis_kg  = 0
+
+  if (input.material_lacado_id) {
+    const m = await obtenerMaterial(input.material_lacado_id)
+    precio_lacado = {
+      precio_kg: resolverPrecioKg(m),
+      rendimiento_kg_m2: resolverRendimientoKgM2(m, cfg),
+    }
+  }
+  if (input.material_fondo_id) {
+    const m = await obtenerMaterial(input.material_fondo_id)
+    precio_fondo = {
+      precio_kg: resolverPrecioKg(m),
+      rendimiento_kg_m2: resolverRendimientoKgM2(m, cfg),
+    }
+  }
+  if (cfg.material_catalizador_default_id) {
+    precio_cata_kg = resolverPrecioKg(
+      await obtenerMaterial(cfg.material_catalizador_default_id)
+    )
+  }
+  if (cfg.material_disolvente_default_id) {
+    precio_dis_kg = resolverPrecioKg(
+      await obtenerMaterial(cfg.material_disolvente_default_id)
+    )
+  }
+
+  // Superficie (usando la misma función que el motor real)
+  const caras: CarasSeleccionadas = {
+    cara_frontal: input.cara_frontal,
+    cara_trasera: input.cara_trasera,
+    canto_superior: input.canto_superior,
+    canto_inferior: input.canto_inferior,
+    canto_izquierdo: input.canto_izquierdo,
+    canto_derecho: input.canto_derecho,
+  }
+  const superficie = calcularSuperficie({
+    modo_precio: input.modo_precio,
+    ancho: input.ancho,
+    alto: input.alto,
+    grosor: input.grosor,
+    longitud_ml: input.longitud_ml,
+    caras,
+    contabilizar_grosor: input.contabilizar_grosor,
+    cantidad: input.cantidad,
+    ancho_minimo_pistola_cm: cfg.ancho_minimo_pistola_cm,
+  })
+
+  // Procesos con tiempos desde defaults
+  const procesos: ProcesoInput[] = input.procesos.map((p) => {
+    const def = getProcesoDefault(p.proceso_codigo)
+    return {
+      codigo: p.proceso_codigo,
+      tiempo_base_min:   def?.tiempo_base_min   ?? 0,
+      tiempo_por_m2_min: def?.tiempo_por_m2_min ?? 0,
+      consume_material:  def?.consume_material  ?? false,
+      tipo_material:     def?.tipo_material,
+    }
+  })
+
+  // Coste vía motor (misma función que guardado real)
+  const desglose = calcularCoste({
+    superficie_m2: superficie.superficie_unitaria_m2,
+    factor_complejidad: input.factor_complejidad,
+    precio_lacado,
+    precio_fondo,
+    precio_cata_kg,
+    precio_dis_kg,
+    procesos,
+    descuento_porcentaje: input.descuento_porcentaje,
+    cantidad: input.cantidad,
+    config: {
+      rendimiento_lacado_kg_m2:   cfg.rendimiento_lacado_kg_m2,
+      rendimiento_fondo_kg_m2:    cfg.rendimiento_fondo_kg_m2,
+      coste_minuto_operario:      cfg.coste_minuto_operario,
+      margen_objetivo_porcentaje: cfg.margen_objetivo_porcentaje,
+      ratios: {
+        ratio_cata_lacado: cfg.ratio_cata_lacado,
+        ratio_dis_lacado:  cfg.ratio_dis_lacado,
+        ratio_cata_fondo:  cfg.ratio_cata_fondo,
+        ratio_dis_fondo:   cfg.ratio_dis_fondo,
+      },
+      multiplicador_simple:   0.8,
+      multiplicador_media:    1.0,
+      multiplicador_compleja: 1.3,
+    },
+  })
+
+  const d: any = desglose as any
+
+  return {
+    superficie_unitaria_m2: Number(superficie.superficie_unitaria_m2.toFixed(4)),
+    tiempo_minutos_unitario: Number((d.tiempo_total_min ?? 0).toFixed(1)),
+    tiempo_minutos_total: Number(
+      ((d.tiempo_total_min ?? 0) * input.cantidad).toFixed(1)
+    ),
+    coste_materiales_unitario: Number((d.coste_materiales_unitario ?? 0).toFixed(2)),
+    coste_mano_obra_unitario: Number((d.coste_mano_obra_unitario ?? 0).toFixed(2)),
+    coste_unitario: Number((d.coste_unitario ?? 0).toFixed(2)),
+    precio_unitario: Number((d.precio_final_unitario ?? 0).toFixed(2)),
+    precio_total: Number((d.precio_total_final ?? 0).toFixed(2)),
+    detalle: {
+      kg_lacado: Number((d.kg_lacado ?? 0).toFixed(4)),
+      kg_fondo:  Number((d.kg_fondo ?? 0).toFixed(4)),
+      kg_cata:   Number((d.kg_cata ?? 0).toFixed(4)),
+      kg_dis:    Number((d.kg_dis ?? 0).toFixed(4)),
+      coste_lacado: Number((d.coste_lacado ?? 0).toFixed(2)),
+      coste_fondo:  Number((d.coste_fondo ?? 0).toFixed(2)),
+      coste_cata:   Number((d.coste_cata ?? 0).toFixed(2)),
+      coste_dis:    Number((d.coste_dis ?? 0).toFixed(2)),
+      avisos:       Array.isArray(d.avisos) ? d.avisos : [],
+    },
+  }
+}
