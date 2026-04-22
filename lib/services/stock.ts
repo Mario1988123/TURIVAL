@@ -101,7 +101,7 @@ export async function listarMovimientos(filtros: {
       pieza:piezas(id, numero),
       pedido:pedidos(
         id, numero,
-        cliente:clientes(id, nombre)
+        cliente:clientes(id, nombre_comercial)
       )
     `)
     .order('fecha', { ascending: false })
@@ -119,6 +119,8 @@ export async function listarMovimientos(filtros: {
 
   // Supabase devuelve relaciones como array u objeto según cardinalidad;
   // normalizamos a objeto-o-null para consumo uniforme en la UI.
+  // Además, renombramos nombre_comercial → nombre porque en la UI
+  // el campo expuesto es 'nombre' (shape de MovimientoStockEnriquecido).
   const raw = (data ?? []) as any[]
   return raw.map((m): MovimientoStockEnriquecido => {
     const pieza = Array.isArray(m.pieza) ? m.pieza[0] : m.pieza
@@ -133,7 +135,9 @@ export async function listarMovimientos(filtros: {
         ? {
             id: pedido.id,
             numero: pedido.numero,
-            cliente: cliente ? { id: cliente.id, nombre: cliente.nombre } : null,
+            cliente: cliente
+              ? { id: cliente.id, nombre: cliente.nombre_comercial ?? '' }
+              : null,
           }
         : null,
     }
