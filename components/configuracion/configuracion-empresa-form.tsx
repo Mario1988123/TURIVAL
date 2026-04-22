@@ -23,7 +23,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Settings, Save, Upload, Trash2, Loader2,
   Building2, Image as ImageIcon, Calculator, Beaker,
+  AlertTriangle, ExternalLink,
 } from 'lucide-react'
+import Link from 'next/link'
 
 const CAMPOS_FISCALES: Array<{
   key: keyof ConfiguracionEmpresa
@@ -349,6 +351,28 @@ export default function ConfiguracionEmpresaForm() {
                   </div>
                 </div>
               </div>
+              {/* Control de merma (R6b) */}
+              <div>
+                <h3 className="font-semibold mb-2 text-sm flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-500" />
+                  Control de merma
+                </h3>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Al completar una tarea de lacado o fondo, el operario indica si
+                  sobró o faltó pintura. El sistema calcula el % de merma sobre la
+                  mezcla teórica. Si supera este umbral, salta alerta para que
+                  confirmes si ajustar el rendimiento global.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-xs mb-1 block">Umbral alerta merma (%)</Label>
+                    {numInput('umbral_alerta_merma_pct', '1')}
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Recomendado 15 %. Por debajo, la desviación se registra sin avisar.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -360,12 +384,15 @@ export default function ConfiguracionEmpresaForm() {
               <CardTitle>Materiales por defecto para mezclas</CardTitle>
               <CardDescription>
                 El catalizador y disolvente que se añade automáticamente a las mezclas
-                de lacado y fondo. Si en el futuro añades variedades especiales,
-                puedes asignarlas material a material.
+                de lacado y fondo. El precio y proveedor se gestionan en{' '}
+                <Link href="/materiales" className="underline text-blue-600 hover:text-blue-800">
+                  Materiales
+                </Link>.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
+              {/* Catalizador */}
+              <div className="space-y-2">
                 <Label className="text-xs mb-1 block">Catalizador por defecto</Label>
                 <Select
                   value={form.material_catalizador_default_id ?? '__ninguno__'}
@@ -384,8 +411,15 @@ export default function ConfiguracionEmpresaForm() {
                     ))}
                   </SelectContent>
                 </Select>
+                <ResumenMaterialSeleccionado
+                  material={catalizadores.find(
+                    (m) => m.id === form.material_catalizador_default_id
+                  )}
+                />
               </div>
-              <div>
+
+              {/* Disolvente */}
+              <div className="space-y-2">
                 <Label className="text-xs mb-1 block">Disolvente por defecto</Label>
                 <Select
                   value={form.material_disolvente_default_id ?? '__ninguno__'}
@@ -404,6 +438,11 @@ export default function ConfiguracionEmpresaForm() {
                     ))}
                   </SelectContent>
                 </Select>
+                <ResumenMaterialSeleccionado
+                  material={disolventes.find(
+                    (m) => m.id === form.material_disolvente_default_id
+                  )}
+                />
               </div>
             </CardContent>
           </Card>
@@ -427,6 +466,67 @@ export default function ConfiguracionEmpresaForm() {
           </Alert>
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Tarjeta de resumen del material seleccionado en el tab "Mezclas".
+ * Muestra precio/kg efectivo + proveedor + enlace a /materiales.
+ *
+ * Precio efectivo:
+ *   - precio_kg_sobrescrito si no es null
+ *   - precio_base_kg del proveedor si existe
+ *   - (sin precio) si ambos null
+ */
+function ResumenMaterialSeleccionado({
+  material,
+}: {
+  material: MaterialConProveedor | undefined
+}) {
+  if (!material) {
+    return (
+      <p className="text-xs text-muted-foreground italic">
+        No hay material seleccionado.
+      </p>
+    )
+  }
+
+  const precio =
+    material.precio_kg_sobrescrito ??
+    material.proveedor?.precio_base_kg ??
+    null
+
+  const sinPrecio = precio === null || precio === 0
+  const sinProveedor = !material.proveedor
+
+  return (
+    <div className="rounded-md border bg-slate-50 p-3 text-xs space-y-1">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-semibold text-slate-700">Precio · kg</span>
+        {sinPrecio ? (
+          <span className="text-amber-700 font-medium">Sin precio</span>
+        ) : (
+          <span className="text-slate-900">{Number(precio).toFixed(4)} €</span>
+        )}
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-semibold text-slate-700">Proveedor</span>
+        <span className={sinProveedor ? 'text-amber-700 font-medium' : 'text-slate-900'}>
+          {material.proveedor?.nombre ?? 'Sin asignar'}
+        </span>
+      </div>
+      {(sinPrecio || sinProveedor) && (
+        <p className="text-amber-700 pt-1 border-t border-amber-200">
+          ⚠ Hasta completar estos datos, los presupuestos calcularán coste sin este componente.
+        </p>
+      )}
+      <Link
+        href="/materiales"
+        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 pt-1"
+      >
+        Editar en /materiales <ExternalLink className="w-3 h-3" />
+      </Link>
     </div>
   )
 }
