@@ -47,6 +47,9 @@ export interface ConfiguracionEmpresa {
   material_catalizador_default_id: string | null
   material_disolvente_default_id:  string | null
 
+  // R6b: Umbral % de merma por encima del cual salta alerta
+  umbral_alerta_merma_pct: number
+
   created_at: string
   updated_at: string
 }
@@ -147,5 +150,6 @@ export function extraerConfigErp(c: ConfiguracionEmpresa) {
     ancho_minimo_pistola_cm:    Number(c.ancho_minimo_pistola_cm  ?? 15),
     material_catalizador_default_id: c.material_catalizador_default_id ?? null,
     material_disolvente_default_id:  c.material_disolvente_default_id  ?? null,
+    umbral_alerta_merma_pct:    Number(c.umbral_alerta_merma_pct ?? 15),
   }
 }
