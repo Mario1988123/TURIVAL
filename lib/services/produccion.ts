@@ -20,6 +20,10 @@
  */
 
 import { createClient } from '@/lib/supabase/server'
+import {
+  consumirRealYLiberarReserva,
+  revertirConsumoTarea,
+} from '@/lib/services/reservas'
 
 // =============================================================
 // TIPOS
@@ -210,10 +214,18 @@ export async function obtenerTareaActivaPorQr(qrCodigo: string) {
 export async function iniciarTarea(tareaId: string, operarioId: string) {
   const supabase = await createClient()
 
-  // 1. Cargar la tarea que queremos iniciar
+  // 1. Cargar la tarea que queremos iniciar (con proceso.codigo y pedido.estado)
   const { data: tarea, error: errT } = await supabase
     .from('tareas_produccion')
-    .select('id, pieza_id, secuencia, estado, proceso_id')
+    .select(`
+      id, pieza_id, secuencia, estado, proceso_id,
+      proceso:procesos_catalogo(codigo),
+      pieza:piezas(
+        linea_pedido:lineas_pedido(
+          pedido:pedidos(id, estado)
+        )
+      )
+    `)
     .eq('id', tareaId)
     .single()
   if (errT) throw errT
@@ -223,6 +235,34 @@ export async function iniciarTarea(tareaId: string, operarioId: string) {
     throw new Error(
       `La tarea no se puede iniciar desde estado "${etiquetaEstadoLegible(tareaActual.estado)}"`
     )
+  }
+
+  // 1b. Bloqueo R6b: si el proceso es de MEZCLA (LACADO/FONDO/FONDEADO_2),
+  //     el pedido tiene que estar confirmado / en_produccion / completado.
+  //     Si está en borrador o cancelado, no se puede iniciar.
+  const procInfo = Array.isArray(tareaActual.proceso)
+    ? tareaActual.proceso[0]
+    : tareaActual.proceso
+  const codigoProceso: string = procInfo?.codigo ?? ''
+  const esProcesoMezcla = ['LACADO', 'FONDO', 'FONDEADO_2'].includes(codigoProceso)
+
+  if (esProcesoMezcla) {
+    const piezaInfo = Array.isArray(tareaActual.pieza) ? tareaActual.pieza[0] : tareaActual.pieza
+    const lineaInfo = piezaInfo
+      ? (Array.isArray(piezaInfo.linea_pedido) ? piezaInfo.linea_pedido[0] : piezaInfo.linea_pedido)
+      : null
+    const pedidoInfo = lineaInfo
+      ? (Array.isArray(lineaInfo.pedido) ? lineaInfo.pedido[0] : lineaInfo.pedido)
+      : null
+    const estadoPedido: string = pedidoInfo?.estado ?? ''
+    const estadosValidos = ['confirmado', 'en_produccion', 'completado']
+    if (!estadosValidos.includes(estadoPedido)) {
+      throw new Error(
+        `No se puede iniciar un proceso de ${codigoProceso} sin que el pedido esté confirmado. ` +
+        `Estado actual del pedido: "${estadoPedido || 'desconocido'}". ` +
+        'Confirma el pedido antes de iniciar esta tarea.'
+      )
+    }
   }
 
   // 2. Cargar tareas previas (secuencia menor) con info de proceso
@@ -326,7 +366,13 @@ export async function iniciarTarea(tareaId: string, operarioId: string) {
   return actualizada
 }
 
-export async function completarTarea(tareaId: string) {
+export async function completarTarea(
+  tareaId: string,
+  mezcla?: {
+    estado: 'exacto' | 'sobro' | 'falto'
+    kg_merma_total?: number    // obligatorio si estado != 'exacto'
+  }
+) {
   const supabase = await createClient()
   const ahora = new Date()
 
@@ -335,7 +381,7 @@ export async function completarTarea(tareaId: string) {
     .select(`
       id, pieza_id, estado, fecha_inicio_real, secuencia, proceso_id,
       proceso:procesos_catalogo(
-        id, requiere_secado, tiempo_secado_minutos
+        id, codigo, requiere_secado, tiempo_secado_minutos
       ),
       pieza:piezas(
         id, linea_pedido_id,
@@ -378,6 +424,25 @@ export async function completarTarea(tareaId: string) {
     }
   }
 
+  // R6b: cablear consumo de mezcla si el proceso es LACADO/FONDO/FONDEADO_2
+  //      y el llamador ha proporcionado el estado de la mezcla.
+  const codigoProc: string = proceso?.codigo ?? ''
+  const esProcesoMezcla = ['LACADO', 'FONDO', 'FONDEADO_2'].includes(codigoProc)
+  let resultadoConsumo: Awaited<ReturnType<typeof consumirRealYLiberarReserva>> | null = null
+
+  if (esProcesoMezcla && mezcla) {
+    if (mezcla.estado !== 'exacto' && (mezcla.kg_merma_total === undefined || mezcla.kg_merma_total === null)) {
+      throw new Error('Debe indicar los kg de merma cuando el estado es "sobró" o "faltó".')
+    }
+    const tipoMezcla: 'lacado' | 'fondo' = codigoProc === 'LACADO' ? 'lacado' : 'fondo'
+    resultadoConsumo = await consumirRealYLiberarReserva({
+      tarea_id: tareaId,
+      tipo: tipoMezcla,
+      estado_mezcla: mezcla.estado,
+      kg_merma_total: mezcla.kg_merma_total,
+    })
+  }
+
   if (requiereSecado && minutosSecado > 0) {
     const finSecado = new Date(ahora.getTime() + minutosSecado * 60000)
     const { data, error } = await supabase
@@ -392,7 +457,12 @@ export async function completarTarea(tareaId: string) {
       .select()
       .single()
     if (error) throw error
-    return { tarea: data, estado: 'en_secado' as const, finSecado }
+    return {
+      tarea: data,
+      estado: 'en_secado' as const,
+      finSecado,
+      consumo: resultadoConsumo,
+    }
   }
 
   const { data, error } = await supabase
@@ -409,7 +479,11 @@ export async function completarTarea(tareaId: string) {
 
   await propagarCompletado(t.pieza_id)
 
-  return { tarea: data, estado: 'completada' as const }
+  return {
+    tarea: data,
+    estado: 'completada' as const,
+    consumo: resultadoConsumo,
+  }
 }
 
 export async function forzarSeco(tareaId: string) {
@@ -643,4 +717,65 @@ async function propagarCompletado(piezaId: string) {
 
 export async function recomputarEstadoPiezaYPedido(piezaId: string) {
   return propagarCompletado(piezaId)
+}
+
+// =============================================================
+// R6b — REAPERTURA DE TAREA (con auditoría)
+// =============================================================
+/**
+ * Reabre una tarea completada:
+ *   - Revierte los movimientos de consumo de stock (restaura stock_fisico_kg
+ *     y registra movimientos tipo 'ajuste' inversos).
+ *   - Rechaza los ajustes_rendimiento_pendientes que hubiera generado.
+ *   - Pone la tarea en 'en_progreso' otra vez (con fecha_inicio_real nueva).
+ *
+ * Se usa cuando el operario se ha equivocado al declarar la mezcla y
+ * quiere reabrir la tarea para volver a completarla con otros valores.
+ *
+ * NO recalcula tareas posteriores de la pieza: si ya habían iniciado,
+ * quedan en su estado. Es responsabilidad del usuario verificar que la
+ * cadena sigue consistente.
+ */
+export async function reabrirTarea(tareaId: string, operarioId: string) {
+  const supabase = await createClient()
+
+  const { data: tarea, error: errT } = await supabase
+    .from('tareas_produccion')
+    .select('id, estado, operario_id')
+    .eq('id', tareaId)
+    .single()
+  if (errT) throw errT
+  if (!tarea) throw new Error('Tarea no encontrada')
+  const t: any = tarea
+  if (!['completada', 'en_secado'].includes(t.estado)) {
+    throw new Error(
+      `Solo se pueden reabrir tareas completadas o en secado ` +
+      `(actual: "${etiquetaEstadoLegible(t.estado)}")`
+    )
+  }
+
+  // 1. Revertir consumos en stock con auditoría
+  const reversion = await revertirConsumoTarea(tareaId)
+
+  // 2. Volver a poner la tarea en en_progreso
+  const { data: actualizada, error: errU } = await supabase
+    .from('tareas_produccion')
+    .update({
+      estado: 'en_progreso',
+      operario_id: operarioId,
+      fecha_inicio_real: new Date().toISOString(),
+      fecha_fin_real: null,
+      fecha_fin_secado: null,
+      tiempo_real_minutos: null,
+    })
+    .eq('id', tareaId)
+    .select()
+    .single()
+  if (errU) throw errU
+
+  return {
+    tarea: actualizada,
+    movimientos_revertidos: reversion.movimientos_revertidos,
+    materiales_afectados: reversion.materiales_afectados,
+  }
 }
