@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { listarClientes } from '@/lib/services/clientes'
 import {
   listarReferenciasPorCliente,
+  crearReferencia,
   type ReferenciaCliente,
 } from '@/lib/services/referencias-cliente'
 import {
@@ -12,6 +13,7 @@ import {
   type LineaPresupuestoInput,
 } from '@/lib/services/presupuestos-v2'
 import type { Cliente } from '@/lib/types/erp'
+import type { FactorComplejidad } from '@/lib/motor/coste'
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -33,10 +35,35 @@ import {
 import {
   FileText, Plus, Save, Loader2, X, Trash2, Layers, Edit3, Info,
 } from 'lucide-react'
+import DialogNuevaPiezaV2, { type NuevaPiezaData } from './dialog-nueva-pieza-v2'
+
+interface DatosPersonalizados {
+  categoria_pieza_id: string | null
+  modo_precio: 'm2' | 'pieza' | 'ml'
+  ancho: number | null
+  alto: number | null
+  grosor: number | null
+  longitud_ml: number | null
+  cara_frontal: boolean
+  cara_trasera: boolean
+  canto_superior: boolean
+  canto_inferior: boolean
+  canto_izquierdo: boolean
+  canto_derecho: boolean
+  contabilizar_grosor: boolean
+  material_lacado_id: string | null
+  material_fondo_id: string | null
+  factor_complejidad: FactorComplejidad
+  descuento_porcentaje: number
+  precio_aproximado: boolean
+  guardar_como_referencia: boolean
+  nombre_referencia: string
+}
 
 type LineaItem =
   | { tipo: 'referencia'; referencia: ReferenciaCliente; cantidad: number; descripcion: string }
   | { tipo: 'manual';     descripcion: string; cantidad: number; precio_unitario: number }
+  | { tipo: 'personalizada'; descripcion: string; cantidad: number; datos: DatosPersonalizados }
 
 const EURO = (n: number) =>
   Number(n).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })
@@ -62,6 +89,7 @@ export default function PresupuestoV2Cliente() {
   // Dialogs
   const [dialogoRef, setDialogoRef] = useState(false)
   const [dialogoManual, setDialogoManual] = useState(false)
+  const [dialogoNuevaPieza, setDialogoNuevaPieza] = useState(false)
   const [formManual, setFormManual] = useState({ descripcion: '', cantidad: 1, precio: 0 })
 
   const [guardando, setGuardando] = useState(false)
@@ -130,6 +158,44 @@ export default function PresupuestoV2Cliente() {
     setMensaje({ tipo: 'ok', texto: 'Línea manual añadida.' })
   }
 
+  function añadirPiezaNueva(datos: NuevaPiezaData) {
+    setLineas(ls => [
+      ...ls,
+      {
+        tipo: 'personalizada',
+        descripcion: datos.descripcion,
+        cantidad: datos.cantidad,
+        datos: {
+          categoria_pieza_id: datos.categoria_pieza_id,
+          modo_precio: datos.modo_precio,
+          ancho: datos.ancho,
+          alto: datos.alto,
+          grosor: datos.grosor,
+          longitud_ml: datos.longitud_ml,
+          cara_frontal: datos.cara_frontal,
+          cara_trasera: datos.cara_trasera,
+          canto_superior: datos.canto_superior,
+          canto_inferior: datos.canto_inferior,
+          canto_izquierdo: datos.canto_izquierdo,
+          canto_derecho: datos.canto_derecho,
+          contabilizar_grosor: datos.contabilizar_grosor,
+          material_lacado_id: datos.material_lacado_id,
+          material_fondo_id: datos.material_fondo_id,
+          factor_complejidad: datos.factor_complejidad,
+          descuento_porcentaje: datos.descuento_porcentaje,
+          precio_aproximado: datos.precio_aproximado,
+          guardar_como_referencia: datos.guardar_como_referencia,
+          nombre_referencia: datos.nombre_referencia,
+        },
+      },
+    ])
+    setDialogoNuevaPieza(false)
+    const extra = datos.guardar_como_referencia
+      ? ' (se guardará también como referencia al crear el presupuesto)'
+      : ''
+    setMensaje({ tipo: 'ok', texto: `Pieza añadida: ${datos.descripcion}${extra}` })
+  }
+
   function quitarLinea(idx: number) {
     setLineas(ls => ls.filter((_, i) => i !== idx))
   }
@@ -141,9 +207,15 @@ export default function PresupuestoV2Cliente() {
   // ===== Totales en vivo =====
   const totales = useMemo(() => {
     let subtotal = 0
+    let hayPersonalizadas = false
     for (const l of lineas) {
       if (l.tipo === 'manual') {
         subtotal += Number(l.precio_unitario) * Math.max(1, l.cantidad)
+      } else if (l.tipo === 'personalizada') {
+        // El precio de piezas personalizadas se calcula en el backend
+        // con el motor ERP al guardar. En la preview sumamos 0 y
+        // marcamos un flag para avisar al usuario.
+        hayPersonalizadas = true
       } else {
         // Para referencias usamos precio_calculado_ultimo (snapshot)
         const precioUnit = Number(l.referencia.precio_calculado_ultimo ?? 0)
@@ -154,7 +226,7 @@ export default function PresupuestoV2Cliente() {
     const base = subtotal - desc
     const ivaEur = (base * iva) / 100
     const total = base + ivaEur
-    return { subtotal, desc, base, ivaEur, total }
+    return { subtotal, desc, base, ivaEur, total, hayPersonalizadas }
   }, [lineas, descuentoGlobal, iva])
 
   async function guardar() {
@@ -178,6 +250,38 @@ export default function PresupuestoV2Cliente() {
             precio_unitario_manual: l.precio_unitario,
           }
         }
+        if (l.tipo === 'personalizada') {
+          return {
+            tipo: 'personalizada',
+            descripcion: l.descripcion,
+            cantidad: l.cantidad,
+            orden: idx,
+            datos_personalizada: {
+              categoria_pieza_id: l.datos.categoria_pieza_id,
+              modo_precio: l.datos.modo_precio,
+              ancho: l.datos.ancho,
+              alto: l.datos.alto,
+              grosor: l.datos.grosor,
+              longitud_ml: l.datos.longitud_ml,
+              cara_frontal: l.datos.cara_frontal,
+              cara_trasera: l.datos.cara_trasera,
+              canto_superior: l.datos.canto_superior,
+              canto_inferior: l.datos.canto_inferior,
+              canto_izquierdo: l.datos.canto_izquierdo,
+              canto_derecho: l.datos.canto_derecho,
+              contabilizar_grosor: l.datos.contabilizar_grosor,
+              material_lacado_id: l.datos.material_lacado_id,
+              material_fondo_id: l.datos.material_fondo_id,
+              factor_complejidad: l.datos.factor_complejidad,
+              descuento_porcentaje: l.datos.descuento_porcentaje,
+              precio_aproximado: l.datos.precio_aproximado,
+              // Procesos automáticos: el backend ya aplica defaults si
+              // el array está vacío. Dejamos vacío para que use los
+              // defaults de la categoría/tipo de pieza.
+              procesos: [],
+            },
+          }
+        }
         return {
           tipo: 'referencia',
           descripcion: l.descripcion,
@@ -198,14 +302,81 @@ export default function PresupuestoV2Cliente() {
         lineas: lineasInput,
       })
 
+      // Presupuesto creado OK. Ahora, para cada línea personalizada que
+      // pidió "guardar como referencia", creamos la referencia. Si falla,
+      // avisamos pero NO revertimos el presupuesto.
+      const piezasAGuardar = lineas
+        .filter((l): l is Extract<LineaItem, { tipo: 'personalizada' }> =>
+          l.tipo === 'personalizada' && l.datos.guardar_como_referencia
+        )
+
+      let referenciasOk = 0
+      const referenciasError: string[] = []
+      for (const p of piezasAGuardar) {
+        try {
+          // Código único por cliente: slug del nombre + timestamp corto.
+          // Si el usuario ya tiene una con ese mismo nombre, diferenciamos
+          // con sufijo numérico automático del timestamp.
+          const slug = (p.datos.nombre_referencia || p.descripcion)
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .slice(0, 32) || 'ref'
+          const codigo = `${slug}-${Date.now().toString(36).slice(-4)}`
+          await crearReferencia({
+            cliente_id: clienteId,
+            referencia_cliente: codigo,
+            referencia_interna: null,
+            nombre_pieza: p.datos.nombre_referencia || p.descripcion,
+            descripcion: p.descripcion,
+            categoria_pieza_id: p.datos.categoria_pieza_id,
+            modo_precio: p.datos.modo_precio,
+            ancho: p.datos.ancho,
+            alto: p.datos.alto,
+            grosor: p.datos.grosor,
+            longitud_ml: p.datos.longitud_ml,
+            cara_frontal: p.datos.cara_frontal,
+            cara_trasera: p.datos.cara_trasera,
+            canto_superior: p.datos.canto_superior,
+            canto_inferior: p.datos.canto_inferior,
+            canto_izquierdo: p.datos.canto_izquierdo,
+            canto_derecho: p.datos.canto_derecho,
+            contabilizar_grosor: p.datos.contabilizar_grosor,
+            material_lacado_id: p.datos.material_lacado_id,
+            material_fondo_id: p.datos.material_fondo_id,
+            procesos: [],
+            factor_complejidad: p.datos.factor_complejidad,
+            descuento_porcentaje: p.datos.descuento_porcentaje,
+            precio_aproximado: p.datos.precio_aproximado,
+            precio_pactado: null,
+            observaciones: null,
+            activo: true,
+          } as any)
+          referenciasOk += 1
+        } catch (e: any) {
+          referenciasError.push(
+            `${p.datos.nombre_referencia || p.descripcion}: ${e?.message ?? 'error'}`
+          )
+        }
+      }
+
+      let texto = `Presupuesto ${resultado.numero} creado (${EURO(resultado.total)} total).`
+      if (referenciasOk > 0) {
+        texto += ` · ${referenciasOk} referencia(s) guardada(s).`
+      }
+      if (referenciasError.length > 0) {
+        texto += ` · Aviso: ${referenciasError.length} referencia(s) NO se guardaron (puedes crearlas a mano desde la ficha del cliente).`
+      }
       setMensaje({
-        tipo: 'ok',
-        texto: `Presupuesto ${resultado.numero} creado (${EURO(resultado.total)} total).`,
+        tipo: referenciasError.length > 0 ? 'error' : 'ok',
+        texto,
       })
-      // Redirigir al detalle
+      // Redirigir al detalle (presupuesto sí se creó siempre)
       setTimeout(() => {
         router.push(`/presupuestos/${resultado.presupuesto_id}`)
-      }, 800)
+      }, referenciasError.length > 0 ? 2500 : 800)
     } catch (e: any) {
       setMensaje({ tipo: 'error', texto: `Error: ${e.message || e}` })
     } finally {
@@ -297,7 +468,7 @@ export default function PresupuestoV2Cliente() {
               (piezas irregulares, servicios extra, etc.).
             </CardDescription>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Button
               variant="outline"
               onClick={() => setDialogoRef(true)}
@@ -305,6 +476,15 @@ export default function PresupuestoV2Cliente() {
             >
               <Layers className="w-4 h-4 mr-2" />
               + Desde referencia
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setDialogoNuevaPieza(true)}
+              disabled={!clienteId}
+              className="border-blue-300 text-blue-700 hover:bg-blue-50"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              + Nueva pieza
             </Button>
             <Button
               variant="outline"
@@ -337,15 +517,36 @@ export default function PresupuestoV2Cliente() {
               </TableHeader>
               <TableBody>
                 {lineas.map((l, idx) => {
-                  const precioUnit = l.tipo === 'manual'
-                    ? l.precio_unitario
-                    : Number(l.referencia.precio_calculado_ultimo ?? 0)
+                  let precioUnit = 0
+                  let precioUnitDisplay: string
+                  if (l.tipo === 'manual') {
+                    precioUnit = l.precio_unitario
+                    precioUnitDisplay = EURO(precioUnit)
+                  } else if (l.tipo === 'referencia') {
+                    precioUnit = Number(l.referencia.precio_calculado_ultimo ?? 0)
+                    precioUnitDisplay = EURO(precioUnit)
+                  } else {
+                    // personalizada: el motor lo calcula al guardar
+                    precioUnit = 0
+                    precioUnitDisplay = 'Al guardar'
+                  }
                   const subtotal = precioUnit * Math.max(1, l.cantidad)
+                  const subtotalDisplay = l.tipo === 'personalizada' ? '—' : EURO(subtotal)
+
+                  let badgeLabel = 'Ref.'
+                  let badgeClase = ''
+                  if (l.tipo === 'manual') {
+                    badgeLabel = 'Manual'
+                  } else if (l.tipo === 'personalizada') {
+                    badgeLabel = 'Nueva'
+                    badgeClase = 'border-blue-300 text-blue-700 bg-blue-50'
+                  }
+
                   return (
                     <TableRow key={idx}>
                       <TableCell>
-                        <Badge variant="outline" className="text-xs">
-                          {l.tipo === 'manual' ? 'Manual' : 'Ref.'}
+                        <Badge variant="outline" className={`text-xs ${badgeClase}`}>
+                          {badgeLabel}
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -357,6 +558,15 @@ export default function PresupuestoV2Cliente() {
                         {l.tipo === 'referencia' && (
                           <p className="text-xs text-muted-foreground mt-1 font-mono">
                             {l.referencia.referencia_cliente} · modo {l.referencia.modo_precio}
+                          </p>
+                        )}
+                        {l.tipo === 'personalizada' && (
+                          <p className="text-xs text-blue-700 mt-1">
+                            {l.datos.modo_precio === 'ml'
+                              ? `${l.datos.longitud_ml ?? '?'} ml`
+                              : `${l.datos.ancho ?? '?'}×${l.datos.alto ?? '?'} mm`}
+                            {' · '}{l.datos.factor_complejidad}
+                            {l.datos.guardar_como_referencia && ' · se guardará como ref.'}
                           </p>
                         )}
                       </TableCell>
@@ -377,11 +587,13 @@ export default function PresupuestoV2Cliente() {
                             className="h-8 text-sm text-right"
                           />
                         ) : (
-                          <span>{EURO(precioUnit)}</span>
+                          <span className={l.tipo === 'personalizada' ? 'text-muted-foreground italic' : ''}>
+                            {precioUnitDisplay}
+                          </span>
                         )}
                       </TableCell>
                       <TableCell className="text-right font-mono font-bold">
-                        {EURO(subtotal)}
+                        {subtotalDisplay}
                       </TableCell>
                       <TableCell>
                         <Button variant="ghost" size="sm" onClick={() => quitarLinea(idx)}>
@@ -401,6 +613,16 @@ export default function PresupuestoV2Cliente() {
       {lineas.length > 0 && (
         <Card>
           <CardContent className="pt-6">
+            {totales.hayPersonalizadas && (
+              <Alert className="mb-4 bg-blue-50 border-blue-200 text-blue-900">
+                <Info className="w-4 h-4" />
+                <AlertDescription className="text-xs">
+                  Hay piezas nuevas en el presupuesto. Su precio se calcula en
+                  servidor al guardar (motor ERP con rendimientos y tarifas).
+                  Los totales mostrados aquí no las incluyen.
+                </AlertDescription>
+              </Alert>
+            )}
             <div className="max-w-md ml-auto space-y-1 text-sm">
               <div className="flex justify-between py-1">
                 <span className="text-muted-foreground">Subtotal</span>
@@ -544,6 +766,16 @@ export default function PresupuestoV2Cliente() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog: Nueva pieza personalizada */}
+      {dialogoNuevaPieza && clienteId && (
+        <DialogNuevaPiezaV2
+          open={dialogoNuevaPieza}
+          onOpenChange={setDialogoNuevaPieza}
+          clienteId={clienteId}
+          onConfirmar={añadirPiezaNueva}
+        />
+      )}
 
       {mensaje && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 min-w-[280px] max-w-md">
