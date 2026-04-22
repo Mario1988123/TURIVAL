@@ -211,7 +211,6 @@ export async function obtenerPedido(pedidoId: string) {
         *,
         producto:productos(id, nombre),
         tarifa:tarifas(id, nombre),
-        color:colores(id, nombre),
         tratamiento:tratamientos(id, nombre),
         piezas:piezas(
           id, numero, estado, ubicacion_id, fecha_prevista_fabricacion,
@@ -223,6 +222,33 @@ export async function obtenerPedido(pedidoId: string) {
     .eq('id', pedidoId)
     .single()
   if (error) throw error
+
+  // Hidratar 'color' manualmente desde materiales (tipo='lacado') para cada línea
+  // que tenga color_id. El script 019 migró los colores a la tabla materiales y
+  // dropeó la FK color_id, por lo que PostgREST ya no permite join embebido.
+  // Implementamos un hidratado de 2 queries: (1) recoger ids únicos, (2) mapa.
+  if (data && (data as any).lineas && Array.isArray((data as any).lineas)) {
+    const lineas: any[] = (data as any).lineas
+    const colorIds = Array.from(
+      new Set(lineas.map((l) => l.color_id).filter(Boolean))
+    ) as string[]
+
+    if (colorIds.length > 0) {
+      const { data: materiales } = await supabase
+        .from('materiales')
+        .select('id, nombre')
+        .in('id', colorIds)
+
+      const mapColor = new Map<string, { id: string; nombre: string }>(
+        (materiales ?? []).map((m: any) => [m.id, { id: m.id, nombre: m.nombre }])
+      )
+
+      for (const l of lineas) {
+        l.color = l.color_id ? mapColor.get(l.color_id) ?? null : null
+      }
+    }
+  }
+
   return data
 }
 
