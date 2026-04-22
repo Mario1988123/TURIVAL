@@ -15,9 +15,10 @@ import {
   registrarMerma,
   obtenerStockActual,
   listarMovimientos,
+  type MovimientoStockEnriquecido,
 } from '@/lib/services/stock'
 import type {
-  MaterialConProveedor, Proveedor, TipoMaterial, MovimientoStock,
+  MaterialConProveedor, Proveedor, TipoMaterial,
 } from '@/lib/types/erp'
 
 import { Card, CardContent } from '@/components/ui/card'
@@ -102,9 +103,8 @@ export default function MaterialesCliente() {
   >(null)
   const [stockCantidad, setStockCantidad] = useState<number>(0)
   const [stockMotivo, setStockMotivo] = useState<string>('')
-  const [stockPrecioCompra, setStockPrecioCompra] = useState<number | null>(null)
   const [stockProcesando, setStockProcesando] = useState(false)
-  const [movimientos, setMovimientos] = useState<MovimientoStock[]>([])
+  const [movimientos, setMovimientos] = useState<MovimientoStockEnriquecido[]>([])
 
   async function cargar() {
     setLoading(true)
@@ -219,7 +219,6 @@ export default function MaterialesCliente() {
     setStockDialog({ material, modo })
     setStockCantidad(0)
     setStockMotivo('')
-    setStockPrecioCompra(null)
     if (modo === 'historico') {
       listarMovimientos({ material_id: material.id, limite: 50 })
         .then(setMovimientos)
@@ -238,9 +237,6 @@ export default function MaterialesCliente() {
           material_id: material.id,
           cantidad_kg: stockCantidad,
           motivo: stockMotivo.trim() || 'Entrada manual',
-          precio_compra_kg: stockPrecioCompra && stockPrecioCompra > 0
-            ? stockPrecioCompra
-            : null,
         })
       } else if (modo === 'ajuste') {
         if (!stockMotivo.trim()) throw new Error('El motivo es obligatorio')
@@ -645,6 +641,7 @@ export default function MaterialesCliente() {
                           <TableHead className="text-xs">Fecha</TableHead>
                           <TableHead className="text-xs">Tipo</TableHead>
                           <TableHead className="text-xs text-right">Cant.</TableHead>
+                          <TableHead className="text-xs">Origen</TableHead>
                           <TableHead className="text-xs text-right">Stock después</TableHead>
                           <TableHead className="text-xs">Motivo</TableHead>
                         </TableRow>
@@ -661,6 +658,29 @@ export default function MaterialesCliente() {
                             <TableCell><Badge variant="outline" className="text-xs">{m.tipo}</Badge></TableCell>
                             <TableCell className={`text-xs text-right font-mono ${m.cantidad_kg >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                               {m.cantidad_kg >= 0 ? '+' : ''}{Number(m.cantidad_kg).toFixed(2)}
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {m.pieza || m.pedido ? (
+                                <div className="leading-tight">
+                                  {m.pieza && (
+                                    <div className="font-mono text-slate-700">
+                                      {m.pieza.numero}
+                                    </div>
+                                  )}
+                                  {m.pedido?.cliente && (
+                                    <div className="text-slate-500">
+                                      {m.pedido.cliente.nombre}
+                                    </div>
+                                  )}
+                                  {!m.pieza && m.pedido && (
+                                    <div className="font-mono text-slate-700">
+                                      {m.pedido.numero}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400">—</span>
+                              )}
                             </TableCell>
                             <TableCell className="text-xs text-right font-mono">
                               {Number(m.stock_despues_kg).toFixed(2)}
@@ -692,58 +712,6 @@ export default function MaterialesCliente() {
                       </p>
                     )}
                   </div>
-
-                  {stockDialog.modo === 'entrada' && (
-                    <div>
-                      <Label>Precio de esta compra (€/kg) — opcional</Label>
-                      <Input
-                        type="number" step="0.0001" min="0"
-                        value={stockPrecioCompra ?? ''}
-                        onChange={(e) => {
-                          const v = parseFloat(e.target.value)
-                          setStockPrecioCompra(Number.isFinite(v) && v > 0 ? v : null)
-                        }}
-                        placeholder="Ej. 16,50"
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Si lo rellenas, se recalcula el precio del material como media
-                        ponderada (stock existente + esta compra). Déjalo vacío para mantener el precio actual.
-                      </p>
-
-                      {/* Preview del precio medio ponderado */}
-                      {stockPrecioCompra !== null && stockCantidad > 0 && (() => {
-                        const stockAntes = Number(stockDialog.material.stock_fisico_kg ?? 0)
-                        const precioActual = stockDialog.material.precio_kg_sobrescrito != null
-                          ? Number(stockDialog.material.precio_kg_sobrescrito)
-                          : null
-                        let precioNuevo: number
-                        if (stockAntes <= 0 || precioActual === null) {
-                          precioNuevo = stockPrecioCompra
-                        } else {
-                          precioNuevo =
-                            (stockAntes * precioActual + stockCantidad * stockPrecioCompra) /
-                            (stockAntes + stockCantidad)
-                        }
-                        return (
-                          <div className="mt-3 rounded-md border bg-slate-50 p-3 text-xs space-y-1">
-                            <div className="flex items-center justify-between">
-                              <span className="font-semibold text-slate-700">Precio actual</span>
-                              <span>{precioActual != null ? `${precioActual.toFixed(4)} €/kg` : 'Sin precio'}</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="font-semibold text-slate-700">Stock actual</span>
-                              <span>{stockAntes.toFixed(3)} kg</span>
-                            </div>
-                            <div className="flex items-center justify-between border-t pt-1">
-                              <span className="font-semibold text-blue-700">Nuevo precio medio</span>
-                              <span className="font-bold text-blue-900">{precioNuevo.toFixed(4)} €/kg</span>
-                            </div>
-                          </div>
-                        )
-                      })()}
-                    </div>
-                  )}
-
                   <div>
                     <Label>Motivo {stockDialog.modo !== 'entrada' && '*'}</Label>
                     <Textarea
