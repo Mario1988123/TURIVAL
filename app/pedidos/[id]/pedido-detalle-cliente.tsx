@@ -58,6 +58,7 @@ import {
 import type { EstadoPedido, PrioridadPedido } from '@/lib/services/pedidos'
 import MoverPiezaModal from '@/components/pedidos/mover-pieza-modal'
 import AgregarLineasPedidoModal from '@/components/pedidos/agregar-lineas-pedido-modal'
+import ReservasPanel from '@/components/pedidos/reservas-panel'
 
 // =============================================================
 // Labels / colores
@@ -150,20 +151,11 @@ export default function PedidoDetalleCliente({
   pedidoInicial: any
 }) {
   const router = useRouter()
-  const [pedido, setPedido] = useState<any>(pedidoInicial)
+  const [pedido] = useState<any>(pedidoInicial)
   const [mensaje, setMensaje] = useState<{
     tipo: 'ok' | 'error'
     texto: string
   } | null>(null)
-
-  // Sincroniza el estado local con el prop cuando el server component
-  // re-renderiza tras un router.refresh() (p.ej. después de confirmar,
-  // arrancar o cancelar un pedido). Sin esto, el botón "Confirmar pedido"
-  // seguiría visible tras confirmar, porque useState solo toma el valor
-  // inicial una única vez.
-  useEffect(() => {
-    setPedido(pedidoInicial)
-  }, [pedidoInicial])
 
   // Dialogs de acciones sobre pedido
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -210,7 +202,7 @@ export default function PedidoDetalleCliente({
 
   function notificar(tipo: 'ok' | 'error', texto: string) {
     setMensaje({ tipo, texto })
-    setTimeout(() => setMensaje(null), 3000)
+    setTimeout(() => setMensaje(null), 5000)
   }
 
   function abrirMoverPieza(pieza: any) {
@@ -292,6 +284,12 @@ export default function PedidoDetalleCliente({
           )}
         </div>
       </div>
+
+      {mensaje && (
+        <Alert variant={mensaje.tipo === 'error' ? 'destructive' : 'default'}>
+          <AlertDescription>{mensaje.texto}</AlertDescription>
+        </Alert>
+      )}
 
       {/* CLIENTE + PRESUPUESTO ORIGEN */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -411,6 +409,11 @@ export default function PedidoDetalleCliente({
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/* RESERVAS DE MATERIAL (R6) — solo en estados post-confirmación */}
+      {['confirmado', 'en_produccion', 'completado'].includes(estadoActual) && (
+        <ReservasPanel pedidoId={pedidoId} />
       )}
 
       {/* LÍNEAS */}
@@ -593,24 +596,6 @@ export default function PedidoDetalleCliente({
           ubicacionActualCodigo={moverState.ubicacionActualCodigo}
           onDone={(ok, texto) => notificar(ok ? 'ok' : 'error', texto)}
         />
-      )}
-
-      {/* Toast inferior verde/rojo, autocierre 3s */}
-      {mensaje && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 min-w-[280px] max-w-md">
-          <Alert
-            variant={mensaje.tipo === 'error' ? 'destructive' : 'default'}
-            className={
-              mensaje.tipo === 'ok'
-                ? 'bg-green-50 border-green-300 text-green-900'
-                : ''
-            }
-          >
-            <AlertDescription className="font-medium">
-              {mensaje.texto}
-            </AlertDescription>
-          </Alert>
-        </div>
       )}
     </div>
   )
