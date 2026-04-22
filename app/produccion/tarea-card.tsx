@@ -11,6 +11,7 @@ import {
   Zap,
   Clock,
   Package,
+  RotateCcw,
 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
@@ -26,6 +27,11 @@ import {
 import DialogIniciar from './dialog-iniciar'
 import DialogIncidencia from './dialog-incidencia'
 import DialogCandidatos from './dialog-candidatos'
+import DialogCompletar from './dialog-completar'
+import DialogReabrir from './dialog-reabrir'
+
+// Procesos que requieren modal de mezcla al iniciar y al completar
+const PROCESOS_MEZCLA = ['LACADO', 'FONDO', 'FONDEADO_2']
 
 // =============================================================
 // Colores por estado
@@ -99,8 +105,12 @@ export default function TareaCard({
   const [iniciarOpen, setIniciarOpen] = useState(false)
   const [incidenciaOpen, setIncidenciaOpen] = useState(false)
   const [candidatosOpen, setCandidatosOpen] = useState(false)
+  const [completarOpen, setCompletarOpen] = useState(false)
+  const [reabrirOpen, setReabrirOpen] = useState(false)
 
   const proceso = tarea?.proceso ?? {}
+  const procesoCodigo: string = proceso?.codigo ?? ''
+  const esProcesoMezcla = PROCESOS_MEZCLA.includes(procesoCodigo)
   const pieza = tarea?.pieza ?? {}
   const linea = pieza?.linea_pedido ?? {}
   const pedido = linea?.pedido ?? {}
@@ -315,7 +325,13 @@ export default function TareaCard({
             <Button
               size="sm"
               className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700"
-              onClick={completar}
+              onClick={() => {
+                if (esProcesoMezcla) {
+                  setCompletarOpen(true)
+                } else {
+                  completar()
+                }
+              }}
               disabled={isPending}
             >
               <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
@@ -358,12 +374,55 @@ export default function TareaCard({
             Duplicar tarea
           </Button>
         )}
+
+        {(estado === 'completada' || estado === 'en_secado') && esProcesoMezcla && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs text-orange-700 hover:bg-orange-50 border-orange-300"
+            onClick={() => setReabrirOpen(true)}
+            disabled={isPending}
+          >
+            <RotateCcw className="w-3.5 h-3.5 mr-1" />
+            Reabrir
+          </Button>
+        )}
       </div>
 
       {iniciarOpen && (
         <DialogIniciar
           open={iniciarOpen}
           onOpenChange={setIniciarOpen}
+          tareaId={tarea.id}
+          tareaProceso={proceso?.nombre ?? ''}
+          tareaProcesoCodigo={procesoCodigo}
+          piezaNumero={pieza?.numero ?? ''}
+          operariosActivos={operarios}
+          onDone={(ok, texto) => {
+            onNotificar(ok ? 'ok' : 'error', texto)
+            if (ok) router.refresh()
+          }}
+        />
+      )}
+
+      {completarOpen && (
+        <DialogCompletar
+          open={completarOpen}
+          onOpenChange={setCompletarOpen}
+          tareaId={tarea.id}
+          tareaProceso={proceso?.nombre ?? ''}
+          piezaNumero={pieza?.numero ?? ''}
+          onDone={(ok, texto) => {
+            onNotificar(ok ? 'ok' : 'error', texto)
+            if (ok) router.refresh()
+          }}
+        />
+      )}
+
+      {reabrirOpen && (
+        <DialogReabrir
+          open={reabrirOpen}
+          onOpenChange={setReabrirOpen}
           tareaId={tarea.id}
           tareaProceso={proceso?.nombre ?? ''}
           piezaNumero={pieza?.numero ?? ''}
