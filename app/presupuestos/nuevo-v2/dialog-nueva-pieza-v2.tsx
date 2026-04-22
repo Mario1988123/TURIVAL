@@ -35,8 +35,10 @@ import {
 import { listarCategoriasPieza } from '@/lib/services/categorias-pieza'
 import { listarLacados, listarFondos } from '@/lib/services/materiales'
 import { getProcesoDefault, PROCESOS_ORDEN } from '@/lib/motor/procesos-defaults'
-import { accionSimularPrecioLineaPersonalizada } from '@/lib/actions/presupuestos'
-import type { SimularPrecioResultado } from '@/lib/services/presupuestos-v2'
+import {
+  simularPrecioLineaPersonalizada,
+  type SimularPrecioResultado,
+} from '@/lib/services/presupuestos-v2'
 import type { FactorComplejidad } from '@/lib/motor/coste'
 import type { CategoriaPieza, MaterialConProveedor } from '@/lib/types/erp'
 
@@ -293,7 +295,7 @@ export default function DialogNuevaPiezaV2({
     setCalculando(true)
     setErrorPreview(null)
     try {
-      const res = await accionSimularPrecioLineaPersonalizada({
+      const resultado = await simularPrecioLineaPersonalizada({
         cantidad,
         modo_precio: modoPrecio,
         ancho: v.anchoN,
@@ -317,12 +319,7 @@ export default function DialogNuevaPiezaV2({
           orden: i + 1,
         })),
       })
-      if (res.ok) {
-        setPreview(res.resultado)
-      } else {
-        setErrorPreview(res.error)
-        setPreview(null)
-      }
+      setPreview(resultado)
     } catch (e: any) {
       setErrorPreview(e?.message ?? 'Error calculando precio')
       setPreview(null)
