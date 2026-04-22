@@ -27,6 +27,7 @@ import {
 
 import { listarCategoriasPieza } from '@/lib/services/categorias-pieza'
 import { listarLacados, listarFondos } from '@/lib/services/materiales'
+import { getProcesoDefault, PROCESOS_ORDEN } from '@/lib/motor/procesos-defaults'
 import type { FactorComplejidad } from '@/lib/motor/coste'
 import type { CategoriaPieza, MaterialConProveedor } from '@/lib/types/erp'
 
@@ -56,6 +57,9 @@ export interface NuevaPiezaData {
   descuento_porcentaje: number
   precio_aproximado: boolean
 
+  // Procesos aplicables (códigos seleccionados, orden auto)
+  procesos_codigos: string[]
+
   // Guardar como referencia (opcional)
   guardar_como_referencia: boolean
   nombre_referencia: string
@@ -66,6 +70,10 @@ const FACTORES: Array<{ value: FactorComplejidad; label: string }> = [
   { value: 'media',    label: 'Media' },
   { value: 'compleja', label: 'Compleja' },
 ]
+
+// Defaults marcados: los típicos de una pieza con lacado+fondo.
+// El usuario puede añadir o quitar.
+const PROCESOS_DEFAULT_MARCADOS = ['LIJADO', 'FONDO', 'LACADO', 'TERMINACION']
 
 export default function DialogNuevaPiezaV2({
   open,
@@ -111,6 +119,11 @@ export default function DialogNuevaPiezaV2({
   const [descuento, setDescuento] = useState<string>('0')
   const [precioAproximado, setPrecioAproximado] = useState(false)
 
+  // Procesos marcados por el usuario (Set de códigos)
+  const [procesosMarcados, setProcesosMarcados] = useState<Set<string>>(
+    new Set(PROCESOS_DEFAULT_MARCADOS)
+  )
+
   const [guardarComoRef, setGuardarComoRef] = useState(false)
   const [nombreRef, setNombreRef] = useState('')
 
@@ -139,6 +152,7 @@ export default function DialogNuevaPiezaV2({
     setFactor('media')
     setDescuento('0')
     setPrecioAproximado(false)
+    setProcesosMarcados(new Set(PROCESOS_DEFAULT_MARCADOS))
     setGuardarComoRef(false)
     setNombreRef('')
     setErrorForm(null)
@@ -238,6 +252,15 @@ export default function DialogNuevaPiezaV2({
       return
     }
 
+    // Validar procesos: al menos 1 marcado
+    if (procesosMarcados.size === 0) {
+      setErrorForm('Marca al menos un proceso a aplicar.')
+      return
+    }
+
+    // Orden automático según PROCESOS_ORDEN
+    const procesosOrdenados = PROCESOS_ORDEN.filter((c) => procesosMarcados.has(c))
+
     // OK → devolver al padre
     onConfirmar({
       descripcion: descripcion.trim(),
@@ -260,6 +283,7 @@ export default function DialogNuevaPiezaV2({
       factor_complejidad: factor,
       descuento_porcentaje: descN,
       precio_aproximado: precioAproximado,
+      procesos_codigos: procesosOrdenados,
       guardar_como_referencia: guardarComoRef,
       nombre_referencia: nombreRef.trim(),
     })
@@ -489,6 +513,78 @@ export default function DialogNuevaPiezaV2({
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            {/* Procesos a aplicar */}
+            <div className="space-y-2">
+              <Label>Procesos a aplicar *</Label>
+              <div className="border rounded p-3 bg-slate-50 space-y-1.5">
+                {PROCESOS_ORDEN.map((codigo) => {
+                  const def = getProcesoDefault(codigo)
+                  if (!def) return null
+                  const marcado = procesosMarcados.has(codigo)
+                  const consumeLacado = def.tipo_material === 'lacado'
+                  const consumeFondo  = def.tipo_material === 'fondo'
+                  return (
+                    <label
+                      key={codigo}
+                      className="flex items-center gap-2 text-sm cursor-pointer hover:bg-white rounded px-2 py-1"
+                    >
+                      <Checkbox
+                        checked={marcado}
+                        onCheckedChange={(v) => {
+                          setProcesosMarcados((prev) => {
+                            const next = new Set(prev)
+                            if (v) next.add(codigo)
+                            else next.delete(codigo)
+                            return next
+                          })
+                        }}
+                      />
+                      <span className="font-medium">{def.nombre}</span>
+                      <span className="text-xs text-slate-500 font-mono ml-auto">
+                        {def.tiempo_base_min} + {def.tiempo_por_m2_min}/m² min
+                      </span>
+                      {consumeLacado && (
+                        <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-800 rounded">
+                          usa lacado
+                        </span>
+                      )}
+                      {consumeFondo && (
+                        <span className="text-xs px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded">
+                          usa fondo
+                        </span>
+                      )}
+                    </label>
+                  )
+                })}
+              </div>
+
+              {/* Preview orden aplicado */}
+              {procesosMarcados.size > 0 && (() => {
+                const ordenados = PROCESOS_ORDEN.filter((c) => procesosMarcados.has(c))
+                const totalBase = ordenados.reduce((a, c) => {
+                  const d = getProcesoDefault(c)
+                  return a + (d?.tiempo_base_min ?? 0)
+                }, 0)
+                const totalPorM2 = ordenados.reduce((a, c) => {
+                  const d = getProcesoDefault(c)
+                  return a + (d?.tiempo_por_m2_min ?? 0)
+                }, 0)
+                return (
+                  <div className="text-xs text-blue-800 bg-blue-50 border border-blue-200 rounded p-2">
+                    <div>
+                      <span className="font-semibold">Orden aplicado:</span>{' '}
+                      {ordenados
+                        .map((c) => getProcesoDefault(c)?.nombre ?? c)
+                        .join(' → ')}
+                    </div>
+                    <div className="mt-1 font-mono">
+                      Tiempo estimado: {totalBase} min fijos + {totalPorM2} min/m²
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
 
             {/* Factor + descuento + precio aproximado */}

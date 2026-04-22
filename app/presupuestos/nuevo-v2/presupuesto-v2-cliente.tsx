@@ -56,6 +56,7 @@ interface DatosPersonalizados {
   factor_complejidad: FactorComplejidad
   descuento_porcentaje: number
   precio_aproximado: boolean
+  procesos_codigos: string[]
   guardar_como_referencia: boolean
   nombre_referencia: string
 }
@@ -184,6 +185,7 @@ export default function PresupuestoV2Cliente() {
           factor_complejidad: datos.factor_complejidad,
           descuento_porcentaje: datos.descuento_porcentaje,
           precio_aproximado: datos.precio_aproximado,
+          procesos_codigos: datos.procesos_codigos,
           guardar_como_referencia: datos.guardar_como_referencia,
           nombre_referencia: datos.nombre_referencia,
         },
@@ -275,10 +277,13 @@ export default function PresupuestoV2Cliente() {
               factor_complejidad: l.datos.factor_complejidad,
               descuento_porcentaje: l.datos.descuento_porcentaje,
               precio_aproximado: l.datos.precio_aproximado,
-              // Procesos automáticos: el backend ya aplica defaults si
-              // el array está vacío. Dejamos vacío para que use los
-              // defaults de la categoría/tipo de pieza.
-              procesos: [],
+              // Procesos seleccionados por el usuario en el formulario
+              // Nueva pieza. El backend rellena tiempos desde
+              // PROCESOS_DEFAULTS si no los especificamos aquí.
+              procesos: l.datos.procesos_codigos.map((codigo, i) => ({
+                proceso_codigo: codigo,
+                orden: i + 1,
+              })),
             },
           }
         }
@@ -346,7 +351,10 @@ export default function PresupuestoV2Cliente() {
             contabilizar_grosor: p.datos.contabilizar_grosor,
             material_lacado_id: p.datos.material_lacado_id,
             material_fondo_id: p.datos.material_fondo_id,
-            procesos: [],
+            procesos: p.datos.procesos_codigos.map((codigo, i) => ({
+              proceso_codigo: codigo,
+              orden: i + 1,
+            })),
             factor_complejidad: p.datos.factor_complejidad,
             descuento_porcentaje: p.datos.descuento_porcentaje,
             precio_aproximado: p.datos.precio_aproximado,
