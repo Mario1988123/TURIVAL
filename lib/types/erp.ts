@@ -599,4 +599,7 @@ export interface ConfigErp {
   ancho_minimo_pistola_cm: number
   material_catalizador_default_id: string | null
   material_disolvente_default_id: string | null
+  // R6b: Umbral % de merma sobre la mezcla teórica por encima del cual
+  // una tarea completada genera alerta de ajuste de rendimiento.
+  umbral_alerta_merma_pct: number
 }
