@@ -11,6 +11,7 @@ import {
 import {
   crearPresupuestoV2,
   type LineaPresupuestoInput,
+  type SimularPrecioResultado,
 } from '@/lib/services/presupuestos-v2'
 import type { Cliente } from '@/lib/types/erp'
 import type { FactorComplejidad } from '@/lib/motor/coste'
@@ -59,6 +60,11 @@ interface DatosPersonalizados {
   procesos_codigos: string[]
   guardar_como_referencia: boolean
   nombre_referencia: string
+  // Preview calculado en el dialog con el botón "Calcular precio"
+  // (Opción B). Si existe, lo usamos en la tabla y totales sin
+  // esperar al guardado. El motor ERP recalcula igualmente al
+  // guardar, esto es sólo UX para evitar el "Al guardar —".
+  preview: SimularPrecioResultado | null
 }
 
 type LineaItem =
@@ -188,6 +194,7 @@ export default function PresupuestoV2Cliente() {
           procesos_codigos: datos.procesos_codigos,
           guardar_como_referencia: datos.guardar_como_referencia,
           nombre_referencia: datos.nombre_referencia,
+          preview: datos.preview,
         },
       },
     ])
@@ -209,15 +216,19 @@ export default function PresupuestoV2Cliente() {
   // ===== Totales en vivo =====
   const totales = useMemo(() => {
     let subtotal = 0
-    let hayPersonalizadas = false
+    let hayPersonalizadasSinPreview = false
     for (const l of lineas) {
       if (l.tipo === 'manual') {
         subtotal += Number(l.precio_unitario) * Math.max(1, l.cantidad)
       } else if (l.tipo === 'personalizada') {
-        // El precio de piezas personalizadas se calcula en el backend
-        // con el motor ERP al guardar. En la preview sumamos 0 y
-        // marcamos un flag para avisar al usuario.
-        hayPersonalizadas = true
+        // Si el usuario pulsó "Calcular precio" en el diálogo, tenemos
+        // un preview y lo sumamos. Si no, avisamos al usuario de que
+        // ese precio se calcula al guardar.
+        if (l.datos.preview) {
+          subtotal += Number(l.datos.preview.precio_unitario) * Math.max(1, l.cantidad)
+        } else {
+          hayPersonalizadasSinPreview = true
+        }
       } else {
         // Para referencias usamos precio_calculado_ultimo (snapshot)
         const precioUnit = Number(l.referencia.precio_calculado_ultimo ?? 0)
@@ -228,7 +239,7 @@ export default function PresupuestoV2Cliente() {
     const base = subtotal - desc
     const ivaEur = (base * iva) / 100
     const total = base + ivaEur
-    return { subtotal, desc, base, ivaEur, total, hayPersonalizadas }
+    return { subtotal, desc, base, ivaEur, total, hayPersonalizadasSinPreview }
   }, [lineas, descuentoGlobal, iva])
 
   async function guardar() {
@@ -527,6 +538,7 @@ export default function PresupuestoV2Cliente() {
                 {lineas.map((l, idx) => {
                   let precioUnit = 0
                   let precioUnitDisplay: string
+                  let personalizadaSinPreview = false
                   if (l.tipo === 'manual') {
                     precioUnit = l.precio_unitario
                     precioUnitDisplay = EURO(precioUnit)
@@ -534,12 +546,18 @@ export default function PresupuestoV2Cliente() {
                     precioUnit = Number(l.referencia.precio_calculado_ultimo ?? 0)
                     precioUnitDisplay = EURO(precioUnit)
                   } else {
-                    // personalizada: el motor lo calcula al guardar
-                    precioUnit = 0
-                    precioUnitDisplay = 'Al guardar'
+                    // personalizada: usar preview si lo hay, si no "Al guardar"
+                    if (l.datos.preview) {
+                      precioUnit = Number(l.datos.preview.precio_unitario)
+                      precioUnitDisplay = EURO(precioUnit)
+                    } else {
+                      precioUnit = 0
+                      precioUnitDisplay = 'Al guardar'
+                      personalizadaSinPreview = true
+                    }
                   }
                   const subtotal = precioUnit * Math.max(1, l.cantidad)
-                  const subtotalDisplay = l.tipo === 'personalizada' ? '—' : EURO(subtotal)
+                  const subtotalDisplay = personalizadaSinPreview ? '—' : EURO(subtotal)
 
                   let badgeLabel = 'Ref.'
                   let badgeClase = ''
@@ -595,7 +613,7 @@ export default function PresupuestoV2Cliente() {
                             className="h-8 text-sm text-right"
                           />
                         ) : (
-                          <span className={l.tipo === 'personalizada' ? 'text-muted-foreground italic' : ''}>
+                          <span className={personalizadaSinPreview ? 'text-muted-foreground italic' : ''}>
                             {precioUnitDisplay}
                           </span>
                         )}
@@ -621,13 +639,14 @@ export default function PresupuestoV2Cliente() {
       {lineas.length > 0 && (
         <Card>
           <CardContent className="pt-6">
-            {totales.hayPersonalizadas && (
+            {totales.hayPersonalizadasSinPreview && (
               <Alert className="mb-4 bg-blue-50 border-blue-200 text-blue-900">
                 <Info className="w-4 h-4" />
                 <AlertDescription className="text-xs">
-                  Hay piezas nuevas en el presupuesto. Su precio se calcula en
-                  servidor al guardar (motor ERP con rendimientos y tarifas).
-                  Los totales mostrados aquí no las incluyen.
+                  Hay piezas nuevas sin calcular. Su precio se calcula en
+                  servidor al guardar (motor ERP con rendimientos y tarifas),
+                  o puedes pulsar <strong>Calcular precio</strong> en el
+                  diálogo de cada pieza para verlo ya aquí.
                 </AlertDescription>
               </Alert>
             )}
