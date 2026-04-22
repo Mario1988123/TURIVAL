@@ -74,6 +74,11 @@ export interface NuevaPiezaData {
   // Guardar como referencia (opcional)
   guardar_como_referencia: boolean
   nombre_referencia: string
+
+  // Preview calculado desde el dialog (Opción B). Si el usuario pulsó
+  // "Calcular precio" antes de añadir, viaja aquí y el padre lo pinta
+  // en la tabla + totales. Si es null, el cliente muestra "Al guardar".
+  preview: SimularPrecioResultado | null
 }
 
 const FACTORES: Array<{ value: FactorComplejidad; label: string }> = [
@@ -362,6 +367,7 @@ export default function DialogNuevaPiezaV2({
       procesos_codigos: v.procesosOrdenados,
       guardar_como_referencia: guardarComoRef,
       nombre_referencia: nombreRef.trim(),
+      preview,
     })
   }
 
