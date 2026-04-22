@@ -1,7 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Plus, Layers, AlertCircle, BookmarkPlus } from 'lucide-react'
+import {
+  Plus,
+  Layers,
+  AlertCircle,
+  BookmarkPlus,
+  Calculator,
+  Loader2,
+} from 'lucide-react'
 
 import {
   Dialog,
@@ -28,6 +35,8 @@ import {
 import { listarCategoriasPieza } from '@/lib/services/categorias-pieza'
 import { listarLacados, listarFondos } from '@/lib/services/materiales'
 import { getProcesoDefault, PROCESOS_ORDEN } from '@/lib/motor/procesos-defaults'
+import { accionSimularPrecioLineaPersonalizada } from '@/lib/actions/presupuestos'
+import type { SimularPrecioResultado } from '@/lib/services/presupuestos-v2'
 import type { FactorComplejidad } from '@/lib/motor/coste'
 import type { CategoriaPieza, MaterialConProveedor } from '@/lib/types/erp'
 
@@ -129,6 +138,11 @@ export default function DialogNuevaPiezaV2({
 
   const [errorForm, setErrorForm] = useState<string | null>(null)
 
+  // Preview de precio (botón "Calcular precio" — R6b Opción B)
+  const [calculando, setCalculando] = useState(false)
+  const [preview, setPreview] = useState<SimularPrecioResultado | null>(null)
+  const [errorPreview, setErrorPreview] = useState<string | null>(null)
+
   // Resetear + cargar cuando se abre
   useEffect(() => {
     if (!open) return
@@ -155,6 +169,8 @@ export default function DialogNuevaPiezaV2({
     setProcesosMarcados(new Set(PROCESOS_DEFAULT_MARCADOS))
     setGuardarComoRef(false)
     setNombreRef('')
+    setPreview(null)
+    setErrorPreview(null)
     setErrorForm(null)
 
     setCargando(true)
@@ -180,24 +196,34 @@ export default function DialogNuevaPiezaV2({
     }
   }, [guardarComoRef, descripcion, nombreRef])
 
-  function submit() {
+  /**
+   * Valida los campos del formulario y devuelve un objeto con todos
+   * los datos parseados + procesos ordenados. Null si hay error (y
+   * setea errorForm). Reutilizado por submit() y calcularPrecio().
+   */
+  function validarYConstruir(): null | {
+    anchoN: number | null
+    altoN: number | null
+    grosorN: number | null
+    longitudN: number | null
+    descN: number
+    procesosOrdenados: string[]
+  } {
     setErrorForm(null)
 
-    // Validaciones mínimas
     if (!descripcion.trim()) {
       setErrorForm('La descripción es obligatoria.')
-      return
+      return null
     }
     if (cantidad < 1) {
       setErrorForm('La cantidad debe ser al menos 1.')
-      return
+      return null
     }
     if (!categoriaId) {
       setErrorForm('Selecciona una categoría de pieza.')
-      return
+      return null
     }
 
-    // Dimensiones según modo
     let anchoN: number | null = null
     let altoN: number | null = null
     let grosorN: number | null = null
@@ -207,29 +233,28 @@ export default function DialogNuevaPiezaV2({
       longitudN = parseFloat(longitudMl)
       if (!Number.isFinite(longitudN) || longitudN <= 0) {
         setErrorForm('La longitud (ml) debe ser mayor que 0.')
-        return
+        return null
       }
     } else {
       anchoN = parseFloat(ancho)
       altoN = parseFloat(alto)
       if (!Number.isFinite(anchoN) || anchoN <= 0) {
         setErrorForm('El ancho debe ser mayor que 0.')
-        return
+        return null
       }
       if (!Number.isFinite(altoN) || altoN <= 0) {
         setErrorForm('El alto debe ser mayor que 0.')
-        return
+        return null
       }
     }
     if (grosor.trim() !== '') {
       grosorN = parseFloat(grosor)
       if (!Number.isFinite(grosorN) || grosorN < 0) {
         setErrorForm('El grosor debe ser 0 o mayor.')
-        return
+        return null
       }
     }
 
-    // Al menos una cara/canto marcada (si no es modo ml)
     if (modoPrecio !== 'ml') {
       const algunaCara =
         caraFrontal || caraTrasera ||
@@ -237,29 +262,83 @@ export default function DialogNuevaPiezaV2({
         cantoIzquierdo || cantoDerecho
       if (!algunaCara) {
         setErrorForm('Marca al menos una cara o canto a tratar.')
-        return
+        return null
       }
     }
 
     const descN = parseFloat(descuento || '0')
     if (!Number.isFinite(descN) || descN < 0 || descN > 100) {
       setErrorForm('El descuento debe estar entre 0 y 100.')
-      return
+      return null
     }
+
+    if (procesosMarcados.size === 0) {
+      setErrorForm('Marca al menos un proceso a aplicar.')
+      return null
+    }
+
+    const procesosOrdenados = PROCESOS_ORDEN.filter((c) => procesosMarcados.has(c))
+
+    return { anchoN, altoN, grosorN, longitudN, descN, procesosOrdenados }
+  }
+
+  /**
+   * Llama al servidor para simular el precio SIN guardar. Popula
+   * el panel de resultado arriba del formulario.
+   */
+  async function calcularPrecio() {
+    const v = validarYConstruir()
+    if (!v) return
+
+    setCalculando(true)
+    setErrorPreview(null)
+    try {
+      const res = await accionSimularPrecioLineaPersonalizada({
+        cantidad,
+        modo_precio: modoPrecio,
+        ancho: v.anchoN,
+        alto: v.altoN,
+        grosor: v.grosorN,
+        longitud_ml: v.longitudN,
+        cara_frontal: caraFrontal,
+        cara_trasera: caraTrasera,
+        canto_superior: cantoSuperior,
+        canto_inferior: cantoInferior,
+        canto_izquierdo: cantoIzquierdo,
+        canto_derecho: cantoDerecho,
+        contabilizar_grosor: contabilizarGrosor,
+        categoria_pieza_id: categoriaId,
+        material_lacado_id: lacadoId || null,
+        material_fondo_id: fondoId || null,
+        factor_complejidad: factor,
+        descuento_porcentaje: v.descN,
+        procesos: v.procesosOrdenados.map((codigo, i) => ({
+          proceso_codigo: codigo,
+          orden: i + 1,
+        })),
+      })
+      if (res.ok) {
+        setPreview(res.resultado)
+      } else {
+        setErrorPreview(res.error)
+        setPreview(null)
+      }
+    } catch (e: any) {
+      setErrorPreview(e?.message ?? 'Error calculando precio')
+      setPreview(null)
+    } finally {
+      setCalculando(false)
+    }
+  }
+
+  function submit() {
+    const v = validarYConstruir()
+    if (!v) return
 
     if (guardarComoRef && !nombreRef.trim()) {
       setErrorForm('Dale un nombre a la referencia para poder guardarla.')
       return
     }
-
-    // Validar procesos: al menos 1 marcado
-    if (procesosMarcados.size === 0) {
-      setErrorForm('Marca al menos un proceso a aplicar.')
-      return
-    }
-
-    // Orden automático según PROCESOS_ORDEN
-    const procesosOrdenados = PROCESOS_ORDEN.filter((c) => procesosMarcados.has(c))
 
     // OK → devolver al padre
     onConfirmar({
@@ -267,10 +346,10 @@ export default function DialogNuevaPiezaV2({
       cantidad,
       categoria_pieza_id: categoriaId,
       modo_precio: modoPrecio,
-      ancho: anchoN,
-      alto: altoN,
-      grosor: grosorN,
-      longitud_ml: longitudN,
+      ancho: v.anchoN,
+      alto: v.altoN,
+      grosor: v.grosorN,
+      longitud_ml: v.longitudN,
       cara_frontal: caraFrontal,
       cara_trasera: caraTrasera,
       canto_superior: cantoSuperior,
@@ -281,9 +360,9 @@ export default function DialogNuevaPiezaV2({
       material_lacado_id: lacadoId || null,
       material_fondo_id: fondoId || null,
       factor_complejidad: factor,
-      descuento_porcentaje: descN,
+      descuento_porcentaje: v.descN,
       precio_aproximado: precioAproximado,
-      procesos_codigos: procesosOrdenados,
+      procesos_codigos: v.procesosOrdenados,
       guardar_como_referencia: guardarComoRef,
       nombre_referencia: nombreRef.trim(),
     })
@@ -658,6 +737,111 @@ export default function DialogNuevaPiezaV2({
           </div>
         )}
 
+        {/* Panel de preview — R6b Opción B botón Calcular precio */}
+        {(preview || errorPreview) && (
+          <div className="rounded-md border border-blue-300 bg-blue-50 p-3 space-y-2">
+            <div className="flex items-center gap-2 text-sm font-semibold text-blue-900">
+              <Calculator className="w-4 h-4" />
+              Precio calculado (sin guardar)
+            </div>
+            {errorPreview ? (
+              <p className="text-xs text-red-700">{errorPreview}</p>
+            ) : preview ? (
+              <div className="space-y-2 text-sm">
+                {/* Totales grandes */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="rounded bg-white p-2 border">
+                    <div className="text-xs text-slate-500">Precio unitario</div>
+                    <div className="text-lg font-bold text-blue-700 font-mono">
+                      {preview.precio_unitario.toFixed(2)} €
+                    </div>
+                  </div>
+                  <div className="rounded bg-white p-2 border">
+                    <div className="text-xs text-slate-500">
+                      Precio total ({cantidad} {cantidad === 1 ? 'ud' : 'uds'})
+                    </div>
+                    <div className="text-lg font-bold text-blue-700 font-mono">
+                      {preview.precio_total.toFixed(2)} €
+                    </div>
+                  </div>
+                  <div className="rounded bg-white p-2 border">
+                    <div className="text-xs text-slate-500">Tiempo total</div>
+                    <div className="text-lg font-bold text-slate-800 font-mono">
+                      {preview.tiempo_minutos_total.toFixed(0)} min
+                    </div>
+                  </div>
+                </div>
+
+                {/* Desglose por concepto */}
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs pt-1 border-t border-blue-200 mt-2">
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Superficie unitaria</span>
+                    <span className="font-mono">{preview.superficie_unitaria_m2.toFixed(4)} m²</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Tiempo unitario</span>
+                    <span className="font-mono">{preview.tiempo_minutos_unitario.toFixed(1)} min</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Coste mano obra</span>
+                    <span className="font-mono">{preview.coste_mano_obra_unitario.toFixed(2)} €</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Coste materiales</span>
+                    <span className="font-mono">{preview.coste_materiales_unitario.toFixed(2)} €</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Coste unitario</span>
+                    <span className="font-mono">{preview.coste_unitario.toFixed(2)} €</span>
+                  </div>
+                </div>
+
+                {/* Desglose materiales */}
+                {(preview.detalle.kg_lacado > 0 ||
+                  preview.detalle.kg_fondo > 0 ||
+                  preview.detalle.kg_cata > 0 ||
+                  preview.detalle.kg_dis > 0) && (
+                  <details className="text-xs pt-1 border-t border-blue-200">
+                    <summary className="cursor-pointer text-blue-700 hover:underline">
+                      Ver consumo de materiales
+                    </summary>
+                    <div className="grid grid-cols-4 gap-2 mt-2 text-xs">
+                      {preview.detalle.kg_lacado > 0 && (
+                        <div>
+                          <div className="text-slate-500">Lacado</div>
+                          <div className="font-mono">{preview.detalle.kg_lacado.toFixed(4)} kg</div>
+                          <div className="font-mono text-slate-700">{preview.detalle.coste_lacado.toFixed(2)} €</div>
+                        </div>
+                      )}
+                      {preview.detalle.kg_fondo > 0 && (
+                        <div>
+                          <div className="text-slate-500">Fondo</div>
+                          <div className="font-mono">{preview.detalle.kg_fondo.toFixed(4)} kg</div>
+                          <div className="font-mono text-slate-700">{preview.detalle.coste_fondo.toFixed(2)} €</div>
+                        </div>
+                      )}
+                      {preview.detalle.kg_cata > 0 && (
+                        <div>
+                          <div className="text-slate-500">Catalizador</div>
+                          <div className="font-mono">{preview.detalle.kg_cata.toFixed(4)} kg</div>
+                          <div className="font-mono text-slate-700">{preview.detalle.coste_cata.toFixed(2)} €</div>
+                        </div>
+                      )}
+                      {preview.detalle.kg_dis > 0 && (
+                        <div>
+                          <div className="text-slate-500">Disolvente</div>
+                          <div className="font-mono">{preview.detalle.kg_dis.toFixed(4)} kg</div>
+                          <div className="font-mono text-slate-700">{preview.detalle.coste_dis.toFixed(2)} €</div>
+                        </div>
+                      )}
+                    </div>
+                  </details>
+                )}
+              </div>
+            ) : null}
+          </div>
+        )}
+
         {errorForm && (
           <Alert variant="destructive">
             <AlertCircle className="w-4 h-4" />
@@ -668,6 +852,24 @@ export default function DialogNuevaPiezaV2({
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
+          </Button>
+          <Button
+            variant="outline"
+            onClick={calcularPrecio}
+            disabled={cargando || !!errorCarga || calculando}
+            className="border-blue-300 text-blue-700 hover:bg-blue-50"
+          >
+            {calculando ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Calculando…
+              </>
+            ) : (
+              <>
+                <Calculator className="w-4 h-4 mr-2" />
+                Calcular precio
+              </>
+            )}
           </Button>
           <Button
             onClick={submit}
