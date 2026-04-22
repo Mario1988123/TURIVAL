@@ -23,6 +23,10 @@
  */
 
 import { createClient } from '@/lib/supabase/server'
+import {
+  reservarMaterialesPedido,
+  liberarReservasPedido,
+} from './reservas'
 
 // =============================================================
 // TIPOS
@@ -207,6 +211,7 @@ export async function obtenerPedido(pedidoId: string) {
         *,
         producto:productos(id, nombre),
         tarifa:tarifas(id, nombre),
+        color:colores(id, nombre),
         tratamiento:tratamientos(id, nombre),
         piezas:piezas(
           id, numero, estado, ubicacion_id, fecha_prevista_fabricacion,
@@ -445,6 +450,13 @@ export async function convertirPresupuestoAPedido(
     tiempo_estimado: l.src.tiempo_estimado,
     extras: l.src.extras,
     material_disponible: false,
+    // --- Campos del motor ERP (R6): se arrastran del presupuesto v2 ---
+    material_lacado_id: l.src.material_lacado_id ?? null,
+    material_fondo_id: l.src.material_fondo_id ?? null,
+    categoria_pieza_id: l.src.categoria_pieza_id ?? null,
+    contabilizar_grosor: l.src.contabilizar_grosor ?? false,
+    precio_aproximado: l.src.precio_aproximado ?? false,
+    desglose_coste_json: l.src.desglose_coste_json ?? null,
   }))
 
   const { error: errLP2 } = await supabase
@@ -727,11 +739,33 @@ export async function confirmarPedido(input: ConfirmarPedidoInput) {
     .single()
   if (errUpd) throw errUpd
 
+  // 7. (R6) Reservar materiales automáticamente. No bloqueante:
+  //    si falla, el pedido queda confirmado igualmente y Mario
+  //    puede reservar manualmente más adelante.
+  let reservasResumen: {
+    reservas_creadas: number
+    total_kg_reservado: number
+  } = { reservas_creadas: 0, total_kg_reservado: 0 }
+  try {
+    const res = await reservarMaterialesPedido(input.pedidoId)
+    reservasResumen = {
+      reservas_creadas: res.reservas_creadas,
+      total_kg_reservado: res.total_kg_reservado,
+    }
+  } catch (e: any) {
+    console.error(
+      '[confirmarPedido] Error no crítico al reservar materiales:',
+      e?.message ?? e
+    )
+  }
+
   return {
     pedido: pedidoConfirmado,
     piezasCreadas: piezasArr.length,
     tareasCreadas: tareasPayload.length,
     candidatosCreados,
+    reservasCreadas: reservasResumen.reservas_creadas,
+    totalKgReservado: reservasResumen.total_kg_reservado,
   }
 }
 
@@ -912,6 +946,22 @@ export async function cancelarPedido(
     .select()
     .single()
   if (errUpd) throw errUpd
+
+  // (R6) Liberar reservas activas del pedido, si las hay.
+  //      No bloqueante: si falla, el pedido queda cancelado igual.
+  try {
+    const res = await liberarReservasPedido(pedidoId)
+    if (res.reservas_liberadas > 0) {
+      console.info(
+        `[cancelarPedido] Liberadas ${res.reservas_liberadas} reservas (${res.total_kg_liberado} kg total)`
+      )
+    }
+  } catch (e: any) {
+    console.error(
+      '[cancelarPedido] Error no crítico al liberar reservas:',
+      e?.message ?? e
+    )
+  }
 
   return pedidoUpd
 }
