@@ -27,8 +27,10 @@ import {
   duplicarTarea,
   asignarCandidatos,
   recomputarEstadoPiezaYPedido,
+  reabrirTarea,
   type FiltrosPanel,
 } from '@/lib/services/produccion'
+import { calcularMezclaTeoricaTarea } from '@/lib/services/reservas'
 
 // =============================================================
 // CONSULTAS
@@ -93,9 +95,20 @@ export async function accionIniciarTarea(input: {
   }
 }
 
-export async function accionCompletarTarea(tareaId: string) {
+export async function accionCompletarTarea(
+  input: string | {
+    tareaId: string
+    mezcla?: {
+      estado: 'exacto' | 'sobro' | 'falto'
+      kg_merma_total?: number
+    }
+  }
+) {
+  // Compatibilidad hacia atrás: si llega un string, es el tareaId sin mezcla
+  const tareaId = typeof input === 'string' ? input : input.tareaId
+  const mezcla = typeof input === 'string' ? undefined : input.mezcla
   try {
-    const res = await completarTarea(tareaId)
+    const res = await completarTarea(tareaId, mezcla)
     revalidatePath('/produccion')
     revalidatePath('/pedidos')
     return {
@@ -103,6 +116,7 @@ export async function accionCompletarTarea(tareaId: string) {
       tarea: res.tarea,
       estado: res.estado,
       finSecado: 'finSecado' in res ? res.finSecado : null,
+      consumo: 'consumo' in res ? res.consumo : null,
     }
   } catch (e: any) {
     return {
@@ -196,6 +210,54 @@ export async function accionRecomputarEstadoPiezaYPedido(piezaId: string) {
     return {
       ok: false as const,
       error: e?.message ?? 'Error recalculando estado',
+    }
+  }
+}
+
+// =============================================================
+// R6b — MEZCLA Y CONSUMO
+// =============================================================
+
+/**
+ * Calcula la mezcla teórica de una tarea (lacado o fondo) para mostrarla
+ * al operario en el modal "Prepara esto" antes de iniciar.
+ * No consume stock ni modifica nada.
+ */
+export async function accionCalcularMezclaTeorica(tareaId: string) {
+  try {
+    const mezcla = await calcularMezclaTeoricaTarea(tareaId)
+    return { ok: true as const, mezcla }
+  } catch (e: any) {
+    return {
+      ok: false as const,
+      error: e?.message ?? 'Error calculando mezcla teórica',
+    }
+  }
+}
+
+/**
+ * Reabre una tarea completada para ajustar el consumo.
+ * Revierte los movimientos de stock con auditoría y pone la tarea
+ * de vuelta en 'en_progreso'.
+ */
+export async function accionReabrirTarea(input: {
+  tareaId: string
+  operarioId: string
+}) {
+  try {
+    const res = await reabrirTarea(input.tareaId, input.operarioId)
+    revalidatePath('/produccion')
+    revalidatePath('/pedidos')
+    return {
+      ok: true as const,
+      tarea: res.tarea,
+      movimientosRevertidos: res.movimientos_revertidos,
+      materialesAfectados: res.materiales_afectados,
+    }
+  } catch (e: any) {
+    return {
+      ok: false as const,
+      error: e?.message ?? 'Error reabriendo la tarea',
     }
   }
 }
