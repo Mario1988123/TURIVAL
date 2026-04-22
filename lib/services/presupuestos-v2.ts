@@ -578,29 +578,66 @@ export async function simularPrecioLineaPersonalizada(
     },
   })
 
-  const d: any = desglose as any
+  // Agregar datos por proceso (el motor devuelve desglose por proceso).
+  const procesosArr: Array<{
+    codigo: string
+    tiempo_min: number
+    coste_obra_eur: number
+    consumo_pintura_kg: number
+    consumo_cata_kg: number
+    consumo_dis_kg: number
+    coste_pintura_eur: number
+    coste_cata_eur: number
+    coste_dis_eur: number
+  }> = Array.isArray(desglose.procesos) ? desglose.procesos : []
+
+  // Separar kg de pintura según tipo_material del proceso:
+  // LACADO → lacado; FONDO/FONDEADO_2 → fondo.
+  let kgLacado = 0
+  let kgFondo = 0
+  let costeLacado = 0
+  let costeFondo = 0
+  let kgCata = 0
+  let kgDis = 0
+  let costeCata = 0
+  let costeDis = 0
+
+  for (const p of procesosArr) {
+    const def = getProcesoDefault(p.codigo)
+    if (def?.tipo_material === 'lacado') {
+      kgLacado    += p.consumo_pintura_kg ?? 0
+      costeLacado += p.coste_pintura_eur  ?? 0
+    } else if (def?.tipo_material === 'fondo') {
+      kgFondo     += p.consumo_pintura_kg ?? 0
+      costeFondo  += p.coste_pintura_eur  ?? 0
+    }
+    kgCata    += p.consumo_cata_kg ?? 0
+    kgDis     += p.consumo_dis_kg  ?? 0
+    costeCata += p.coste_cata_eur  ?? 0
+    costeDis  += p.coste_dis_eur   ?? 0
+  }
+
+  const tiempoUnitario = desglose.tiempo_total_min ?? 0
 
   return {
     superficie_unitaria_m2: Number(superficie.superficie_unitaria_m2.toFixed(4)),
-    tiempo_minutos_unitario: Number((d.tiempo_total_min ?? 0).toFixed(1)),
-    tiempo_minutos_total: Number(
-      ((d.tiempo_total_min ?? 0) * input.cantidad).toFixed(1)
-    ),
-    coste_materiales_unitario: Number((d.coste_materiales_unitario ?? 0).toFixed(2)),
-    coste_mano_obra_unitario: Number((d.coste_mano_obra_unitario ?? 0).toFixed(2)),
-    coste_unitario: Number((d.coste_unitario ?? 0).toFixed(2)),
-    precio_unitario: Number((d.precio_final_unitario ?? 0).toFixed(2)),
-    precio_total: Number((d.precio_total_final ?? 0).toFixed(2)),
+    tiempo_minutos_unitario: Number(tiempoUnitario.toFixed(1)),
+    tiempo_minutos_total: Number((tiempoUnitario * input.cantidad).toFixed(1)),
+    coste_materiales_unitario: Number((desglose.coste_material_total ?? 0).toFixed(2)),
+    coste_mano_obra_unitario: Number((desglose.coste_obra_ajustado ?? 0).toFixed(2)),
+    coste_unitario: Number((desglose.coste_total_unitario ?? 0).toFixed(2)),
+    precio_unitario: Number((desglose.precio_final_unitario ?? 0).toFixed(2)),
+    precio_total: Number((desglose.precio_total_final ?? 0).toFixed(2)),
     detalle: {
-      kg_lacado: Number((d.kg_lacado ?? 0).toFixed(4)),
-      kg_fondo:  Number((d.kg_fondo ?? 0).toFixed(4)),
-      kg_cata:   Number((d.kg_cata ?? 0).toFixed(4)),
-      kg_dis:    Number((d.kg_dis ?? 0).toFixed(4)),
-      coste_lacado: Number((d.coste_lacado ?? 0).toFixed(2)),
-      coste_fondo:  Number((d.coste_fondo ?? 0).toFixed(2)),
-      coste_cata:   Number((d.coste_cata ?? 0).toFixed(2)),
-      coste_dis:    Number((d.coste_dis ?? 0).toFixed(2)),
-      avisos:       Array.isArray(d.avisos) ? d.avisos : [],
+      kg_lacado: Number(kgLacado.toFixed(4)),
+      kg_fondo:  Number(kgFondo.toFixed(4)),
+      kg_cata:   Number(kgCata.toFixed(4)),
+      kg_dis:    Number(kgDis.toFixed(4)),
+      coste_lacado: Number(costeLacado.toFixed(2)),
+      coste_fondo:  Number(costeFondo.toFixed(2)),
+      coste_cata:   Number(costeCata.toFixed(2)),
+      coste_dis:    Number(costeDis.toFixed(2)),
+      avisos: [] as string[],
     },
   }
 }
