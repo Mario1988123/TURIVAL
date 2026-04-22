@@ -23,9 +23,16 @@ import {
   Menu,
   X,
   Shield,
+  Settings,
+  MapPin,
 } from 'lucide-react'
 import type { Profile } from '@/lib/types/erp'
 
+// ============================================================
+// MENU_ITEMS debe estar SINCRONIZADO con components/layout/app-sidebar.tsx
+// Bug recurrente H: /dashboard tiene su propio sidebar hardcodeado.
+// Al añadir/quitar entradas, actualizar SIEMPRE los dos archivos.
+// ============================================================
 const MENU_ITEMS = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Agenda', href: '/agenda', icon: Calendar },
@@ -35,11 +42,15 @@ const MENU_ITEMS = [
   { label: 'Producción', href: '/produccion', icon: Factory },
   { label: 'Albaranes', href: '/albaranes', icon: Truck },
   { label: 'Productos', href: '/productos', icon: Package },
-  { label: 'Colores', href: '/colores', icon: Palette },
+  { label: 'Materiales', href: '/materiales', icon: Palette },
+  { label: 'Proveedores', href: '/configuracion/proveedores', icon: Truck },
   { label: 'Tratamientos', href: '/tratamientos', icon: Layers },
   { label: 'Tarifas', href: '/tarifas', icon: Euro },
   { label: 'Trazabilidad', href: '/trazabilidad', icon: QrCode },
   { label: 'Informes', href: '/informes', icon: BarChart3 },
+  { label: 'Operarios', href: '/configuracion/operarios', icon: Users },
+  { label: 'Ubicaciones', href: '/configuracion/ubicaciones', icon: MapPin },
+  { label: 'Configuración', href: '/configuracion', icon: Settings },
 ]
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
