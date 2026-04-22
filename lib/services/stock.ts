@@ -65,6 +65,25 @@ export async function obtenerStockActual(
   }
 }
 
+// Movimiento enriquecido con origen legible (pieza + cliente + pedido).
+// Extiende MovimientoStock añadiendo los datos de los objetos relacionados
+// para que la UI pueda pintar "de qué pieza/cliente/pedido vino" sin
+// disparar más queries.
+export interface MovimientoStockEnriquecido extends MovimientoStock {
+  pieza: {
+    id: string
+    numero: string
+  } | null
+  pedido: {
+    id: string
+    numero: string
+    cliente: {
+      id: string
+      nombre: string
+    } | null
+  } | null
+}
+
 export async function listarMovimientos(filtros: {
   material_id?: string
   pedido_id?: string
@@ -73,11 +92,18 @@ export async function listarMovimientos(filtros: {
   desde?: string   // ISO date
   hasta?: string   // ISO date
   limite?: number  // default 100
-} = {}): Promise<MovimientoStock[]> {
+} = {}): Promise<MovimientoStockEnriquecido[]> {
   const supabase = createClient()
   let query = supabase
     .from('movimientos_stock')
-    .select('*')
+    .select(`
+      *,
+      pieza:piezas(id, numero),
+      pedido:pedidos(
+        id, numero,
+        cliente:clientes(id, nombre)
+      )
+    `)
     .order('fecha', { ascending: false })
     .limit(filtros.limite ?? 100)
 
@@ -90,7 +116,28 @@ export async function listarMovimientos(filtros: {
 
   const { data, error } = await query
   if (error) throw error
-  return (data ?? []) as MovimientoStock[]
+
+  // Supabase devuelve relaciones como array u objeto según cardinalidad;
+  // normalizamos a objeto-o-null para consumo uniforme en la UI.
+  const raw = (data ?? []) as any[]
+  return raw.map((m): MovimientoStockEnriquecido => {
+    const pieza = Array.isArray(m.pieza) ? m.pieza[0] : m.pieza
+    const pedido = Array.isArray(m.pedido) ? m.pedido[0] : m.pedido
+    const cliente = pedido
+      ? (Array.isArray(pedido.cliente) ? pedido.cliente[0] : pedido.cliente)
+      : null
+    return {
+      ...m,
+      pieza: pieza ? { id: pieza.id, numero: pieza.numero } : null,
+      pedido: pedido
+        ? {
+            id: pedido.id,
+            numero: pedido.numero,
+            cliente: cliente ? { id: cliente.id, nombre: cliente.nombre } : null,
+          }
+        : null,
+    }
+  })
 }
 
 // =================================================================
@@ -99,79 +146,18 @@ export async function listarMovimientos(filtros: {
 
 /**
  * Entrada manual de stock (compra recibida). Suma kg al stock_fisico.
- *
- * Opcional: si se pasa `precio_compra_kg`, recalcula el
- * `precio_kg_sobrescrito` del material como MEDIA PONDERADA entre el
- * stock existente (a su precio actual) y la nueva compra. Fórmula:
- *
- *   precio_nuevo = (stock_antes * precio_actual + kg_entrada * precio_compra)
- *                  / (stock_antes + kg_entrada)
- *
- *   Si stock_antes = 0 → precio_nuevo = precio_compra (no hay nada que ponderar).
- *
- * El motivo del movimiento se enriquece con ambos precios para dejar
- * auditoría legible en el histórico.
  */
 export async function entradaManualStock(params: {
   material_id: string
   cantidad_kg: number
   motivo?: string
   operario_id?: string | null
-  precio_compra_kg?: number | null
 }): Promise<MovimientoStock> {
   if (params.cantidad_kg <= 0) {
     throw new Error('La cantidad de entrada debe ser positiva')
   }
-
-  // Si hay precio de compra, recalcular precio medio ponderado
-  let motivoFinal = params.motivo ?? 'Entrada manual'
-  const precioCompra =
-    params.precio_compra_kg != null && params.precio_compra_kg > 0
-      ? Number(params.precio_compra_kg)
-      : null
-
-  if (precioCompra !== null) {
-    const supabase = createClient()
-    const { data: mat, error } = await supabase
-      .from('materiales')
-      .select('stock_fisico_kg, precio_kg_sobrescrito')
-      .eq('id', params.material_id)
-      .single()
-    if (error || !mat) throw error ?? new Error('Material no encontrado')
-
-    const stockAntes = Number(mat.stock_fisico_kg ?? 0)
-    const precioActual = mat.precio_kg_sobrescrito != null
-      ? Number(mat.precio_kg_sobrescrito)
-      : null
-
-    let precioNuevo: number
-    if (stockAntes <= 0 || precioActual === null) {
-      precioNuevo = precioCompra
-    } else {
-      precioNuevo =
-        (stockAntes * precioActual + params.cantidad_kg * precioCompra) /
-        (stockAntes + params.cantidad_kg)
-    }
-    precioNuevo = Number(precioNuevo.toFixed(4))
-
-    const { error: errP } = await supabase
-      .from('materiales')
-      .update({
-        precio_kg_sobrescrito: precioNuevo,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', params.material_id)
-    if (errP) throw errP
-
-    const motivoBase = params.motivo?.trim() || 'Entrada manual'
-    motivoFinal = `${motivoBase} — ${params.cantidad_kg.toFixed(3)} kg a ${precioCompra.toFixed(4)} €/kg. Precio medio actualizado: ${precioNuevo.toFixed(4)} €/kg.`
-  }
-
   return aplicarMovimiento({
-    material_id: params.material_id,
-    cantidad_kg: params.cantidad_kg,
-    motivo: motivoFinal,
-    operario_id: params.operario_id,
+    ...params,
     tipo: 'entrada',
     delta_fisico_kg: +Math.abs(params.cantidad_kg),
     delta_reservado_kg: 0,
