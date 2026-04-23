@@ -7,8 +7,8 @@
  * Una etiqueta tiene 4 partes:
  *   1) Nombre comercial del cliente       (grande, legible, auto-fit)
  *   2) Código compacto de procesos+medidas (ej: LFLA-800x600x19)
- *   3) QR o Code128 con el número PIE-YYYY-NNNN
- *   4) Número PIE-YYYY-NNNN en texto pequeño abajo
+ *   3) QR o Code128 con el número PIE-YY-NNNN
+ *   4) Número PIE-YY-NNNN en texto pequeño abajo + "X/N" del pedido
  *
  * Ver T2-etiquetas en la memoria del proyecto.
  * ================================================================
@@ -32,8 +32,8 @@ const INICIALES_PROCESO: Record<string, string> = {
  */
 export interface DatosEtiqueta {
   // Identificación
-  pieza_numero: string // ej "PIE-2026-0001"
-  pedido_numero?: string | null // ej "DOC-2026-0001"
+  pieza_numero: string // ej "PIE-26-0001"
+  pedido_numero?: string | null // ej "PED-26-0001"
   // Cliente (texto grande arriba)
   cliente_nombre_comercial: string
   // Descripción breve (2ª línea de texto)
@@ -49,6 +49,10 @@ export interface DatosEtiqueta {
   alto?: number | null
   grosor?: number | null
   longitud_ml?: number | null
+  // Secuencia dentro del pedido ("1/7", "2/7", …). La calcula la
+  // página servidor al aplanar piezas.
+  indice_global?: number
+  total_piezas?: number
 }
 
 /**
