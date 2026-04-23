@@ -151,7 +151,12 @@ export default function PedidoDetalleCliente({
   pedidoInicial: any
 }) {
   const router = useRouter()
-  const [pedido] = useState<any>(pedidoInicial)
+  // Usamos pedidoInicial directamente en vez de useState. Al llamar
+  // router.refresh() tras una acción, el Server Component padre vuelve
+  // a fetchear y nos pasa una nueva prop pedidoInicial — así la UI
+  // refleja el nuevo estado (confirmado → en_produccion, etc.). Con
+  // useState nos quedábamos congelados en el valor inicial (bug G).
+  const pedido = pedidoInicial
   const [mensaje, setMensaje] = useState<{
     tipo: 'ok' | 'error'
     texto: string
