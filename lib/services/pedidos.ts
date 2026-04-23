@@ -483,11 +483,6 @@ export async function convertirPresupuestoAPedido(
     contabilizar_grosor: l.src.contabilizar_grosor ?? false,
     precio_aproximado: l.src.precio_aproximado ?? false,
     desglose_coste_json: l.src.desglose_coste_json ?? null,
-    // Procesos seleccionados en el flujo v2 (nudo P+2B iter 4). NULL
-    // para líneas del flujo clásico (con producto_id). confirmarPedido()
-    // los usará en la iter 5 para crear tareas de producción leyendo
-    // tiempos desde config_tiempos_proceso.
-    procesos_codigos: l.src.procesos_codigos ?? null,
   }))
 
   const { error: errLP2 } = await supabase
@@ -519,6 +514,7 @@ export async function confirmarPedido(input: ConfirmarPedidoInput) {
       lineas:lineas_pedido(
         id, producto_id, cantidad, nivel_complejidad,
         color_id, tratamiento_id, tipo_pieza,
+        modo_precio, categoria_pieza_id, procesos_codigos,
         ancho, alto, grosor, longitud_ml, superficie_m2,
         material_disponible, fecha_llegada_material
       )
@@ -613,9 +609,17 @@ export async function confirmarPedido(input: ConfirmarPedidoInput) {
     .insert(movsPayload)
   if (errMov) throw errMov
 
-  // 5. Generar tareas de producción para cada pieza
-  //    Carga una sola vez procesos_producto de todos los productos implicados
+  // 5. Generar tareas de producción para cada pieza.
+  //    Hay DOS fuentes de procesos según el flujo con el que se creó la línea:
+  //      A) Flujo clásico (línea con producto_id)     → procesos_producto
+  //      B) Flujo v2      (línea con procesos_codigos) → procesos_catalogo + config_tiempos_proceso
+  //
+  //    Esta función soporta ambos flujos en el mismo pedido sin mezclarlos.
   const lineasPorId = new Map<string, any>(lineas.map((l) => [l.id, l]))
+
+  // -------------------------------------------------------------
+  // 5A. Flujo clásico: carga procesos_producto de productos usados
+  // -------------------------------------------------------------
   const productosIds = [
     ...new Set(lineas.map((l) => l.producto_id).filter(Boolean)),
   ]
@@ -655,30 +659,163 @@ export async function confirmarPedido(input: ConfirmarPedidoInput) {
     rolPorProcesoId.set(p.proceso_id, pc?.rol_operario_requerido ?? null)
   }
 
+  // -------------------------------------------------------------
+  // 5B. Flujo v2: recolectar códigos únicos y cargar su catálogo
+  //               + tiempos globales / por categoría.
+  // -------------------------------------------------------------
+  const codigosV2 = new Set<string>()
+  const categoriasV2 = new Set<string>()
+  for (const l of lineas as any[]) {
+    const codigos: unknown = l.procesos_codigos
+    if (Array.isArray(codigos) && codigos.length > 0) {
+      for (const c of codigos) {
+        if (typeof c === 'string' && c.length > 0) codigosV2.add(c)
+      }
+      if (l.categoria_pieza_id) categoriasV2.add(l.categoria_pieza_id)
+    }
+  }
+
+  // Mapa codigo → fila de procesos_catalogo (con rol para candidatos)
+  const catalogoPorCodigo = new Map<
+    string,
+    {
+      id: string
+      codigo: string
+      activo: boolean
+      rol_operario_requerido: string | null
+    }
+  >()
+
+  // Mapa `${proceso_id}|${categoria_id_o_GLOBAL}` → tiempos
+  const tiemposPorProcCat = new Map<
+    string,
+    {
+      tiempo_base_min: number
+      tiempo_por_m2_min: number
+      tiempo_por_ml_min: number
+    }
+  >()
+
+  if (codigosV2.size > 0) {
+    const { data: catFilas, error: errCat } = await supabase
+      .from('procesos_catalogo')
+      .select('id, codigo, activo, rol_operario_requerido')
+      .in('codigo', Array.from(codigosV2))
+    if (errCat) throw errCat
+    for (const c of (catFilas ?? []) as any[]) {
+      catalogoPorCodigo.set(c.codigo, {
+        id: c.id,
+        codigo: c.codigo,
+        activo: c.activo !== false,
+        rol_operario_requerido: c.rol_operario_requerido ?? null,
+      })
+      // Para auto-asignación de candidatos (bloque 5.5), ese mismo rol
+      // lo añadimos al mapa unificado.
+      rolPorProcesoId.set(c.id, c.rol_operario_requerido ?? null)
+    }
+
+    const procIdsV2 = Array.from(catalogoPorCodigo.values()).map((c) => c.id)
+    if (procIdsV2.length > 0) {
+      // Pedimos TODAS las filas (global + las categorías implicadas).
+      const { data: tiemposRows, error: errTi } = await supabase
+        .from('config_tiempos_proceso')
+        .select(
+          'proceso_id, categoria_pieza_id, tiempo_base_min, tiempo_por_m2_min, tiempo_por_ml_min'
+        )
+        .in('proceso_id', procIdsV2)
+      if (errTi) throw errTi
+      for (const t of (tiemposRows ?? []) as any[]) {
+        const catKey = t.categoria_pieza_id ?? '__GLOBAL__'
+        tiemposPorProcCat.set(`${t.proceso_id}|${catKey}`, {
+          tiempo_base_min: Number(t.tiempo_base_min ?? 0),
+          tiempo_por_m2_min: Number(t.tiempo_por_m2_min ?? 0),
+          tiempo_por_ml_min: Number(t.tiempo_por_ml_min ?? 0),
+        })
+      }
+    }
+  }
+
+  // Helper: resuelve los tiempos de un proceso para una línea aplicando
+  // fallback a fila global cuando no hay configuración específica por
+  // categoría. Devuelve ceros si no hay ninguna fila (la tarea se creará
+  // con 0 minutos de estimación; Mario puede ajustarla a mano).
+  function resolverTiemposV2(
+    procesoId: string,
+    categoriaPiezaId: string | null
+  ): { tiempo_base_min: number; tiempo_por_m2_min: number; tiempo_por_ml_min: number } {
+    if (categoriaPiezaId) {
+      const esp = tiemposPorProcCat.get(`${procesoId}|${categoriaPiezaId}`)
+      if (esp) return esp
+    }
+    const glob = tiemposPorProcCat.get(`${procesoId}|__GLOBAL__`)
+    if (glob) return glob
+    return { tiempo_base_min: 0, tiempo_por_m2_min: 0, tiempo_por_ml_min: 0 }
+  }
+
+  // -------------------------------------------------------------
+  // 5C. Construir payload de tareas por cada pieza
+  // -------------------------------------------------------------
   const tareasPayload: any[] = []
   for (const pieza of piezasArr) {
     const linea = lineasPorId.get(pieza.linea_pedido_id)
-    if (!linea || !linea.producto_id) continue
-    const procs = procesosPorProducto.get(linea.producto_id) ?? []
-    for (const pp of procs) {
-      const pc = Array.isArray(pp.proceso) ? pp.proceso[0] : (pp.proceso ?? {})
-      if (pc?.activo === false) continue
-      const tiempoEst = calcularTiempoTarea(
-        pp,
-        pc,
-        linea.superficie_m2 ?? 0,
-        linea.nivel_complejidad ?? 2
-      )
+    if (!linea) continue
+
+    // --- Rama A: flujo clásico ---
+    if (linea.producto_id) {
+      const procs = procesosPorProducto.get(linea.producto_id) ?? []
+      for (const pp of procs) {
+        const pc = Array.isArray(pp.proceso) ? pp.proceso[0] : (pp.proceso ?? {})
+        if (pc?.activo === false) continue
+        const tiempoEst = calcularTiempoTarea(
+          pp,
+          pc,
+          linea.superficie_m2 ?? 0,
+          linea.nivel_complejidad ?? 2
+        )
+        tareasPayload.push({
+          pieza_id: pieza.id,
+          proceso_id: pp.proceso_id,
+          secuencia: pp.secuencia,
+          es_opcional: pp.es_opcional ?? false,
+          depende_de_secuencia: pp.depende_de_secuencia ?? null,
+          estado: 'pendiente',
+          tiempo_estimado_minutos: tiempoEst,
+        })
+      }
+      continue
+    }
+
+    // --- Rama B: flujo v2 ---
+    const codigos = Array.isArray(linea.procesos_codigos)
+      ? (linea.procesos_codigos as string[])
+      : []
+    if (codigos.length === 0) continue
+
+    const modoPrecio: string = linea.modo_precio ?? 'm2'
+    const superficieM2 = Number(linea.superficie_m2 ?? 0)
+    const longitudMl = Number(linea.longitud_ml ?? 0)
+
+    codigos.forEach((codigo, idx) => {
+      const cat = catalogoPorCodigo.get(codigo)
+      if (!cat || !cat.activo) return
+      const t = resolverTiemposV2(cat.id, linea.categoria_pieza_id ?? null)
+      let tiempoEst = t.tiempo_base_min
+      if (modoPrecio === 'ml') {
+        tiempoEst += t.tiempo_por_ml_min * longitudMl
+      } else {
+        tiempoEst += t.tiempo_por_m2_min * superficieM2
+      }
+      tiempoEst = Number(tiempoEst.toFixed(2))
       tareasPayload.push({
         pieza_id: pieza.id,
-        proceso_id: pp.proceso_id,
-        secuencia: pp.secuencia,
-        es_opcional: pp.es_opcional ?? false,
-        depende_de_secuencia: pp.depende_de_secuencia ?? null,
+        proceso_id: cat.id,
+        secuencia: idx + 1,
+        es_opcional: false,
+        depende_de_secuencia: null,
         estado: 'pendiente',
         tiempo_estimado_minutos: tiempoEst,
       })
-    }
+    })
   }
 
   // Insertar tareas y recoger las IDs creadas (necesarias para candidatos)
