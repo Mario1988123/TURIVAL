@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import {
   Play,
   CheckCircle2,
@@ -12,6 +13,7 @@ import {
   Clock,
   Package,
   RotateCcw,
+  Printer,
 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
@@ -221,6 +223,17 @@ export default function TareaCard({
         <div className="font-mono font-semibold text-sm flex items-center gap-1">
           <Package className="w-3.5 h-3.5" />
           {pieza?.numero ?? '—'}
+          {pieza?.id && (
+            <Link
+              href={`/etiquetas/pieza/${pieza.id}`}
+              target="_blank"
+              title="Imprimir etiqueta de esta pieza"
+              onClick={(e) => e.stopPropagation()}
+              className="ml-auto inline-flex items-center justify-center w-5 h-5 rounded hover:bg-slate-200 text-slate-600 hover:text-slate-900 transition"
+            >
+              <Printer className="w-3.5 h-3.5" />
+            </Link>
+          )}
         </div>
         {descripcionPieza && (
           <div className="text-sm text-slate-800 font-medium leading-tight">
