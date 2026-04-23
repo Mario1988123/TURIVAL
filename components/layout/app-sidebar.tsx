@@ -25,6 +25,7 @@ import {
   Shield,
   Settings,
   MapPin,
+  Clock,
 } from 'lucide-react'
 
 const MENU_ITEMS = [
@@ -44,6 +45,7 @@ const MENU_ITEMS = [
   { label: 'Informes', href: '/informes', icon: BarChart3 },
   { label: 'Operarios', href: '/configuracion/operarios', icon: Users },
   { label: 'Ubicaciones', href: '/configuracion/ubicaciones', icon: MapPin },
+  { label: 'Tiempos de proceso', href: '/configuracion/tiempos', icon: Clock },
   { label: 'Configuración', href: '/configuracion', icon: Settings },
 ]
 
