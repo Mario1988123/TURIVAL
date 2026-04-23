@@ -518,6 +518,18 @@ export async function accionAñadirLineasAPedido(input: {
         tiempo_estimado: src.tiempo_estimado,
         extras: src.extras,
         material_disponible: false,
+        // --- Campos del motor ERP (R6) + nudo P+2B iter 4 ---
+        // Homogeneizados con convertirPresupuestoAPedido. Sin esto
+        // las líneas añadidas posteriormente se quedan "zombie v2"
+        // (sin info de materiales, categoría ni procesos) y la
+        // generación de tareas de producción las ignora.
+        material_lacado_id: src.material_lacado_id ?? null,
+        material_fondo_id: src.material_fondo_id ?? null,
+        categoria_pieza_id: src.categoria_pieza_id ?? null,
+        contabilizar_grosor: src.contabilizar_grosor ?? false,
+        precio_aproximado: src.precio_aproximado ?? false,
+        desglose_coste_json: src.desglose_coste_json ?? null,
+        procesos_codigos: src.procesos_codigos ?? null,
       }
     })
 
