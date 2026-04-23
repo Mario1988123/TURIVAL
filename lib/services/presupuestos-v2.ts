@@ -384,6 +384,18 @@ async function insertarLineaConMotor(
 
   const tiempoMinTotal = desglose.tiempo_total_min * d.cantidad
 
+  // Procesos de la línea (flujo v2), ordenados como vienen. Se persisten
+  // como text[] en lineas_presupuesto.procesos_codigos para que luego
+  // puedan propagarse a lineas_pedido y que confirmarPedido() genere
+  // las tareas correspondientes (iteraciones 4 y 5 del nudo P+2B).
+  const procesosCodigos =
+    d.procesos && d.procesos.length > 0
+      ? d.procesos
+          .slice()
+          .sort((a, b) => a.orden - b.orden)
+          .map((p) => p.proceso_codigo)
+      : null
+
   // Insert
   const { error } = await supabase.from('lineas_presupuesto').insert({
     presupuesto_id: d.presupuesto_id,
@@ -410,6 +422,7 @@ async function insertarLineaConMotor(
     total_linea: desglose.precio_total_final,
     tiempo_estimado: Math.round(tiempoMinTotal),
     desglose_coste_json: desglose as any,
+    procesos_codigos: procesosCodigos,
     orden: d.orden,
   })
   if (error) throw error
