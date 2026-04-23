@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic'
  * kanban de /produccion al pulsar el botón de impresora de una tarjeta.
  *
  * Reutiliza el mismo componente cliente que la ruta de "todas las piezas
- * de un pedido", simplemente pasándole un array con 1 elemento.
+ * de un pedido", pasándole un array con 1 elemento y X/N = 1/1.
  */
 export default async function EtiquetaPiezaPage({
   params,
@@ -66,6 +66,8 @@ export default async function EtiquetaPiezaPage({
     alto: linea?.alto ?? null,
     grosor: linea?.grosor ?? null,
     longitud_ml: linea?.longitud_ml ?? null,
+    indice_global: 1,
+    total_piezas: 1,
   }
 
   return (
