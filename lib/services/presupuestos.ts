@@ -132,41 +132,21 @@ export function calcularPresupuesto(input: CalculoPresupuestoInput): CalculoPres
 }
 
 /**
- * Obtener siguiente número de secuencia
+ * Obtener siguiente número de secuencia. Delega en la RPC
+ * `generar_numero_secuencial()` de Supabase para que haya un único
+ * punto de generación de números en todo el sistema (y el formato sea
+ * uniforme: PREFIJO-YY-NNNN, año 2 dígitos).
  */
 export async function obtenerSiguienteNumero(
   tipo: 'presupuesto' | 'pedido' | 'albaran' | 'pieza' | 'lote'
 ): Promise<string> {
   const supabase = createClient()
-  const anio = new Date().getFullYear()
-
-  const { data, error } = await supabase
-    .from('secuencias')
-    .select('ultimo_numero')
-    .eq('id', tipo)
-    .eq('anio', anio)
-    .single()
-
-  if (error) throw error
-
-  const numero = (data?.ultimo_numero || 0) + 1
-
-  // Actualizar secuencia
-  await supabase
-    .from('secuencias')
-    .update({ ultimo_numero: numero })
-    .eq('id', tipo)
-    .eq('anio', anio)
-
-  const prefijos: Record<string, string> = {
-    presupuesto: 'PRES',
-    pedido: 'PED',
-    albaran: 'ALB',
-    pieza: 'PIE',
-    lote: 'LOT',
-  }
-
-  return `${prefijos[tipo]}-${anio}-${String(numero).padStart(4, '0')}`
+  const { data, error } = await supabase.rpc('generar_numero_secuencial', {
+    p_tipo: tipo,
+  })
+  if (error) throw new Error(`Error generando número ${tipo}: ${error.message}`)
+  if (!data) throw new Error(`No se pudo generar número ${tipo}`)
+  return data as string
 }
 
 /**
