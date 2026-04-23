@@ -143,9 +143,10 @@ export async function reservarMaterialesPedido(
     .from('materiales')
     .select(`
       id, codigo, nombre, tipo,
-      precio_kg, precio_kg_sobrescrito,
+      precio_kg_sobrescrito,
       rendimiento_kg_m2_sobrescrito,
-      stock_fisico_kg, stock_reservado_kg
+      stock_fisico_kg, stock_reservado_kg,
+      proveedor:proveedores(precio_base_kg)
     `)
     .in('id', Array.from(materialIds))
   if (errM) throw errM
@@ -255,7 +256,7 @@ export async function reservarMaterialesPedido(
 
     const precioKg = m.precio_kg_sobrescrito != null
       ? Number(m.precio_kg_sobrescrito)
-      : Number(m.precio_kg ?? 0)
+      : Number(m.proveedor?.precio_base_kg ?? 0)
 
     detalles.push({
       material_id: materialId,
@@ -386,8 +387,9 @@ export async function obtenerResumenReservasPedido(
     .from('materiales')
     .select(`
       id, codigo, nombre, tipo,
-      precio_kg, precio_kg_sobrescrito,
-      stock_fisico_kg, stock_reservado_kg
+      precio_kg_sobrescrito,
+      stock_fisico_kg, stock_reservado_kg,
+      proveedor:proveedores(precio_base_kg)
     `)
     .in('id', Array.from(porMaterial.keys()))
 
@@ -395,7 +397,7 @@ export async function obtenerResumenReservasPedido(
     const acc = porMaterial.get(m.id) ?? { kg: 0, reservas: 0 }
     const precioKg = m.precio_kg_sobrescrito != null
       ? Number(m.precio_kg_sobrescrito)
-      : Number(m.precio_kg ?? 0)
+      : Number(m.proveedor?.precio_base_kg ?? 0)
     const stockFisico = Number(m.stock_fisico_kg ?? 0)
     return {
       material_id: m.id,
