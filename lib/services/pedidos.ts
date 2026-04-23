@@ -483,6 +483,11 @@ export async function convertirPresupuestoAPedido(
     contabilizar_grosor: l.src.contabilizar_grosor ?? false,
     precio_aproximado: l.src.precio_aproximado ?? false,
     desglose_coste_json: l.src.desglose_coste_json ?? null,
+    // Procesos seleccionados en el flujo v2 (nudo P+2B iter 4). NULL
+    // para líneas del flujo clásico (con producto_id). confirmarPedido()
+    // los usará en la iter 5 para crear tareas de producción leyendo
+    // tiempos desde config_tiempos_proceso.
+    procesos_codigos: l.src.procesos_codigos ?? null,
   }))
 
   const { error: errLP2 } = await supabase
