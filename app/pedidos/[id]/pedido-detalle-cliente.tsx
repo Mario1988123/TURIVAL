@@ -413,7 +413,7 @@ export default function PedidoDetalleCliente({
 
       {/* RESERVAS DE MATERIAL (R6) — solo en estados post-confirmación */}
       {['confirmado', 'en_produccion', 'completado'].includes(estadoActual) && (
-        <ReservasPanel pedidoId={pedidoId} />
+        <ReservasPanel pedidoId={pedido.id} />
       )}
 
       {/* LÍNEAS */}
