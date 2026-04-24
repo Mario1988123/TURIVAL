@@ -26,10 +26,12 @@ import {
   Settings,
   MapPin,
   Clock,
+  CalendarRange,
 } from 'lucide-react'
 
 const MENU_ITEMS = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { label: 'Planificador', href: '/planificador', icon: CalendarRange },
   { label: 'Agenda', href: '/agenda', icon: Calendar },
   { label: 'Clientes', href: '/dashboard/clientes', icon: Users },
   { label: 'Presupuestos', href: '/presupuestos', icon: FileText },
