@@ -17,6 +17,7 @@ import {
   moverTarea,
   planificarTareaManual,
   aplicarAgrupacion,
+  desasignarTarea,
   obtenerSugerenciasHuecos,
   obtenerSugerenciasAgrupacion,
   obtenerSugerenciasHorasExtra,
@@ -121,5 +122,11 @@ export async function accionAutogenerar(params: {
 }): Promise<ResultadoAutogenerarServicio> {
   const res = await autogenerar(params)
   if (res.ok && !params.dry_run) revalidatePath('/planificador')
+  return res
+}
+
+export async function accionDesasignarTarea(tarea_id: string): Promise<ResultadoMoverTarea> {
+  const res = await desasignarTarea(tarea_id)
+  if (res.ok) revalidatePath('/planificador')
   return res
 }

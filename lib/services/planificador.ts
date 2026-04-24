@@ -436,6 +436,27 @@ export async function moverTarea(params: {
  * normalmente). Las coloca en el operario indicado a partir de `inicio`,
  * en el orden de la lista. Dispara ripple si hace falta.
  */
+/**
+ * Desasigna una tarea: pone fecha_inicio_planificada = null y operario_id = null.
+ * Vuelve al pool "sin planificar". No aplica ripple sobre las posteriores
+ * (quedan donde estaban; el usuario decide si las mueve).
+ */
+export async function desasignarTarea(tarea_id: string): Promise<ResultadoMoverTarea> {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('tareas_produccion')
+    .update({
+      fecha_inicio_planificada: null,
+      operario_id: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', tarea_id)
+  if (error) {
+    return { ok: false, cambios: [], solapes_generados: [], violaciones_plazo: [], error: error.message }
+  }
+  return { ok: true, cambios: [{ tarea_id, inicio_anterior: null, inicio_nuevo: new Date(0), minutos_empujado: 0 }], solapes_generados: [], violaciones_plazo: [] }
+}
+
 export async function aplicarAgrupacion(params: {
   tareas_ids: string[]
   operario_id: string

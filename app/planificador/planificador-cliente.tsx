@@ -62,6 +62,7 @@ import type { VistaPlanificador, FilaPlanificador } from '@/lib/services/planifi
 import { accionMoverTarea } from '@/lib/actions/planificador'
 import PanelSugerencias from './panel-sugerencias'
 import DialogAutogenerar from './dialog-autogenerar'
+import DialogDetalleTarea from './dialog-detalle-tarea'
 
 // =============================================================
 // CONSTANTES DE LAYOUT
@@ -214,6 +215,7 @@ export default function PlanificadorCliente({ vista, desde, dias, modo, filtros:
   const [, startTransition] = useTransition()
 
   const [tareaActiva, setTareaActiva] = useState<FilaPlanificador | null>(null)
+  const [detalleTarea, setDetalleTarea] = useState<FilaPlanificador | null>(null)
   const [enviando, setEnviando] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
 
@@ -480,6 +482,7 @@ export default function PlanificadorCliente({ vista, desde, dias, modo, filtros:
                   alternado={idx % 2 === 1}
                   modo={modo}
                   dragActivado={dragActivado}
+                  onVerDetalles={setDetalleTarea}
                 />
               ))
             )}
@@ -498,9 +501,24 @@ export default function PlanificadorCliente({ vista, desde, dias, modo, filtros:
       <DragOverlay>
         {tareaActiva ? <BarraFantasma tarea={tareaActiva} /> : null}
       </DragOverlay>
+
+      {/* Dialog de detalle (doble click) */}
+      <DialogDetalleTarea
+        tarea={detalleTarea}
+        onClose={() => setDetalleTarea(null)}
+        onAfterAction={() => setDetalleTarea(null)}
+      />
     </DndContext>
   )
 }
+
+// Context para que BarraTareaDraggable pueda abrir el dialog sin prop-drilling
+function usePlanificadorSetDetalle(): (t: FilaPlanificador) => void {
+  // Placeholder — se sobreescribe via contexto si hiciera falta.
+  // En G4 lo pasábamos por props; aquí lo dejamos como prop directa.
+  return () => undefined
+}
+void usePlanificadorSetDetalle
 
 // =============================================================
 // SUB-COMPONENTES
@@ -513,6 +531,7 @@ function FilaCarril({
   alternado,
   modo,
   dragActivado,
+  onVerDetalles,
 }: {
   carril: Carril
   dias: Date[]
@@ -520,6 +539,7 @@ function FilaCarril({
   alternado: boolean
   modo: ModoCarril
   dragActivado: boolean
+  onVerDetalles: (t: FilaPlanificador) => void
 }) {
   return (
     <div
@@ -538,6 +558,7 @@ function FilaCarril({
           tareas={tareas}
           droppableId={modo === 'operario' ? `${carril.id}__${isoDia(dia)}` : undefined}
           dragActivado={dragActivado}
+          onVerDetalles={onVerDetalles}
         />
       ))}
     </div>
@@ -549,11 +570,13 @@ function CeldaDia({
   tareas,
   droppableId,
   dragActivado,
+  onVerDetalles,
 }: {
   dia: Date
   tareas: FilaPlanificador[]
   droppableId?: string
   dragActivado: boolean
+  onVerDetalles: (t: FilaPlanificador) => void
 }) {
   const finSemana = dia.getDay() === 0 || dia.getDay() === 6
   const hoy = new Date(); hoy.setHours(0, 0, 0, 0)
@@ -590,6 +613,7 @@ function CeldaDia({
           left={left}
           width={width}
           dragActivado={dragActivado}
+          onVerDetalles={onVerDetalles}
         />
       ))}
     </div>
@@ -601,11 +625,13 @@ function BarraTareaDraggable({
   left,
   width,
   dragActivado,
+  onVerDetalles,
 }: {
   tarea: FilaPlanificador
   left: number
   width: number
   dragActivado: boolean
+  onVerDetalles: (t: FilaPlanificador) => void
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: tarea.id,
@@ -618,14 +644,15 @@ function BarraTareaDraggable({
     + `${hora(tarea.inicio)} – ${hora(tarea.fin)}`
     + (tarea.requiere_secado ? ` (+${tarea.tiempo_secado_minutos}m secado)` : '')
     + (tarea.operario_nombre ? `\nOperario: ${tarea.operario_nombre}` : '')
-    + (dragActivado ? `\n\n(Arrastra para reprogramar)` : '')
+    + `\n\nDoble clic: ver detalle${dragActivado ? ' · Arrastra: reprogramar' : ''}`
 
   return (
     <div
       ref={setNodeRef}
       {...attributes}
       {...listeners}
-      className={`absolute top-1.5 bottom-1.5 overflow-hidden rounded border text-xs ${claseFondo} ${isDragging ? 'opacity-30' : ''} ${dragActivado ? 'cursor-grab active:cursor-grabbing' : ''}`}
+      onDoubleClick={(e) => { e.stopPropagation(); onVerDetalles(tarea) }}
+      className={`absolute top-1.5 bottom-1.5 overflow-hidden rounded border text-xs ${claseFondo} ${isDragging ? 'opacity-30' : ''} ${dragActivado ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
       style={{ left: `${left}%`, width: `${Math.max(0.5, width)}%`, borderLeftColor: bordeIzquierdo, borderLeftWidth: 4 }}
       title={titulo}
     >

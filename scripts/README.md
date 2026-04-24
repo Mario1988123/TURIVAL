@@ -1,24 +1,70 @@
 # Scripts SQL de TURIVAL
 
-Orden de ejecución para **instalación limpia** en un servidor PostgreSQL nuevo con Supabase:
+## Dos caminos de instalación
+
+### A) Instalación limpia en BD nueva (recomendado para migrar)
+
+Usa **`000_schema_completo.sql`** y listo. Es un snapshot completo del Supabase actual (45 tablas + constraints + índices + funciones + RLS + políticas + semillas de catálogos + 272 colores NCS/RAL + 275 materiales + configuración).
+
+```bash
+psql -U postgres -d turival -f scripts/000_schema_completo.sql
+```
+
+Ventajas:
+- Un solo archivo, estado final.
+- Idempotente (CREATE IF NOT EXISTS, DO blocks, ON CONFLICT DO NOTHING).
+- Extraído del schema real, no reconstruido a mano.
+
+Requisito en Postgres nativo (no-Supabase): crear primero los objetos que Supabase tiene por defecto:
+```sql
+CREATE SCHEMA IF NOT EXISTS auth;
+CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY);
+CREATE ROLE authenticated;
+CREATE ROLE anon;
+```
+
+### B) Historial incremental (el orden en que se fueron aplicando en Supabase)
+
+Útil para ver la evolución, no para instalar desde cero (mejor usar A).
 
 | Orden | Script | Qué hace |
 |---|---|---|
-| 1 | `001_create_schema.sql` | Tablas principales: clientes, productos, colores, tratamientos, tarifas, presupuestos, lineas_presupuesto, pedidos, albaranes, piezas, OCR docs... |
-| 2 | `002_create_rls.sql` | Políticas Row Level Security para todas las tablas principales |
-| 3 | `003_seed_data.sql` | Datos iniciales: profiles, handle_new_user trigger, dashboard básico |
-| 4 | `004_procesos_y_produccion.sql` | **NUEVO**: Tablas de procesos (catálogo, por producto, tareas), niveles complejidad, carros, empleados, secuencias, referencias cliente |
-| 5 | `005_seed_procesos.sql` | **NUEVO**: 9 procesos base + 3 niveles complejidad + 3 carros ejemplo |
-| 6 | `006_seed_colores_ncs.sql` | 272 colores NCS iniciales |
-| 7 | `007_seed_tratamientos_tarifas.sql` | 12 tratamientos + 14 tarifas base |
-| 8 | `008_functions.sql` | **NUEVO**: Funciones BD: `generar_numero_secuencial`, `get_next_sequence`, `calcular_superficie_m2` |
-| 9 | `009_motor_v4.sql` | **NUEVO**: Motor de cálculo v4: metro lineal + tipos de pieza (tablero/frente/moldura/irregular) |
-| 10 | `010_configuracion_empresa.sql` | **NUEVO**: Tabla singleton config empresa + RLS bucket Storage empresa-assets |
-| 11 | `011_share_token_presupuestos.sql` | **NUEVO**: Link público `/p/[token]` sin auth para enviar presupuestos a clientes |
+| 1 | `001_create_schema.sql` | Tablas principales base |
+| 2 | `002_create_rls.sql` | Políticas Row Level Security |
+| 3 | `003_seed_data.sql` | Profiles + handle_new_user trigger |
+| 4 | `004_procesos_y_produccion.sql` | Procesos, complejidad, carros, empleados, secuencias |
+| 5 | `005_seed_procesos.sql` | 9 procesos + 3 niveles complejidad + carros |
+| 6 | `006_seed_colores_ncs.sql` | 272 colores NCS (⚠️ tabla `colores` hoy es `colores_legacy`) |
+| 7 | `007_seed_tratamientos_tarifas.sql` | 12 tratamientos + 14 tarifas |
+| 8 | `008_functions.sql` | `generar_numero_secuencial`, `get_next_sequence`, `calcular_superficie_m2` |
+| 9 | `009_motor_v4.sql` | Motor v4: metro lineal + tipos de pieza |
+| 10 | `010_configuracion_empresa.sql` | Singleton config empresa + bucket Storage |
+| 11 | `011_share_token_presupuestos.sql` | Link público `/p/[token]` |
+| 12 | `012_capa2v2_procesos_aprendizaje.sql` | Capa 2 v2: opcional, depende_de_secuencia, historial |
+| 14 | `014_capa_4_pedidos.sql` | Capa 4 pedidos |
+| 15 | `015_capa_5_v2.sql` | Capa 5 producción v2 |
+| 16 | `016_fix_fk_piezas_colores.sql` | Fix FK piezas-colores |
+| 17 | `017_trazabilidad_publica.sql` | RPC obtener_pieza_publica (bug de `FROM colores` corregido en 030) |
+| 18 | `018_cleanup_y_categorias_pieza.sql` | Cleanup + categorias_pieza |
+| 19 | `019_proveedores_y_materiales.sql` | Tablas proveedores + materiales |
+| 20 | `020_ampliar_tablas_existentes.sql` | Amplía columnas en tablas existentes |
+| 21 | `021_stock_y_movimientos.sql` | Stock + movimientos_stock + reservas |
+| 22 | `022_ampliar_configuracion_empresa.sql` | Ratios, coste minuto, margen, etc. |
+| 23 | `023_ampliar_check_modo_precio.sql` | CHECK de modo_precio ampliado |
+| 29 | `029_reset_y_fix_secuencias.sql` | TRUNCATE CASCADE + función `generar_numero_secuencial` case-insensitive |
+| **030** | **`030_fix_rpc_pieza_publica_colores.sql`** | **Fix RPC obtener_pieza_publica: `FROM colores` → `FROM materiales WHERE tipo='lacado'`** |
+| **031** | **`031_tabla_fichajes.sql`** | **⏳ PENDIENTE EJECUTAR — crea tabla fichajes + amplía operarios para botones Descanso/Reanudar del Planificador** |
+
+Nota: 013, 024–028 nunca fueron versionados como archivo pero su efecto está recogido en `000_schema_completo.sql`.
+
+## Pendientes (acción de Mario)
+
+- [x] **030** ejecutado en Supabase el 24-abr-2026 ✅
+- [ ] **031** — ejecutar cuando se quieran activar los botones Descanso/Reanudar del Planificador y, en el futuro, el módulo de fichaje individual por operario.
 
 ## Pasos previos al 010
 
-Antes de ejecutar `010_configuracion_empresa.sql`, **crear el bucket Storage** desde la UI de Supabase:
+Antes de ejecutar `010_configuracion_empresa.sql` en una instalación limpia, **crear el bucket Storage** desde la UI de Supabase:
 
 1. Storage → **New bucket**
 2. Name: `empresa-assets`
@@ -29,27 +75,13 @@ Antes de ejecutar `010_configuracion_empresa.sql`, **crear el bucket Storage** d
 
 ## Cómo ejecutar
 
-### En Supabase (producción actual)
+### En Supabase
 
-Los scripts se pegan uno a uno en **SQL Editor → New Query → Run**. Todos son idempotentes (seguros ejecutar múltiples veces).
+Los scripts se pegan uno a uno en **SQL Editor → New Query → Run**. Todos son idempotentes.
 
-### En servidor propio (futura migración)
+### En servidor propio (migración)
 
+Usa el camino A:
 ```bash
-# Desde psql
-psql -U postgres -d turival -f scripts/001_create_schema.sql
-psql -U postgres -d turival -f scripts/002_create_rls.sql
-psql -U postgres -d turival -f scripts/003_seed_data.sql
-psql -U postgres -d turival -f scripts/004_procesos_y_produccion.sql
-psql -U postgres -d turival -f scripts/005_seed_procesos.sql
-psql -U postgres -d turival -f scripts/006_seed_colores_ncs.sql
-psql -U postgres -d turival -f scripts/007_seed_tratamientos_tarifas.sql
-psql -U postgres -d turival -f scripts/008_functions.sql
-psql -U postgres -d turival -f scripts/009_motor_v4.sql
-psql -U postgres -d turival -f scripts/010_configuracion_empresa.sql
-psql -U postgres -d turival -f scripts/011_share_token_presupuestos.sql
+psql -U postgres -d turival -f scripts/000_schema_completo.sql
 ```
-
-## Pendiente (próxima iteración)
-
-- **`012_capa2_v2_procesos_aprendizaje.sql`** — Capa 2 v2: campos `opcional` + `depende_de_secuencia` en procesos_producto, tabla `historial_tiempos_proceso`, tabla `incidencias_tarea`, campo `material_disponible` + `fecha_llegada_material`, función `recalcular_tiempos_pedido`
