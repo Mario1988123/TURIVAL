@@ -11,9 +11,11 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { TrendingUp, TrendingDown, Eye, Loader2, Target } from 'lucide-react'
+import { TrendingUp, TrendingDown, Eye, Loader2, Target, Download, ExternalLink } from 'lucide-react'
+import Link from 'next/link'
 import { accionDetalleMargenPedido } from '@/lib/actions/informe-margen'
 import type { ResumenMargenPedido, DetalleMargenPedido } from '@/lib/services/informe-margen'
+import { exportarCsv } from '@/lib/utils/csv'
 
 interface Props { items: ResumenMargenPedido[] }
 
@@ -85,9 +87,33 @@ export default function MargenRealCliente({ items }: Props) {
             Comparativa ingresos vs coste MO real + coste material real. Margen objetivo {objetivo}%.
           </p>
         </div>
-        <Button variant="outline" onClick={() => startTransition(() => router.refresh())}>
-          Actualizar
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => exportarCsv(items, [
+              { header: 'Pedido', get: p => p.pedido_numero },
+              { header: 'Cliente', get: p => p.cliente_nombre },
+              { header: 'Estado', get: p => p.estado },
+              { header: 'Fecha creación', get: p => p.fecha_creacion },
+              { header: 'Ingresos €', get: p => p.ingresos_eur },
+              { header: 'Coste MO €', get: p => p.coste_mo_real_eur },
+              { header: 'Coste material €', get: p => p.coste_material_real_eur },
+              { header: 'Coste total €', get: p => p.coste_total_real_eur },
+              { header: 'Margen €', get: p => p.margen_real_eur },
+              { header: 'Margen %', get: p => p.margen_real_porcentaje },
+              { header: 'Objetivo %', get: p => p.margen_objetivo_porcentaje },
+              { header: 'Delta vs objetivo', get: p => p.delta_vs_objetivo },
+              { header: 'Piezas', get: p => p.piezas_count },
+              { header: 'Tareas con real', get: p => p.tareas_con_real_count },
+            ], `margen-real-${new Date().toISOString().slice(0,10)}.csv`)}
+            className="gap-1.5"
+          >
+            <Download className="h-4 w-4" /> CSV
+          </Button>
+          <Button variant="outline" onClick={() => startTransition(() => router.refresh())}>
+            Actualizar
+          </Button>
+        </div>
       </div>
 
       {/* KPIs agregados */}
@@ -153,7 +179,12 @@ export default function MargenRealCliente({ items }: Props) {
               <TableBody>
                 {items.map(p => (
                   <TableRow key={p.pedido_id}>
-                    <TableCell className="font-mono text-xs font-semibold">{p.pedido_numero}</TableCell>
+                    <TableCell className="font-mono text-xs font-semibold">
+                      <Link href={`/pedidos/${p.pedido_id}`} className="inline-flex items-center gap-1 hover:text-blue-700 hover:underline">
+                        {p.pedido_numero}
+                        <ExternalLink className="h-3 w-3 opacity-50" />
+                      </Link>
+                    </TableCell>
                     <TableCell className="text-sm">{p.cliente_nombre}</TableCell>
                     <TableCell>{badgeEstado(p.estado)}</TableCell>
                     <TableCell className="text-right text-sm">{eur(p.ingresos_eur)}</TableCell>

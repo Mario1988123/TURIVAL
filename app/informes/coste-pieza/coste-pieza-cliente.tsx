@@ -12,9 +12,10 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { TrendingUp, TrendingDown, Eye, Loader2 } from 'lucide-react'
+import { TrendingUp, TrendingDown, Eye, Loader2, Download } from 'lucide-react'
 import { accionDetalleCostePieza } from '@/lib/actions/informe-coste-pieza'
 import type { ResumenCostePieza, DetalleCostePieza } from '@/lib/services/informe-coste-pieza'
+import { exportarCsv } from '@/lib/utils/csv'
 
 interface Props {
   items: ResumenCostePieza[]
@@ -73,9 +74,38 @@ export default function CostePiezaCliente({ items }: Props) {
             Comparativa de consumo estimado vs real en piezas con tareas completadas.
           </p>
         </div>
-        <Button variant="outline" onClick={() => startTransition(() => router.refresh())}>
-          Actualizar
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => exportarCsv(items, [
+              { header: 'Pieza', get: p => p.pieza_numero },
+              { header: 'Pedido', get: p => p.pedido_numero },
+              { header: 'Cliente', get: p => p.cliente_nombre },
+              { header: 'Estado', get: p => p.estado },
+              { header: 'Superficie m²', get: p => p.superficie_m2 },
+              { header: 'Lacado estim kg', get: p => p.lacado_estim_kg },
+              { header: 'Lacado real kg', get: p => p.lacado_real_kg },
+              { header: 'Merma lacado %', get: p => p.merma_lacado_pct },
+              { header: 'Fondo estim kg', get: p => p.fondo_estim_kg },
+              { header: 'Fondo real kg', get: p => p.fondo_real_kg },
+              { header: 'Merma fondo %', get: p => p.merma_fondo_pct },
+              { header: 'Cata estim kg', get: p => p.cata_estim_kg },
+              { header: 'Cata real kg', get: p => p.cata_real_kg },
+              { header: 'Dis estim kg', get: p => p.dis_estim_kg },
+              { header: 'Dis real kg', get: p => p.dis_real_kg },
+              { header: 'Tiempo estim min', get: p => p.tiempo_estim_min },
+              { header: 'Tiempo real min', get: p => p.tiempo_real_min },
+              { header: 'Tareas con real', get: p => p.tareas_con_real },
+              { header: 'Última fecha real', get: p => p.fecha_ultima_real },
+            ], `coste-pieza-${new Date().toISOString().slice(0,10)}.csv`)}
+            className="gap-1.5"
+          >
+            <Download className="h-4 w-4" /> CSV
+          </Button>
+          <Button variant="outline" onClick={() => startTransition(() => router.refresh())}>
+            Actualizar
+          </Button>
+        </div>
       </div>
 
       <div className="flex items-center gap-3 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
