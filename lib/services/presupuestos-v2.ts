@@ -208,7 +208,7 @@ async function procesarLinea(
       cantidad: l.cantidad,
       orden: l.orden,
       descripcion: l.descripcion || ref.nombre_pieza || ref.referencia_cliente,
-      modo_precio: ref.modo_precio,
+      modo_precio: (ref.modo_precio === 'manual' ? 'pieza' : ref.modo_precio) as 'pieza' | 'm2' | 'ml',
       ancho: ref.ancho,
       alto: ref.alto,
       grosor: ref.grosor,
@@ -496,7 +496,9 @@ export async function simularPrecioLineaPersonalizada(
   input: SimularPrecioInput
 ): Promise<SimularPrecioResultado> {
   const supabase = createClient()
-  const configRow = await obtenerConfiguracionEmpresa(supabase)
+  void supabase
+  const configRow = await obtenerConfiguracionEmpresa()
+  if (!configRow) throw new Error('configuracion_empresa no encontrada')
   const cfg = extraerConfigErp(configRow)
 
   // Precios efectivos de materiales

@@ -44,7 +44,7 @@ export default function CrearClientePage() {
     setError('')
 
     try {
-      await crearCliente(form)
+      await crearCliente(form as any)
       router.push('/dashboard/clientes')
     } catch (err) {
       console.error('Error creando cliente:', err)

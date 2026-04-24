@@ -97,7 +97,7 @@ export default function NuevoPedidoPage() {
 
       setClientes(clientesRes.data || [])
       setProductos(productosRes.data || [])
-      setPresupuestos(presupuestosRes.data || [])
+      setPresupuestos((presupuestosRes.data || []) as any)
       
       // Pre-seleccionar cliente si viene por URL
       const clienteIdParam = searchParams.get('cliente')

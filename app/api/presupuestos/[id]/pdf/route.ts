@@ -50,11 +50,11 @@ export async function GET(
     .order("orden")
 
   const pdfBuffer = await renderToBuffer(
-    React.createElement(PresupuestoPDF, {
+    React.createElement(PresupuestoPDF as any, {
       presupuesto: presupuesto as any,
       lineas: (lineas as any) ?? [],
       empresa: EMPRESA,
-    })
+    }) as any
   )
 
   const filename = `${presupuesto.numero}.pdf`

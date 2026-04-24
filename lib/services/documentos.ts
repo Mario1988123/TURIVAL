@@ -85,10 +85,11 @@ export async function obtenerDatosEtiquetaQR(pieza_id: string): Promise<DatosEti
 
   const dimensiones = `${pieza.ancho || 0}mm × ${pieza.alto || 0}mm`
 
+  const clienteObj: any = Array.isArray(pieza.clientes) ? pieza.clientes[0] : pieza.clientes
   return {
     codigo_pieza: pieza.codigo,
     qr_data: pieza.qr_data,
-    cliente_nombre: pieza.clientes.nombre_comercial,
+    cliente_nombre: clienteObj?.nombre_comercial ?? '',
     referencia_cliente: pieza.referencia_cliente || 'N/A',
     descripcion_acabado: pieza.acabado_texto || 'Estándar',
     dimensiones,
@@ -150,14 +151,15 @@ export async function obtenerDatosAlbaranImprimible(
 
   if (albaranError) throw albaranError
 
+  const cli: any = Array.isArray(albaran.clientes) ? albaran.clientes[0] : albaran.clientes
   return {
     numero: albaran.numero,
     fecha: albaran.fecha_entrega,
     cliente: {
-      nombre: albaran.clientes.nombre_comercial,
-      direccion: albaran.clientes.direccion || '',
-      ciudad: albaran.clientes.ciudad || '',
-      cif: albaran.clientes.cif_nif || '',
+      nombre: cli?.nombre_comercial ?? '',
+      direccion: cli?.direccion || '',
+      ciudad: cli?.ciudad || '',
+      cif: cli?.cif_nif || '',
     },
     piezas: albaran.lineas_albaran.map((linea: any) => ({
       codigo: linea.piezas?.codigo || 'N/A',

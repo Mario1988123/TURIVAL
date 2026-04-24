@@ -79,7 +79,7 @@ export default function DialogCompletar({
       if (res.ok) {
         let texto = 'Tarea completada'
         if (res.estado === 'en_secado' && res.finSecado) {
-          const fs = new Date(res.finSecado as string)
+          const fs = new Date(res.finSecado as unknown as string)
           const hora = fs.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
           texto = `Tarea completada. Pasa a secado hasta las ${hora}`
         }

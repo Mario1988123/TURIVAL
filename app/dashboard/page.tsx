@@ -22,7 +22,7 @@ export default function DashboardPage() {
     piezas_completadas_hoy: 0,
     ingresos_mes: 0,
   })
-  const [recentItems, setRecentItems] = useState({
+  const [recentItems, setRecentItems] = useState<{ presupuestos: any[]; pedidos: any[] }>({
     presupuestos: [],
     pedidos: [],
   })

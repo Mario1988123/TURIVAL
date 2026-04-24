@@ -257,7 +257,7 @@ export default function TrazabilidadPage() {
                         <div className="flex justify-between items-start">
                           <div>
                             <p className="font-medium">{fase.descripcion}</p>
-                            <Badge className={getEstadoColor(fase.estado)} className="mt-1">
+                            <Badge className={`${getEstadoColor(fase.estado)} mt-1`}>
                               {fase.estado}
                             </Badge>
                           </div>

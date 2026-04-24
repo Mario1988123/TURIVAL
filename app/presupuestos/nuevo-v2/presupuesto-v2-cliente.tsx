@@ -253,7 +253,7 @@ export default function PresupuestoV2Cliente() {
     }
     setGuardando(true)
     try {
-      const lineasInput: LineaPresupuestoInput[] = lineas.map((l, idx) => {
+      const lineasInput: LineaPresupuestoInput[] = lineas.map((l, idx): LineaPresupuestoInput => {
         if (l.tipo === 'manual') {
           return {
             tipo: 'manual',
@@ -294,6 +294,8 @@ export default function PresupuestoV2Cliente() {
               procesos: l.datos.procesos_codigos.map((codigo, i) => ({
                 proceso_codigo: codigo,
                 orden: i + 1,
+                tiempo_base_min: 0,
+                tiempo_por_m2_min: 0,
               })),
             },
           }
