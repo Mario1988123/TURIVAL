@@ -13,6 +13,9 @@ import {
   TrendingUp,
   AlertCircle,
   ArrowRight,
+  CalendarRange,
+  Euro,
+  BarChart3,
 } from 'lucide-react'
 
 export default function DashboardPage() {
@@ -104,6 +107,52 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8">
+      {/* Accesos rápidos a módulos nuevos (G1–G8) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Link href="/planificador" className="group">
+          <Card className="transition-shadow group-hover:shadow-md">
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+                <CalendarRange className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold text-slate-800">Planificador Gantt</div>
+                <div className="text-xs text-slate-500">Arrastrar, autogenerar, agrupar por color</div>
+              </div>
+              <ArrowRight className="h-4 w-4 text-slate-400 transition-transform group-hover:translate-x-0.5" />
+            </CardContent>
+          </Card>
+        </Link>
+        <Link href="/informes/coste-pieza" className="group">
+          <Card className="transition-shadow group-hover:shadow-md">
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
+                <Euro className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold text-slate-800">Coste por pieza</div>
+                <div className="text-xs text-slate-500">Estimado vs real · merma %</div>
+              </div>
+              <ArrowRight className="h-4 w-4 text-slate-400 transition-transform group-hover:translate-x-0.5" />
+            </CardContent>
+          </Card>
+        </Link>
+        <Link href="/informes/margen-real" className="group">
+          <Card className="transition-shadow group-hover:shadow-md">
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
+                <BarChart3 className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold text-slate-800">Margen real</div>
+                <div className="text-xs text-slate-500">Ingresos vs costes reales por pedido</div>
+              </div>
+              <ArrowRight className="h-4 w-4 text-slate-400 transition-transform group-hover:translate-x-0.5" />
+            </CardContent>
+          </Card>
+        </Link>
+      </div>
+
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>

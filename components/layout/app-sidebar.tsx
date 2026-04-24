@@ -6,53 +6,13 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { Profile } from '@/lib/types/erp'
 import {
-  LayoutDashboard,
-  Calendar,
-  FileText,
-  ShoppingCart,
   Package,
-  Palette,
-  Layers,
-  Euro,
-  QrCode,
-  Users,
-  Factory,
-  Truck,
-  BarChart3,
   LogOut,
   Menu,
   X,
   Shield,
-  Settings,
-  MapPin,
-  Clock,
-  CalendarRange,
-  TrendingUp,
 } from 'lucide-react'
-
-const MENU_ITEMS = [
-  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { label: 'Planificador', href: '/planificador', icon: CalendarRange },
-  { label: 'Agenda', href: '/agenda', icon: Calendar },
-  { label: 'Clientes', href: '/dashboard/clientes', icon: Users },
-  { label: 'Presupuestos', href: '/presupuestos', icon: FileText },
-  { label: 'Pedidos', href: '/pedidos', icon: ShoppingCart },
-  { label: 'Producción', href: '/produccion', icon: Factory },
-  { label: 'Albaranes', href: '/albaranes', icon: Truck },
-  { label: 'Productos', href: '/productos', icon: Package },
-  { label: 'Materiales', href: '/materiales', icon: Palette },
-  { label: 'Proveedores', href: '/configuracion/proveedores', icon: Truck },
-  { label: 'Tratamientos', href: '/tratamientos', icon: Layers },
-  { label: 'Tarifas', href: '/tarifas', icon: Euro },
-  { label: 'Trazabilidad', href: '/trazabilidad', icon: QrCode },
-  { label: 'Informes', href: '/informes', icon: BarChart3 },
-  { label: 'Coste por pieza', href: '/informes/coste-pieza', icon: Euro },
-  { label: 'Margen real', href: '/informes/margen-real', icon: TrendingUp },
-  { label: 'Operarios', href: '/configuracion/operarios', icon: Users },
-  { label: 'Ubicaciones', href: '/configuracion/ubicaciones', icon: MapPin },
-  { label: 'Tiempos de proceso', href: '/configuracion/tiempos', icon: Clock },
-  { label: 'Configuración', href: '/configuracion', icon: Settings },
-]
+import { MENU_ITEMS } from './menu-items'
 
 interface AppLayoutProps {
   children: React.ReactNode

@@ -1,4 +1,5 @@
 import { accionObtenerAlbaran } from '@/lib/actions/albaranes'
+import { obtenerConfiguracionEmpresa } from '@/lib/services/configuracion'
 import { notFound } from 'next/navigation'
 import AlbaranDetalleCliente from './albaran-detalle-cliente'
 
@@ -13,7 +14,10 @@ export default async function AlbaranDetallePage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const res = await accionObtenerAlbaran(id)
+  const [res, empresa] = await Promise.all([
+    accionObtenerAlbaran(id),
+    obtenerConfiguracionEmpresa().catch(() => null),
+  ])
   if (!res.ok) notFound()
-  return <AlbaranDetalleCliente albaran={res.albaran} />
+  return <AlbaranDetalleCliente albaran={res.albaran} empresa={empresa} />
 }

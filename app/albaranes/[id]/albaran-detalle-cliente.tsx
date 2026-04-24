@@ -9,6 +9,7 @@ import {
   accionCambiarEstadoAlbaran,
 } from '@/lib/actions/albaranes'
 import type { AlbaranDetalle, EstadoAlbaran } from '@/lib/services/albaranes'
+import type { ConfiguracionEmpresa } from '@/lib/services/configuracion'
 
 const ESTADO_CLASES: Record<EstadoAlbaran, string> = {
   borrador:  'bg-slate-100 text-slate-700 border-slate-300',
@@ -21,7 +22,13 @@ function formatearFecha(iso: string): string {
   return d.toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' })
 }
 
-export default function AlbaranDetalleCliente({ albaran }: { albaran: AlbaranDetalle }) {
+export default function AlbaranDetalleCliente({
+  albaran,
+  empresa,
+}: {
+  albaran: AlbaranDetalle
+  empresa: ConfiguracionEmpresa | null
+}) {
   const router = useRouter()
   const [, startTransition] = useTransition()
   const [enviando, setEnviando] = useState(false)
@@ -91,12 +98,24 @@ export default function AlbaranDetalleCliente({ albaran }: { albaran: AlbaranDet
           </div>
         </div>
 
-        {/* Emisor (a rellenar desde configuracion_empresa en el futuro) y cliente */}
+        {/* Emisor desde configuracion_empresa */}
         <div className="mb-6 grid grid-cols-2 gap-6 text-sm">
           <div>
             <div className="mb-1 text-xs uppercase tracking-wide text-slate-500">Emisor</div>
-            <div className="font-semibold">Turiaval</div>
-            <div className="text-slate-600">Valencia</div>
+            {empresa?.logo_url && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={empresa.logo_url} alt="Logo" className="mb-2 h-12 w-auto object-contain" />
+            )}
+            <div className="font-semibold">{empresa?.razon_social || empresa?.nombre_comercial || 'Turiaval'}</div>
+            {empresa?.cif_nif && <div className="text-slate-600">CIF: {empresa.cif_nif}</div>}
+            {empresa?.direccion && <div className="text-slate-600">{empresa.direccion}</div>}
+            {(empresa?.codigo_postal || empresa?.ciudad) && (
+              <div className="text-slate-600">
+                {[empresa.codigo_postal, empresa.ciudad, empresa.provincia].filter(Boolean).join(' · ')}
+              </div>
+            )}
+            {empresa?.telefono && <div className="text-slate-600">Tel: {empresa.telefono}</div>}
+            {empresa?.email && <div className="text-slate-600">{empresa.email}</div>}
           </div>
           <div>
             <div className="mb-1 text-xs uppercase tracking-wide text-slate-500">Cliente</div>
