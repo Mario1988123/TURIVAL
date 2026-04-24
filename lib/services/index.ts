@@ -2,8 +2,8 @@
 export * from './presupuestos'
 export * from './piezas'
 export * from './ocr'
-export * from './documentos'
 export * from './clientes'
+// documentos.ts se borró el 2026-04-24: había migrado a albaranes.ts y 0 consumers.
 
 // catalogo.ts solapa con productos.ts en (crearProducto, listarProductos,
 // actualizarProducto). Reexportamos solo las funciones propias del catálogo
