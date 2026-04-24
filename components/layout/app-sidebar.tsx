@@ -27,6 +27,7 @@ import {
   MapPin,
   Clock,
   CalendarRange,
+  TrendingUp,
 } from 'lucide-react'
 
 const MENU_ITEMS = [
@@ -46,6 +47,7 @@ const MENU_ITEMS = [
   { label: 'Trazabilidad', href: '/trazabilidad', icon: QrCode },
   { label: 'Informes', href: '/informes', icon: BarChart3 },
   { label: 'Coste por pieza', href: '/informes/coste-pieza', icon: Euro },
+  { label: 'Margen real', href: '/informes/margen-real', icon: TrendingUp },
   { label: 'Operarios', href: '/configuracion/operarios', icon: Users },
   { label: 'Ubicaciones', href: '/configuracion/ubicaciones', icon: MapPin },
   { label: 'Tiempos de proceso', href: '/configuracion/tiempos', icon: Clock },
