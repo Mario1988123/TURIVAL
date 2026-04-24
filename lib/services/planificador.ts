@@ -33,6 +33,7 @@ import {
   type SugerenciaHueco,
   type SugerenciaHorasExtra,
   type SugerenciaAgrupacion,
+  type ResultadoAutogenerar,
   JORNADA_DEFAULT,
   calcularFinTarea,
   detectarSolapesEnPlanificacion,
@@ -43,6 +44,7 @@ import {
   sugerirHorasExtra as motorSugerirHorasExtra,
   sugerirAgrupacionesPorMaterial,
   planificarTodas,
+  autogenerarPlanificacion as motorAutogenerar,
 } from '@/lib/motor/planificador'
 
 // =============================================================
@@ -573,4 +575,110 @@ export async function obtenerSugerenciasHorasExtra(
     if (s) resultados.push(s)
   }
   return resultados
+}
+
+// =============================================================
+// AUTOGENERADOR (G7a)
+// =============================================================
+
+export interface ResultadoAutogenerarServicio {
+  ok: boolean
+  asignaciones_aplicadas: number
+  sin_asignar_count: number
+  sin_asignar: ResultadoAutogenerar['sin_asignar']
+  agrupaciones_aplicadas: number
+  minutos_ahorrados_estimados: number
+  error?: string
+}
+
+/**
+ * Ejecuta la heurística de autogenerar y persiste las asignaciones.
+ *
+ * `dry_run=true` (default false): calcula pero NO escribe en BD. Sirve para
+ * previsualizar en un modal de confirmación antes de aplicar.
+ */
+export async function autogenerar(params: {
+  rango?: { desde: string; hasta: string }
+  jornada?: JornadaLaboral
+  dry_run?: boolean
+}): Promise<ResultadoAutogenerarServicio> {
+  const supabase = await createClient()
+  const jornada = params.jornada ?? JORNADA_DEFAULT
+  const desde = params.rango?.desde ? new Date(params.rango.desde) : hoyInicio()
+  const hasta = params.rango?.hasta
+    ? new Date(params.rango.hasta)
+    : new Date(desde.getTime() + 14 * MS_DIA)
+
+  const { data, error } = await supabase
+    .from('tareas_produccion')
+    .select(SELECT_GANTT)
+    .in('estado', ['pendiente', 'en_cola', 'en_progreso', 'en_secado'])
+  if (error) {
+    return {
+      ok: false,
+      asignaciones_aplicadas: 0,
+      sin_asignar_count: 0,
+      sin_asignar: [],
+      agrupaciones_aplicadas: 0,
+      minutos_ahorrados_estimados: 0,
+      error: error.message,
+    }
+  }
+  const universo = ((data ?? []) as any[])
+    .map(construirTareaPlanificable)
+    .filter((t): t is TareaPlanificable => t != null)
+  const operarios = await obtenerOperariosDisponibles()
+
+  const resultado = motorAutogenerar({
+    tareasUniverso: universo,
+    operarios,
+    rangoFechas: { desde, hasta },
+    jornada,
+  })
+
+  if (params.dry_run) {
+    return {
+      ok: true,
+      asignaciones_aplicadas: 0,
+      sin_asignar_count: resultado.sin_asignar.length,
+      sin_asignar: resultado.sin_asignar,
+      agrupaciones_aplicadas: resultado.agrupaciones_aplicadas,
+      minutos_ahorrados_estimados: resultado.minutos_ahorrados_estimados,
+    }
+  }
+
+  // Persistir asignaciones en paralelo
+  const nowIso = new Date().toISOString()
+  const updates = resultado.asignaciones.map(a =>
+    supabase
+      .from('tareas_produccion')
+      .update({
+        fecha_inicio_planificada: a.inicio.toISOString(),
+        operario_id: a.operario_id,
+        updated_at: nowIso,
+      })
+      .eq('id', a.tarea_id),
+  )
+  const res = await Promise.all(updates)
+  const primerError = res.find(r => r.error)
+  if (primerError?.error) {
+    return {
+      ok: false,
+      asignaciones_aplicadas: 0,
+      sin_asignar_count: resultado.sin_asignar.length,
+      sin_asignar: resultado.sin_asignar,
+      agrupaciones_aplicadas: resultado.agrupaciones_aplicadas,
+      minutos_ahorrados_estimados: resultado.minutos_ahorrados_estimados,
+      error: primerError.error.message,
+    }
+  }
+
+  return {
+    ok: true,
+    asignaciones_aplicadas: resultado.asignaciones.length,
+    sin_asignar_count: resultado.sin_asignar.length,
+    sin_asignar: resultado.sin_asignar,
+    agrupaciones_aplicadas: resultado.agrupaciones_aplicadas,
+    minutos_ahorrados_estimados: resultado.minutos_ahorrados_estimados,
+  }
 }

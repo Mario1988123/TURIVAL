@@ -20,9 +20,11 @@ import {
   obtenerSugerenciasHuecos,
   obtenerSugerenciasAgrupacion,
   obtenerSugerenciasHorasExtra,
+  autogenerar,
   type FiltrosPlanificador,
   type VistaPlanificador,
   type ResultadoMoverTarea,
+  type ResultadoAutogenerarServicio,
 } from '@/lib/services/planificador'
 import type {
   SugerenciaHueco,
@@ -110,5 +112,14 @@ export async function accionAplicarAgrupacion(params: {
 }): Promise<ResultadoMoverTarea> {
   const res = await aplicarAgrupacion(params)
   if (res.ok) revalidatePath('/planificador')
+  return res
+}
+
+export async function accionAutogenerar(params: {
+  rango?: { desde: string; hasta: string }
+  dry_run?: boolean
+}): Promise<ResultadoAutogenerarServicio> {
+  const res = await autogenerar(params)
+  if (res.ok && !params.dry_run) revalidatePath('/planificador')
   return res
 }

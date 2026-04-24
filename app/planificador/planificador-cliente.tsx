@@ -43,6 +43,9 @@ import {
   Calendar,
   CheckCircle2,
   XCircle,
+  Users,
+  Pause,
+  Play,
 } from 'lucide-react'
 import {
   DndContext,
@@ -57,6 +60,8 @@ import {
 } from '@dnd-kit/core'
 import type { VistaPlanificador, FilaPlanificador } from '@/lib/services/planificador'
 import { accionMoverTarea } from '@/lib/actions/planificador'
+import PanelSugerencias from './panel-sugerencias'
+import DialogAutogenerar from './dialog-autogenerar'
 
 // =============================================================
 // CONSTANTES DE LAYOUT
@@ -364,6 +369,45 @@ export default function PlanificadorCliente({ vista, desde, dias, modo, filtros:
             {fechaCorta(listaDias[0])} – {fechaCorta(listaDias[listaDias.length - 1])}
           </div>
           <div className="ml-auto flex items-center gap-2">
+            <PanelSugerencias
+              desde={vista.rango.desde}
+              hasta={vista.rango.hasta}
+              operarios={vista.operarios}
+              onAfterApply={() => router.refresh()}
+            />
+            <DialogAutogenerar
+              desde={vista.rango.desde}
+              hasta={vista.rango.hasta}
+              onAfterApply={() => router.refresh()}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              title="Pausa global del taller. Requiere la tabla fichajes (script 031). Aparcado hasta que Mario ejecute el SQL."
+              onClick={() => pushToast({
+                tipo: 'warn',
+                texto: 'Descanso aparcado',
+                detalle: 'Requiere ejecutar scripts/031_tabla_fichajes.sql en Supabase antes de activarse.',
+              })}
+              disabled={enviando}
+            >
+              <Pause className="h-4 w-4" /> Descanso
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              title="Reanudar taller tras descanso. Requiere la tabla fichajes (script 031)."
+              onClick={() => pushToast({
+                tipo: 'warn',
+                texto: 'Reanudar aparcado',
+                detalle: 'Requiere ejecutar scripts/031_tabla_fichajes.sql en Supabase antes de activarse.',
+              })}
+              disabled={enviando}
+            >
+              <Play className="h-4 w-4" /> Reanudar
+            </Button>
             <Select value={String(dias)} onValueChange={cambiarDias}>
               <SelectTrigger className="w-[110px]"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -387,8 +431,9 @@ export default function PlanificadorCliente({ vista, desde, dias, modo, filtros:
           </div>
         )}
 
-        {/* Banners de violaciones */}
+        {/* Banners de violaciones + operarios parados */}
         <BannersViolaciones vista={vista} />
+        <BannerOperariosParados vista={vista} />
 
         {/* Leyenda */}
         <div className="flex flex-wrap items-center gap-3 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
@@ -611,6 +656,38 @@ function BarraFantasma({ tarea }: { tarea: FilaPlanificador }) {
           {tarea.proceso_abreviatura || tarea.proceso_codigo} · {tarea.pieza_numero}
         </div>
         <div className="truncate text-[10px] opacity-80">{tarea.pedido_numero}</div>
+      </div>
+    </div>
+  )
+}
+
+function BannerOperariosParados({ vista }: { vista: VistaPlanificador }) {
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0)
+  const limite = new Date(hoy); limite.setDate(limite.getDate() + 3)
+  const MINIMO_CARGA_MIN = 180 // 3h
+
+  const cargaPorOperario = new Map<string, number>()
+  for (const t of vista.tareas) {
+    if (!t.operario_id || t.inicio_planificado == null) continue
+    if (t.inicio_planificado < hoy || t.inicio_planificado >= limite) continue
+    cargaPorOperario.set(t.operario_id, (cargaPorOperario.get(t.operario_id) ?? 0) + t.tiempo_estimado_minutos)
+  }
+
+  const parados = vista.operarios
+    .filter(o => o.activo)
+    .map(o => ({ operario: o, carga: cargaPorOperario.get(o.id) ?? 0 }))
+    .filter(x => x.carga < MINIMO_CARGA_MIN)
+
+  if (parados.length === 0) return null
+  return (
+    <div className="flex items-start gap-2 rounded-md border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+      <Users className="mt-0.5 h-4 w-4 flex-shrink-0" />
+      <div>
+        <div className="font-medium">{parados.length} operario(s) con poca carga en los próximos 3 días</div>
+        <div className="text-xs">
+          {parados.slice(0, 3).map(p => `${p.operario.nombre}: ${p.carga} min`).join(' · ')}
+          {parados.length > 3 ? '…' : ''}
+        </div>
       </div>
     </div>
   )

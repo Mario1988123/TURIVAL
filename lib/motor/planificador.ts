@@ -823,3 +823,301 @@ function formatearRango(a: Date, b: Date): string {
   }
   return `${a.toISOString().slice(0, 16)} → ${b.toISOString().slice(0, 16)}`
 }
+
+// =================================================================
+// AUTOGENERADOR (G7a) — heurística de planificación completa
+// =================================================================
+
+export interface AsignacionAutogenerada {
+  tarea_id: string
+  pieza_id: string
+  pedido_id: string
+  inicio: Date
+  operario_id: string
+  agrupada_con_material_id: string | null
+  motivo: 'primera' | 'tras_predecesora' | 'agrupacion_color' | 'hueco_libre'
+}
+
+export interface TareaSinAsignar {
+  tarea_id: string
+  razon: 'sin_operario_compatible' | 'sin_huecos_en_rango' | 'predecesora_no_planificada'
+}
+
+export interface ResultadoAutogenerar {
+  asignaciones: AsignacionAutogenerada[]
+  sin_asignar: TareaSinAsignar[]
+  agrupaciones_aplicadas: number
+  minutos_ahorrados_estimados: number
+}
+
+const PRIORIDAD_ORDEN: Record<PrioridadPedido, number> = {
+  urgente: 0,
+  alta: 1,
+  normal: 2,
+  baja: 3,
+}
+
+/**
+ * Heurística de planificación completa. Toma un conjunto de tareas
+ * (planificadas + sin planificar) y propone asignaciones para las
+ * que aún no están planificadas, respetando:
+ *   - Secuencia por pieza (no asignar antes de `fin_con_secado` de predecesora).
+ *   - Rol de operario compatible (`rol_operario_requerido` ↔ `operario.rol`).
+ *   - Jornada laboral.
+ *   - Prioridad de pedido y fecha de entrega más cercana primero.
+ *   - Agrupación por color de lacado/fondo cuando es barato hacerlo.
+ *
+ * NO muta los inputs. Devuelve las asignaciones propuestas para que
+ * el service las persista como UPDATEs en `tareas_produccion`.
+ *
+ * Complejidad: O(tareas * operarios * días) — suficiente hasta ~1000 tareas
+ * en el rango que Turiaval manejará.
+ */
+export function autogenerarPlanificacion(params: {
+  tareasUniverso: TareaPlanificable[]
+  operarios: OperarioDisponible[]
+  rangoFechas: { desde: Date; hasta: Date }
+  jornada?: JornadaLaboral
+  minutosAhorroPorAgrupacion?: number
+}): ResultadoAutogenerar {
+  const jornada = params.jornada ?? JORNADA_DEFAULT
+  const ahorro = params.minutosAhorroPorAgrupacion ?? 20
+
+  // Tareas ya planificadas: se respetan como "ocupadas".
+  const yaPlanificadas: TareaPlanificada[] = params.tareasUniverso
+    .filter(t => t.inicio_planificado != null)
+    .map(t => {
+      const { fin, fin_con_secado } = calcularFinTarea(t, t.inicio_planificado!, jornada)
+      return { ...t, inicio: t.inicio_planificado!, fin, fin_con_secado }
+    })
+
+  // Tareas a colocar.
+  const pendientes = params.tareasUniverso.filter(t => t.inicio_planificado == null)
+
+  // Ordenar pendientes por (prioridad ASC, fecha_entrega ASC, pieza_id, secuencia ASC)
+  const ordenadas = [...pendientes].sort((a, b) => {
+    const p = PRIORIDAD_ORDEN[a.pedido_prioridad] - PRIORIDAD_ORDEN[b.pedido_prioridad]
+    if (p !== 0) return p
+    const fa = a.pedido_fecha_entrega_estimada?.getTime() ?? Number.POSITIVE_INFINITY
+    const fb = b.pedido_fecha_entrega_estimada?.getTime() ?? Number.POSITIVE_INFINITY
+    if (fa !== fb) return fa - fb
+    if (a.pieza_id !== b.pieza_id) return a.pieza_id.localeCompare(b.pieza_id)
+    return a.secuencia - b.secuencia
+  })
+
+  // Estado mutable de planificación (irá creciendo)
+  const asignaciones: AsignacionAutogenerada[] = []
+  const sin_asignar: TareaSinAsignar[] = []
+  // Mapa operario_id -> ocupaciones ordenadas
+  const ocupaciones = new Map<string, Array<{ inicio: Date; fin: Date }>>()
+  for (const op of params.operarios) ocupaciones.set(op.id, [])
+  for (const t of yaPlanificadas) {
+    if (!t.operario_id || !t.requiere_operario) continue
+    const arr = ocupaciones.get(t.operario_id) ?? []
+    arr.push({ inicio: t.inicio, fin: t.fin })
+    ocupaciones.set(t.operario_id, arr)
+  }
+  for (const [k, v] of ocupaciones) {
+    v.sort((a, b) => a.inicio.getTime() - b.inicio.getTime())
+    ocupaciones.set(k, v)
+  }
+
+  // Cache de `fin_con_secado` por pieza+secuencia (va creciendo con cada asignación)
+  const finPorPiezaSec = new Map<string, Date>()
+  for (const t of yaPlanificadas) {
+    finPorPiezaSec.set(`${t.pieza_id}:${t.secuencia}`, t.fin_con_secado)
+  }
+
+  // Último grupo de material aplicado para agrupación oportunista
+  const ultimoMaterialPorOperario = new Map<string, { material_id: string; fin: Date }>()
+
+  let agrupaciones_aplicadas = 0
+
+  for (const tarea of ordenadas) {
+    // 1) Calcular el "inicio mínimo" de la tarea (tras su predecesora)
+    const previaSec = tarea.depende_de_secuencia ?? (tarea.secuencia > 1 ? tarea.secuencia - 1 : null)
+    let inicioMinimo = params.rangoFechas.desde
+    if (previaSec != null) {
+      const finPrev = finPorPiezaSec.get(`${tarea.pieza_id}:${previaSec}`)
+      if (!finPrev) {
+        // Predecesora aún no planificada → la tarea queda sin asignar en esta pasada
+        sin_asignar.push({ tarea_id: tarea.id, razon: 'predecesora_no_planificada' })
+        continue
+      }
+      if (finPrev > inicioMinimo) inicioMinimo = finPrev
+    }
+
+    // 2) Candidatos por rol
+    const candidatos = params.operarios.filter(op =>
+      op.activo && (!tarea.rol_operario_requerido || op.rol === tarea.rol_operario_requerido),
+    )
+    if (candidatos.length === 0 && tarea.requiere_operario) {
+      sin_asignar.push({ tarea_id: tarea.id, razon: 'sin_operario_compatible' })
+      continue
+    }
+
+    // 3) Buscar hueco en cada candidato; elegir el más temprano.
+    //    Bonus: si ese operario acaba de hacer LACADO/FONDO del mismo material
+    //    Y esta tarea es del mismo material y mismo proceso → agrupar
+    //    (encaja justo después sin secado intermedio extra).
+    interface Candidato {
+      operario_id: string
+      inicio: Date
+      fin: Date
+      es_agrupacion: boolean
+      material_id: string | null
+    }
+    const candidatosElegibles: Candidato[] = []
+
+    for (const op of (tarea.requiere_operario ? candidatos : params.operarios.slice(0, 1))) {
+      if (!tarea.requiere_operario) {
+        // Tarea sin operario (p.ej. SECADO): arranca en inicioMinimo puro, reloj 24/7.
+        const { fin } = calcularFinTarea(tarea, inicioMinimo, jornada)
+        candidatosElegibles.push({
+          operario_id: op.id,
+          inicio: inicioMinimo,
+          fin,
+          es_agrupacion: false,
+          material_id: null,
+        })
+        continue
+      }
+      const hueco = buscarHuecoLibre(
+        ocupaciones.get(op.id) ?? [],
+        inicioMinimo,
+        params.rangoFechas.hasta,
+        tarea.tiempo_estimado_minutos,
+        jornada,
+      )
+      if (!hueco) continue
+      const { fin } = calcularFinTarea(tarea, hueco, jornada)
+
+      // Detectar agrupación oportunista:
+      const matActual =
+        tarea.proceso_codigo === 'LACADO' ? tarea.material_lacado_id
+          : tarea.proceso_codigo === 'FONDO' ? tarea.material_fondo_id
+            : null
+      const ultimo = ultimoMaterialPorOperario.get(op.id)
+      const esAgrupacion =
+        matActual != null
+        && ultimo != null
+        && ultimo.material_id === matActual
+        && Math.abs(hueco.getTime() - ultimo.fin.getTime()) < 60 * 60_000 // <1h de diferencia
+
+      candidatosElegibles.push({
+        operario_id: op.id,
+        inicio: hueco,
+        fin,
+        es_agrupacion: esAgrupacion,
+        material_id: matActual,
+      })
+    }
+
+    if (candidatosElegibles.length === 0) {
+      sin_asignar.push({ tarea_id: tarea.id, razon: 'sin_huecos_en_rango' })
+      continue
+    }
+
+    // Preferir agrupación, después el inicio más temprano
+    candidatosElegibles.sort((a, b) => {
+      if (a.es_agrupacion !== b.es_agrupacion) return a.es_agrupacion ? -1 : 1
+      return a.inicio.getTime() - b.inicio.getTime()
+    })
+    const elegido = candidatosElegibles[0]
+
+    // 4) Registrar asignación + actualizar estado
+    const { fin_con_secado } = calcularFinTarea(tarea, elegido.inicio, jornada)
+
+    asignaciones.push({
+      tarea_id: tarea.id,
+      pieza_id: tarea.pieza_id,
+      pedido_id: tarea.pedido_id,
+      inicio: elegido.inicio,
+      operario_id: elegido.operario_id,
+      agrupada_con_material_id: elegido.es_agrupacion ? elegido.material_id : null,
+      motivo: elegido.es_agrupacion
+        ? 'agrupacion_color'
+        : previaSec != null ? 'tras_predecesora' : 'hueco_libre',
+    })
+
+    if (elegido.es_agrupacion) agrupaciones_aplicadas++
+
+    // Actualizar ocupaciones del operario
+    if (tarea.requiere_operario) {
+      const arr = ocupaciones.get(elegido.operario_id) ?? []
+      arr.push({ inicio: elegido.inicio, fin: elegido.fin })
+      arr.sort((a, b) => a.inicio.getTime() - b.inicio.getTime())
+      ocupaciones.set(elegido.operario_id, arr)
+    }
+
+    // Actualizar fin_con_secado para la siguiente tarea de la pieza
+    finPorPiezaSec.set(`${tarea.pieza_id}:${tarea.secuencia}`, fin_con_secado)
+
+    // Actualizar último material del operario
+    if (elegido.material_id && (tarea.proceso_codigo === 'LACADO' || tarea.proceso_codigo === 'FONDO')) {
+      ultimoMaterialPorOperario.set(elegido.operario_id, {
+        material_id: elegido.material_id,
+        fin: elegido.fin,
+      })
+    }
+  }
+
+  return {
+    asignaciones,
+    sin_asignar,
+    agrupaciones_aplicadas,
+    minutos_ahorrados_estimados: agrupaciones_aplicadas * ahorro,
+  }
+}
+
+/**
+ * Busca el primer hueco de al menos `minutosNecesarios` dentro de jornada,
+ * en el rango [desde, hasta], sin solaparse con `ocupaciones`.
+ * Devuelve el inicio del hueco, o null si no hay ninguno en el rango.
+ */
+function buscarHuecoLibre(
+  ocupaciones: Array<{ inicio: Date; fin: Date }>,
+  desde: Date,
+  hasta: Date,
+  minutosNecesarios: number,
+  jornada: JornadaLaboral,
+): Date | null {
+  // Arrancar desde el primer instante válido de jornada >= desde
+  let cursor = desde
+  const diasATratar = 60 // safety cap
+
+  for (let i = 0; i < diasATratar; i++) {
+    const inicioJ = conHora(cursor, jornada.hora_inicio)
+    const finJ = conHora(cursor, jornada.hora_fin)
+
+    if (cursor > hasta) return null
+
+    if (esDiaLaborable(cursor, jornada) && finJ > cursor) {
+      let subCursor = cursor < inicioJ ? inicioJ : cursor
+
+      // Filtrar ocupaciones de este día
+      const ocupDelDia = ocupaciones
+        .filter(o => o.fin > inicioJ && o.inicio < finJ)
+        .sort((a, b) => a.inicio.getTime() - b.inicio.getTime())
+
+      for (const ocu of ocupDelDia) {
+        const hasta_ = ocu.inicio < finJ ? ocu.inicio : finJ
+        const libre_min = Math.round((hasta_.getTime() - subCursor.getTime()) / 60_000)
+        if (libre_min >= minutosNecesarios && subCursor >= inicioJ) {
+          return new Date(subCursor)
+        }
+        if (ocu.fin > subCursor) subCursor = ocu.fin
+      }
+      // Resto del día tras todas las ocupaciones
+      const libre_final = Math.round((finJ.getTime() - subCursor.getTime()) / 60_000)
+      if (libre_final >= minutosNecesarios && subCursor >= inicioJ) {
+        return new Date(subCursor)
+      }
+    }
+    // Día siguiente
+    const siguiente = new Date(cursor.getTime() + 86_400_000)
+    siguiente.setHours(0, 0, 0, 0)
+    cursor = siguiente
+  }
+  return null
+}
