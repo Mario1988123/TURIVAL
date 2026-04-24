@@ -34,7 +34,8 @@ import {
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Plus, FileText, Printer, Truck, Trash2, Loader2 } from 'lucide-react'
+import { Plus, FileText, Printer, Truck, Trash2, Loader2, Eye } from 'lucide-react'
+import Link from 'next/link'
 import {
   accionCrearAlbaranDesdePedido,
   accionCambiarEstadoAlbaran,
@@ -153,6 +154,11 @@ export default function AlbaranesCliente({ albaranes, pedidosElegibles }: Props)
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
+                        <Link href={`/albaranes/${a.id}`}>
+                          <Button size="sm" variant="ghost" title="Ver detalle">
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </Link>
                         {a.estado === 'borrador' && (
                           <>
                             <Button
