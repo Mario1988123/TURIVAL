@@ -422,15 +422,6 @@ export default function PresupuestoV2Cliente() {
         </p>
       </div>
 
-      <Alert className="bg-blue-50 border-blue-300">
-        <Info className="w-4 h-4" />
-        <AlertDescription className="text-sm">
-          Esta es la ruta del presupuestador <strong>nuevo</strong>, con motor de costes real.
-          El presupuestador clásico (<code>/presupuestos/nuevo</code>) sigue disponible
-          mientras terminamos de migrar.
-        </AlertDescription>
-      </Alert>
-
       {/* Cabecera */}
       <Card>
         <CardHeader>
