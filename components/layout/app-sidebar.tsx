@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { MENU_ITEMS } from './menu-items'
 import AsistenteVoz from '@/components/asistente/asistente-voz'
+import CampanitaNotificaciones from './campanita-notificaciones'
 
 const LS_KEY = 'turival:sidebar_collapsed'
 
@@ -227,6 +228,9 @@ export function AppLayout({ children, title }: AppLayoutProps) {
                   year: 'numeric',
                 })}
               </span>
+              <div className="text-slate-700 [&_button]:text-slate-700 [&_button]:hover:bg-slate-100">
+                <CampanitaNotificaciones />
+              </div>
             </div>
           </div>
         </header>

@@ -29,6 +29,7 @@ import {
   ShieldCheck,
   TrendingUp,
   CircleDot,
+  Bell,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -56,6 +57,7 @@ export const MENU_ITEMS: MenuItem[] = [
   { label: 'Tratamientos',      href: '/tratamientos',               icon: Layers,          moduloSlug: 'tratamientos' },
   { label: 'Tarifas',           href: '/tarifas',                    icon: Euro,            moduloSlug: 'tarifas' },
   { label: 'Trazabilidad',      href: '/trazabilidad',               icon: QrCode,          moduloSlug: 'trazabilidad' },
+  { label: 'Notificaciones',    href: '/notificaciones',             icon: Bell,            moduloSlug: 'dashboard' },
   { label: 'Informes',          href: '/informes',                   icon: BarChart3,       moduloSlug: 'informes' },
   { label: 'Coste por pieza',   href: '/informes/coste-pieza',       icon: Euro,            moduloSlug: 'informes' },
   { label: 'Margen real',       href: '/informes/margen-real',       icon: TrendingUp,      moduloSlug: 'informes' },
