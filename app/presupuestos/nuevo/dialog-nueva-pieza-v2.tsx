@@ -89,9 +89,9 @@ const FACTORES: Array<{ value: FactorComplejidad; label: string }> = [
   { value: 'compleja', label: 'Compleja' },
 ]
 
-// Defaults marcados: los típicos de una pieza con lacado+fondo.
-// El usuario puede añadir o quitar.
-const PROCESOS_DEFAULT_MARCADOS = ['LIJADO', 'FONDO', 'LACADO', 'TERMINACION']
+// Defaults marcados: TODOS los procesos vienen marcados por defecto (Mario 25-abr).
+// El operario deselecciona los que no aplican a esa pieza concreta.
+const PROCESOS_DEFAULT_MARCADOS = PROCESOS_ORDEN
 
 export default function DialogNuevaPiezaV2({
   open,

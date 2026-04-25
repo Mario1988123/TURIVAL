@@ -119,6 +119,7 @@ export async function accionAplicarAgrupacion(params: {
 export async function accionAutogenerar(params: {
   rango?: { desde: string; hasta: string }
   dry_run?: boolean
+  pedido_id?: string
 }): Promise<ResultadoAutogenerarServicio> {
   const res = await autogenerar(params)
   if (res.ok && !params.dry_run) revalidatePath('/planificador')

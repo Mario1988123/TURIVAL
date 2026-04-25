@@ -60,7 +60,7 @@ import {
 } from '@dnd-kit/core'
 import type { VistaPlanificador, FilaPlanificador } from '@/lib/services/planificador'
 import type { PresupuestoPendiente, PedidoConFechaSinReservar } from '@/lib/services/simulador-entrega'
-import { accionMoverTarea } from '@/lib/actions/planificador'
+import { accionMoverTarea, accionAutogenerar } from '@/lib/actions/planificador'
 import { accionDescansoGlobal, accionDescansoGlobalActivo } from '@/lib/actions/fichajes'
 import PanelSugerencias from './panel-sugerencias'
 import DialogAutogenerar from './dialog-autogenerar'
@@ -226,6 +226,7 @@ export default function PlanificadorCliente({ vista, desde, dias, modo, filtros:
   const [toasts, setToasts] = useState<Toast[]>([])
   const [descansoActivo, setDescansoActivo] = useState<boolean>(false)
   const [operariosEnPausa, setOperariosEnPausa] = useState<Set<string>>(new Set())
+  const [diaAmpliado, setDiaAmpliado] = useState<Date | null>(null)
 
   // Cargar estado del descanso global y operarios en pausa al montar
   useEffect(() => {
@@ -472,20 +473,9 @@ export default function PlanificadorCliente({ vista, desde, dias, modo, filtros:
               <div className="mt-0.5 text-xs">
                 Fecha comprometida con cliente pero las tareas aún no están planificadas en el Gantt. Si metes otros trabajos en esos huecos, habrá que renegociar.
               </div>
-              <div className="mt-1 flex flex-wrap gap-1">
+              <div className="mt-1 flex flex-wrap gap-1.5">
                 {pedidosFechaSinReservar.slice(0, 8).map((p) => (
-                  <Link
-                    key={p.id}
-                    href={`/pedidos/${p.id}`}
-                    className="inline-flex items-center gap-1 rounded border border-orange-300 bg-white px-2 py-0.5 text-[11px] font-mono hover:bg-orange-100"
-                    title={`${p.cliente_nombre} · ${p.piezas_count} pieza(s)`}
-                  >
-                    <span className="font-semibold">{p.numero}</span>
-                    <span className="text-slate-600">· {p.cliente_nombre}</span>
-                    <span className="text-red-700 font-semibold">
-                      {new Date(p.fecha_entrega_estimada).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}
-                    </span>
-                  </Link>
+                  <BotonReservarPedido key={p.id} pedido={p} />
                 ))}
                 {pedidosFechaSinReservar.length > 8 && (
                   <span className="text-xs text-orange-800">+{pedidosFechaSinReservar.length - 8} más</span>
@@ -552,10 +542,16 @@ export default function PlanificadorCliente({ vista, desde, dias, modo, filtros:
               {listaDias.map((d, i) => {
                 const finSemana = d.getDay() === 0 || d.getDay() === 6
                 return (
-                  <div key={i} className={`flex flex-col items-center justify-center border-r text-xs ${finSemana ? 'bg-slate-100 text-slate-500' : 'text-slate-700'}`}>
-                    <div className="font-medium">{fechaCorta(d)}</div>
-                    <div className="text-[10px] text-slate-500">08:00–17:00</div>
-                  </div>
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setDiaAmpliado(d)}
+                    className={`flex flex-col items-center justify-center border-r text-xs hover:bg-blue-50 transition-colors ${finSemana ? 'bg-slate-100 text-slate-500' : 'text-slate-700'}`}
+                    title="Click para ver el día ampliado"
+                  >
+                    <div className="font-medium underline-offset-2 hover:underline">{fechaCorta(d)}</div>
+                    <div className="text-[10px] text-slate-500">08:00–17:00 · ampliar</div>
+                  </button>
                 )
               })}
             </div>
@@ -625,6 +621,18 @@ export default function PlanificadorCliente({ vista, desde, dias, modo, filtros:
         onClose={() => setDetalleTarea(null)}
         onAfterAction={() => setDetalleTarea(null)}
       />
+
+      {/* Dialog del día ampliado (clic en cabecera del día) */}
+      {diaAmpliado && (
+        <DialogDiaAmpliado
+          dia={diaAmpliado}
+          carriles={carriles}
+          tareasPorCarril={tareasPorCarril}
+          modo={modo}
+          onClose={() => setDiaAmpliado(null)}
+          onVerDetalles={(t) => { setDiaAmpliado(null); setDetalleTarea(t) }}
+        />
+      )}
     </DndContext>
   )
 }
@@ -939,6 +947,186 @@ function ToastItem({ toast }: { toast: Toast }) {
         <div className="text-sm font-medium">{toast.texto}</div>
         {toast.detalle && <div className="mt-0.5 text-xs opacity-80">{toast.detalle}</div>}
       </div>
+    </div>
+  )
+}
+
+// =============================================================
+// Botón "Reservar hueco" del banner de pedidos sin planificar.
+// Llama al autogenerar filtrado por pedido_id y refresca la vista.
+// =============================================================
+
+// =============================================================
+// Dialog "Día ampliado" — vista detallada de un día concreto
+// con todas las tareas de todos los carriles, sin solapes.
+// =============================================================
+
+function DialogDiaAmpliado({
+  dia,
+  carriles,
+  tareasPorCarril,
+  modo,
+  onClose,
+  onVerDetalles,
+}: {
+  dia: Date
+  carriles: Carril[]
+  tareasPorCarril: Map<string, FilaPlanificador[]>
+  modo: ModoCarril
+  onClose: () => void
+  onVerDetalles: (t: FilaPlanificador) => void
+}) {
+  const inicioDia = new Date(dia); inicioDia.setHours(0, 0, 0, 0)
+  const finDia = new Date(dia); finDia.setHours(23, 59, 59, 999)
+
+  // Agrupar tareas del día por carril
+  const filasConTareas: Array<{ carril: Carril; tareas: FilaPlanificador[] }> = []
+  let totalDia = 0
+  for (const c of carriles) {
+    const todas = tareasPorCarril.get(c.id) ?? []
+    const delDia = todas.filter((t) => {
+      if (!t.inicio_planificado) return false
+      const ini = new Date(t.inicio_planificado).getTime()
+      return ini >= inicioDia.getTime() && ini <= finDia.getTime()
+    }).sort((a, b) =>
+      new Date(a.inicio_planificado!).getTime() - new Date(b.inicio_planificado!).getTime()
+    )
+    if (delDia.length > 0) {
+      filasConTareas.push({ carril: c, tareas: delDia })
+      totalDia += delDia.length
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-lg bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 flex items-center justify-between border-b bg-white px-6 py-4">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">
+              {dia.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+            </h2>
+            <p className="text-xs text-slate-500">
+              {totalDia} {totalDia === 1 ? 'tarea' : 'tareas'} planificadas · jornada 08:00–17:00 · vista por {modo}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-slate-300 bg-white px-3 py-1 text-sm hover:bg-slate-50"
+          >
+            Cerrar
+          </button>
+        </div>
+
+        <div className="p-6">
+          {filasConTareas.length === 0 ? (
+            <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
+              No hay tareas planificadas en este día.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {filasConTareas.map(({ carril, tareas }) => (
+                <div key={carril.id} className="rounded-md border bg-white">
+                  <div
+                    className="border-b bg-slate-50 px-3 py-2"
+                    style={{ borderLeft: carril.color ? `4px solid ${carril.color}` : undefined }}
+                  >
+                    <div className="text-sm font-semibold text-slate-800">{carril.label}</div>
+                    {carril.sublabel && <div className="text-xs text-slate-500">{carril.sublabel}</div>}
+                  </div>
+                  <ul className="divide-y">
+                    {tareas.map((t) => {
+                      const ini = new Date(t.inicio_planificado!)
+                      const finMs = ini.getTime() + (t.tiempo_estimado_minutos ?? 0) * 60_000
+                      const fin = new Date(finMs)
+                      const horaIni = ini.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+                      const horaFin = fin.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+                      return (
+                        <li key={t.id}>
+                          <button
+                            type="button"
+                            onClick={() => onVerDetalles(t)}
+                            className="flex w-full items-start gap-3 px-3 py-2 text-left hover:bg-blue-50"
+                          >
+                            <div className="font-mono text-xs font-semibold text-slate-700 w-24 flex-shrink-0">
+                              {horaIni}–{horaFin}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium text-slate-900 truncate">
+                                {t.proceso_codigo} · {t.pedido_numero ?? '—'}
+                              </div>
+                              <div className="text-xs text-slate-500 truncate">
+                                {t.cliente_nombre ?? '—'} · {t.tiempo_estimado_minutos ?? 0} min
+                              </div>
+                            </div>
+                            <div className="text-xs text-slate-400">→ ver</div>
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function BotonReservarPedido({ pedido }: { pedido: PedidoConFechaSinReservar }) {
+  const router = useRouter()
+  const [aplicando, setAplicando] = useState(false)
+  const [hecho, setHecho] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function reservar() {
+    setAplicando(true)
+    setError(null)
+    try {
+      const res = await accionAutogenerar({ pedido_id: pedido.id, dry_run: false })
+      if (res.ok) {
+        setHecho(true)
+        router.refresh()
+      } else {
+        setError(res.error ?? 'Error desconocido')
+      }
+    } finally {
+      setAplicando(false)
+    }
+  }
+
+  return (
+    <div className="inline-flex items-center gap-1 rounded border border-orange-300 bg-white px-2 py-0.5 text-[11px]">
+      <Link href={`/pedidos/${pedido.id}`} className="font-mono font-semibold hover:underline">
+        {pedido.numero}
+      </Link>
+      <span className="text-slate-600">· {pedido.cliente_nombre}</span>
+      <span className="font-mono font-semibold text-red-700">
+        {new Date(pedido.fecha_entrega_estimada).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}
+      </span>
+      {hecho ? (
+        <span className="ml-1 inline-flex items-center gap-0.5 rounded bg-emerald-100 px-1.5 py-0.5 font-semibold text-emerald-800">
+          <CheckCircle2 className="h-3 w-3" /> reservado
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={reservar}
+          disabled={aplicando}
+          className="ml-1 rounded bg-orange-600 px-1.5 py-0.5 font-semibold text-white hover:bg-orange-700 disabled:opacity-60"
+          title={error ?? 'Planificar este pedido en huecos libres'}
+        >
+          {aplicando ? '…' : 'Reservar hueco'}
+        </button>
+      )}
     </div>
   )
 }

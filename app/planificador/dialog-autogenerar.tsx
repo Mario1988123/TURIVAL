@@ -105,14 +105,25 @@ export default function DialogAutogenerar({ desde, hasta, onAfterApply }: Props)
                 <span className="font-semibold text-emerald-700">~{preview.minutos_ahorrados_estimados} min</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-600">No caben en el rango</span>
+                <span className="text-slate-600">Sin asignar (operario o secuencia)</span>
                 <span className={`font-semibold ${preview.sin_asignar_count > 0 ? 'text-amber-700' : 'text-slate-600'}`}>
                   {preview.sin_asignar_count}
                 </span>
               </div>
+              {preview.rango_extendido && preview.rango_efectivo && (
+                <div className="mt-1 rounded border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-900">
+                  El motor extendió automáticamente el rango hasta el{' '}
+                  <strong>
+                    {new Date(preview.rango_efectivo.hasta).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  </strong>{' '}
+                  para colocar todas las tareas (las que no cabían en el rango pedido se desplazaron a días posteriores, no se descartan).
+                </div>
+              )}
               {preview.sin_asignar_count > 0 && (
                 <div className="mt-1 text-xs text-amber-700">
-                  Algunas tareas se quedarán sin asignar (faltan huecos, operario compatible o predecesora sin planificar). Amplía el rango o planifica manualmente tras este paso.
+                  Las tareas sin asignar son por falta de operario compatible o
+                  predecesora aún no planificada. Revisa la sección «Sin
+                  planificar» del Gantt para resolverlas.
                 </div>
               )}
             </div>

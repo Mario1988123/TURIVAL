@@ -609,6 +609,10 @@ export interface ResultadoAutogenerarServicio {
   sin_asignar: ResultadoAutogenerar['sin_asignar']
   agrupaciones_aplicadas: number
   minutos_ahorrados_estimados: number
+  /** Rango realmente usado para colocar todas las tareas (puede ser mayor al pedido). */
+  rango_efectivo?: { desde: string; hasta: string }
+  /** true si tuvo que extenderse el rango automáticamente. */
+  rango_extendido?: boolean
   error?: string
 }
 
@@ -617,23 +621,32 @@ export interface ResultadoAutogenerarServicio {
  *
  * `dry_run=true` (default false): calcula pero NO escribe en BD. Sirve para
  * previsualizar en un modal de confirmación antes de aplicar.
+ *
+ * Si quedan tareas con razón `sin_huecos_en_rango`, se extiende automáticamente
+ * el rango (14 → 60 → 180 → 365 días) hasta colocarlas todas o tope de 365.
+ * Mario lo pidió así (25-abr): "las que no caben pasan al día siguiente, no
+ * se quedan fuera".
  */
 export async function autogenerar(params: {
   rango?: { desde: string; hasta: string }
   jornada?: JornadaLaboral
   dry_run?: boolean
+  /** Si se pasa, solo planifica las tareas de este pedido. */
+  pedido_id?: string
 }): Promise<ResultadoAutogenerarServicio> {
   const supabase = await createClient()
   const jornada = params.jornada ?? JORNADA_DEFAULT
   const desde = params.rango?.desde ? new Date(params.rango.desde) : hoyInicio()
-  const hasta = params.rango?.hasta
+  const hastaUsuario = params.rango?.hasta
     ? new Date(params.rango.hasta)
     : new Date(desde.getTime() + 14 * MS_DIA)
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('tareas_produccion')
     .select(SELECT_GANTT)
     .in('estado', ['pendiente', 'en_cola', 'en_progreso', 'en_secado'])
+  if (params.pedido_id) query = query.eq('pedido_id', params.pedido_id)
+  const { data, error } = await query
   if (error) {
     return {
       ok: false,
@@ -650,12 +663,44 @@ export async function autogenerar(params: {
     .filter((t): t is TareaPlanificable => t != null)
   const operarios = await obtenerOperariosDisponibles()
 
-  const resultado = motorAutogenerar({
-    tareasUniverso: universo,
-    operarios,
-    rangoFechas: { desde, hasta },
-    jornada,
-  })
+  // Auto-extensión del rango si quedan tareas por falta de huecos.
+  // Pasos: el rango pedido por el usuario, luego +60d, +180d, +365d (tope).
+  const escalonesDias = [
+    Math.max(14, Math.round((hastaUsuario.getTime() - desde.getTime()) / MS_DIA)),
+    60, 180, 365,
+  ]
+  let resultado: ResultadoAutogenerar | null = null
+  let hastaUsado = hastaUsuario
+  let rangoExtendido = false
+  for (const dias of escalonesDias) {
+    const hastaIntento = new Date(desde.getTime() + dias * MS_DIA)
+    resultado = motorAutogenerar({
+      tareasUniverso: universo,
+      operarios,
+      rangoFechas: { desde, hasta: hastaIntento },
+      jornada,
+    })
+    hastaUsado = hastaIntento
+    const sinHueco = resultado.sin_asignar.filter(s => s.razon === 'sin_huecos_en_rango').length
+    if (sinHueco === 0) break
+    rangoExtendido = true
+  }
+  if (!resultado) {
+    return {
+      ok: false,
+      asignaciones_aplicadas: 0,
+      sin_asignar_count: 0,
+      sin_asignar: [],
+      agrupaciones_aplicadas: 0,
+      minutos_ahorrados_estimados: 0,
+      error: 'motor no devolvió resultado',
+    }
+  }
+
+  const rangoEfectivoIso = {
+    desde: desde.toISOString(),
+    hasta: hastaUsado.toISOString(),
+  }
 
   if (params.dry_run) {
     return {
@@ -665,6 +710,8 @@ export async function autogenerar(params: {
       sin_asignar: resultado.sin_asignar,
       agrupaciones_aplicadas: resultado.agrupaciones_aplicadas,
       minutos_ahorrados_estimados: resultado.minutos_ahorrados_estimados,
+      rango_efectivo: rangoEfectivoIso,
+      rango_extendido: rangoExtendido,
     }
   }
 
@@ -690,6 +737,8 @@ export async function autogenerar(params: {
       sin_asignar: resultado.sin_asignar,
       agrupaciones_aplicadas: resultado.agrupaciones_aplicadas,
       minutos_ahorrados_estimados: resultado.minutos_ahorrados_estimados,
+      rango_efectivo: rangoEfectivoIso,
+      rango_extendido: rangoExtendido,
       error: primerError.error.message,
     }
   }
@@ -701,5 +750,7 @@ export async function autogenerar(params: {
     sin_asignar: resultado.sin_asignar,
     agrupaciones_aplicadas: resultado.agrupaciones_aplicadas,
     minutos_ahorrados_estimados: resultado.minutos_ahorrados_estimados,
+    rango_efectivo: rangoEfectivoIso,
+    rango_extendido: rangoExtendido,
   }
 }
