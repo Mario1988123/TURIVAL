@@ -265,7 +265,7 @@ export default function AsistenteVoz({
           await ejecutarListarUrgentes(pushLog, vozRespuesta)
           break
         case 'proponer_reorganizacion':
-          pushLog({ tipo: 'asistente', texto: 'Reorganizar pedidos: planificador + drag&drop. La reorganizacion automatica llega en proxima iteracion.' })
+          await ejecutarProponerReorganizacion(intencion, pushLog, vozRespuesta)
           break
         case 'cancelar':
           pushLog({ tipo: 'ok', texto: 'Cancelado.' })
@@ -821,4 +821,50 @@ async function ejecutarListarUrgentes(
     href: '/planificador',
   })
   if (vozRespuesta) leerEnVoz(`Hay ${res.items.length} pedidos con fecha sin reservar`)
+}
+
+async function ejecutarProponerReorganizacion(
+  intencion: IntencionDetectada,
+  pushLog: (m: Omit<MensajeLog, 'id'>) => void,
+  vozRespuesta: boolean,
+) {
+  const ref = intencion.pedido_referencia
+  if (!ref) {
+    pushLog({ tipo: 'error', texto: 'Di el numero de pedido — ej. "reorganiza priorizando PED-26-0042"' })
+    return
+  }
+  // Buscar pedido_id por numero
+  const supabase = createClient()
+  const { data: pedido } = await supabase.from('pedidos').select('id, numero').eq('numero', ref).maybeSingle()
+  if (!pedido) {
+    pushLog({ tipo: 'error', texto: `No encuentro el pedido ${ref}` })
+    return
+  }
+  const { accionProponerReorganizacion, accionAplicarReorganizacion } = await import('@/lib/actions/planificador')
+  const res = await accionProponerReorganizacion(pedido.id)
+  if (!res.ok) { pushLog({ tipo: 'error', texto: `Error: ${res.error}` }); return }
+  if (res.propuesta.movimientos.length === 0) {
+    pushLog({ tipo: 'asistente', texto: `${ref} ya esta optimizado o no hay tareas desplazables.` })
+    return
+  }
+  const adelantoH = (res.propuesta.ahorro_minutos / 60).toFixed(1)
+  pushLog({
+    tipo: 'asistente',
+    texto: `Puedo adelantar ${ref} ${adelantoH}h moviendo ${res.propuesta.movimientos.length} tarea(s).`,
+    detalle: `Desplazamiento de holgados: ${(res.propuesta.desplazamiento_total_minutos / 60).toFixed(1)}h. Pulsa para aplicar.`,
+    acciones: [{
+      label: 'Aplicar reorganizacion',
+      estilo: 'primario',
+      onClick: async () => {
+        const apl = await accionAplicarReorganizacion(res.propuesta)
+        if (apl.ok) {
+          pushLog({ tipo: 'ok', texto: `Reorganizacion aplicada: ${apl.movidas} tareas movidas.` })
+          if (vozRespuesta) leerEnVoz(`Reorganizacion aplicada, ${apl.movidas} tareas movidas`)
+        } else {
+          pushLog({ tipo: 'error', texto: `Error: ${apl.error ?? 'desconocido'}` })
+        }
+      },
+    }],
+  })
+  if (vozRespuesta) leerEnVoz(`Puedo adelantar ${ref} ${adelantoH} horas. Confirma para aplicar.`)
 }

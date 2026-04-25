@@ -46,6 +46,10 @@ import {
   planificarTodas,
   autogenerarPlanificacion as motorAutogenerar,
 } from '@/lib/motor/planificador'
+import {
+  proponerReorganizacion as motorProponerReorganizacion,
+  type PropuestaReorganizacion,
+} from '@/lib/motor/reorganizador'
 
 // =============================================================
 // TIPOS PÚBLICOS
@@ -754,4 +758,61 @@ export async function autogenerar(params: {
     rango_efectivo: rangoEfectivoIso,
     rango_extendido: rangoExtendido,
   }
+}
+
+// =============================================================
+// REORGANIZADOR (priorizar pedido urgente desplazando holgados)
+// =============================================================
+
+export type { PropuestaReorganizacion } from '@/lib/motor/reorganizador'
+
+/**
+ * Propone una reorganizacion del Gantt para meter el pedido_objetivo lo
+ * antes posible, desplazando hacia delante tareas de pedidos holgados.
+ * NO escribe en BD: devuelve la propuesta para que la UI la muestre y
+ * el usuario confirme con `aplicarReorganizacion`.
+ */
+export async function proponerReorganizacion(params: {
+  pedido_id: string
+  jornada?: JornadaLaboral
+}): Promise<PropuestaReorganizacion> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('tareas_produccion')
+    .select(SELECT_GANTT)
+    .in('estado', ['pendiente', 'en_cola', 'en_progreso', 'en_secado'])
+  if (error) throw new Error(error.message)
+  const universo = ((data ?? []) as any[])
+    .map(construirTareaPlanificable)
+    .filter((t): t is TareaPlanificable => t != null)
+  const operarios = await obtenerOperariosDisponibles()
+  return motorProponerReorganizacion({
+    pedido_objetivo_id: params.pedido_id,
+    todasLasTareas: universo,
+    operarios,
+    jornada: params.jornada ?? JORNADA_DEFAULT,
+  })
+}
+
+/**
+ * Aplica una propuesta de reorganizacion: actualiza cada tarea con su
+ * nuevo inicio_planificada y operario_id (si cambia). Devuelve el numero
+ * de tareas movidas.
+ */
+export async function aplicarReorganizacion(propuesta: PropuestaReorganizacion): Promise<{
+  ok: boolean; movidas: number; error?: string
+}> {
+  const supabase = await createClient()
+  const nowIso = new Date().toISOString()
+  const updates = propuesta.movimientos.map(m =>
+    supabase.from('tareas_produccion').update({
+      fecha_inicio_planificada: m.inicio_propuesto.toISOString(),
+      operario_id: m.operario_id,
+      updated_at: nowIso,
+    }).eq('id', m.tarea_id),
+  )
+  const res = await Promise.all(updates)
+  const err = res.find(r => r.error)
+  if (err?.error) return { ok: false, movidas: 0, error: err.error.message }
+  return { ok: true, movidas: propuesta.movimientos.length }
 }

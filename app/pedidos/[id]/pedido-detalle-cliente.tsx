@@ -61,6 +61,7 @@ import type { EstadoPedido, PrioridadPedido } from '@/lib/services/pedidos'
 import MoverPiezaModal from '@/components/pedidos/mover-pieza-modal'
 import AgregarLineasPedidoModal from '@/components/pedidos/agregar-lineas-pedido-modal'
 import BotonRecomendarFechaPedido from '@/components/pedidos/boton-recomendar-fecha-pedido'
+import BotonReorganizarGantt from '@/components/pedidos/boton-reorganizar-gantt'
 import ReservasPanel from '@/components/pedidos/reservas-panel'
 
 // =============================================================
@@ -292,6 +293,7 @@ export default function PedidoDetalleCliente({
             </Button>
           )}
           <BotonRecomendarFechaPedido pedido_id={pedido.id} />
+          <BotonReorganizarGantt pedidoId={pedido.id} pedidoNumero={pedido.numero} />
           {totalPiezasReales > 0 && (
             <>
               <Link href={`/etiquetas/pedido/${pedido.id}`}>

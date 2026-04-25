@@ -22,10 +22,13 @@ import {
   obtenerSugerenciasAgrupacion,
   obtenerSugerenciasHorasExtra,
   autogenerar,
+  proponerReorganizacion,
+  aplicarReorganizacion,
   type FiltrosPlanificador,
   type VistaPlanificador,
   type ResultadoMoverTarea,
   type ResultadoAutogenerarServicio,
+  type PropuestaReorganizacion,
 } from '@/lib/services/planificador'
 import type {
   SugerenciaHueco,
@@ -128,6 +131,36 @@ export async function accionAutogenerar(params: {
 
 export async function accionDesasignarTarea(tarea_id: string): Promise<ResultadoMoverTarea> {
   const res = await desasignarTarea(tarea_id)
+  if (res.ok) revalidatePath('/planificador')
+  return res
+}
+
+// =============================================================
+// REORGANIZADOR
+// =============================================================
+
+export async function accionProponerReorganizacion(pedido_id: string): Promise<{
+  ok: true; propuesta: PropuestaReorganizacion
+} | { ok: false; error: string }> {
+  try {
+    const propuesta = await proponerReorganizacion({ pedido_id })
+    return { ok: true, propuesta }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Error' }
+  }
+}
+
+export async function accionAplicarReorganizacion(propuesta: PropuestaReorganizacion): Promise<{
+  ok: boolean; movidas: number; error?: string
+}> {
+  const res = await aplicarReorganizacion({
+    ...propuesta,
+    movimientos: propuesta.movimientos.map(m => ({
+      ...m,
+      inicio_actual: m.inicio_actual ? new Date(m.inicio_actual as any) : null,
+      inicio_propuesto: new Date(m.inicio_propuesto as any),
+    })),
+  })
   if (res.ok) revalidatePath('/planificador')
   return res
 }
