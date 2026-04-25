@@ -31,6 +31,10 @@ import DialogIncidencia from './dialog-incidencia'
 import DialogCandidatos from './dialog-candidatos'
 import DialogCompletar from './dialog-completar'
 import DialogReabrir from './dialog-reabrir'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 
 // Procesos que requieren modal de mezcla al iniciar y al completar
 const PROCESOS_MEZCLA = ['LACADO', 'FONDO', 'FONDEADO_2']
@@ -108,6 +112,8 @@ export default function TareaCard({
   const [incidenciaOpen, setIncidenciaOpen] = useState(false)
   const [candidatosOpen, setCandidatosOpen] = useState(false)
   const [completarOpen, setCompletarOpen] = useState(false)
+  const [forzarSecoOpen, setForzarSecoOpen] = useState(false)
+  const [duplicarOpen, setDuplicarOpen] = useState(false)
   const [reabrirOpen, setReabrirOpen] = useState(false)
 
   const proceso = tarea?.proceso ?? {}
@@ -169,7 +175,10 @@ export default function TareaCard({
   }
 
   function forzarSeco() {
-    if (!confirm('¿Marcar la pieza como ya seca y completar la tarea?')) return
+    setForzarSecoOpen(true)
+  }
+  function confirmarForzarSeco() {
+    setForzarSecoOpen(false)
     startTransition(async () => {
       const res = await accionForzarSeco(tarea.id)
       if (res.ok) {
@@ -182,7 +191,10 @@ export default function TareaCard({
   }
 
   function duplicar() {
-    if (!confirm('¿Duplicar esta tarea? Se creará una nueva pendiente para rehacer.')) return
+    setDuplicarOpen(true)
+  }
+  function confirmarDuplicar() {
+    setDuplicarOpen(false)
     startTransition(async () => {
       const res = await accionDuplicarTarea(tarea.id)
       if (res.ok) {
@@ -194,8 +206,22 @@ export default function TareaCard({
     })
   }
 
+  // Punto 20: tono suave determinista por pedido_id (mismo pedido = misma
+  // tonalidad). Asi de un vistazo agrupas tarjetas del mismo pedido.
+  const colorSuavePedido = (() => {
+    const pedidoId: string = (tarea as any).pedido_id ?? (tarea as any).pieza?.linea_pedido?.pedido_id ?? ''
+    if (!pedidoId) return undefined
+    let hash = 0
+    for (let i = 0; i < pedidoId.length; i++) hash = (hash * 31 + pedidoId.charCodeAt(i)) & 0xffff
+    const hue = hash % 360
+    return `hsl(${hue}, 60%, 97%)` // muy claro, no compite con badges
+  })()
+
   return (
-    <div className="bg-white rounded-lg border shadow-sm p-3 space-y-2 hover:shadow-md transition">
+    <div
+      className="rounded-lg border shadow-sm p-3 space-y-2 hover:shadow-md transition"
+      style={{ background: colorSuavePedido ?? 'white' }}
+    >
       <div className="flex items-start justify-between gap-2">
         <div
           className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-sm font-bold text-white"
@@ -471,6 +497,51 @@ export default function TareaCard({
           }}
         />
       )}
+
+      {/* Modales de confirmacion (Mario punto 25: nada de alert nativo) */}
+      <AlertDialog open={forzarSecoOpen} onOpenChange={setForzarSecoOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Zap className="h-5 w-5 text-amber-600" />
+              Forzar secado
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Marcar la pieza como ya seca y completar la tarea?
+              <br />
+              Solo hazlo si la pieza está fisicamente seca. Quedará registrado
+              que se forzó.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmarForzarSeco} className="bg-amber-600 hover:bg-amber-700">
+              Sí, forzar seco
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={duplicarOpen} onOpenChange={setDuplicarOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Copy className="h-5 w-5 text-blue-600" />
+              Duplicar tarea
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Se creará una nueva tarea pendiente identica a esta. Util si hay
+              que rehacer parte del proceso.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmarDuplicar} className="bg-blue-600 hover:bg-blue-700">
+              Duplicar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

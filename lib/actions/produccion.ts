@@ -261,3 +261,22 @@ export async function accionReabrirTarea(input: {
     }
   }
 }
+
+// =============================================================
+// Resolver incidencia (Mario punto 27)
+// =============================================================
+export async function accionResolverIncidencia(incidenciaId: string) {
+  try {
+    const { createClient } = await import('@/lib/supabase/server')
+    const supabase = await createClient()
+    const { error } = await supabase
+      .from('incidencias_tarea')
+      .update({ resuelta: true, fecha_resolucion: new Date().toISOString() })
+      .eq('id', incidenciaId)
+    if (error) throw error
+    revalidatePath('/produccion')
+    return { ok: true as const }
+  } catch (e: any) {
+    return { ok: false as const, error: e?.message ?? 'Error' }
+  }
+}

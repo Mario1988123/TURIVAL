@@ -123,12 +123,12 @@ export default function DialogNuevaPiezaV2({
   const [longitudMl, setLongitudMl] = useState<string>('')
 
   const [caraFrontal, setCaraFrontal] = useState(true)
-  const [caraTrasera, setCaraTrasera] = useState(false)
-  const [cantoSuperior, setCantoSuperior] = useState(false)
-  const [cantoInferior, setCantoInferior] = useState(false)
-  const [cantoIzquierdo, setCantoIzquierdo] = useState(false)
-  const [cantoDerecho, setCantoDerecho] = useState(false)
-  const [contabilizarGrosor, setContabilizarGrosor] = useState(false)
+  const [caraTrasera, setCaraTrasera] = useState(true)
+  const [cantoSuperior, setCantoSuperior] = useState(true)
+  const [cantoInferior, setCantoInferior] = useState(true)
+  const [cantoIzquierdo, setCantoIzquierdo] = useState(true)
+  const [cantoDerecho, setCantoDerecho] = useState(true)
+  const [contabilizarGrosor, setContabilizarGrosor] = useState(true)
 
   const [lacadoId, setLacadoId] = useState<string>('')
   const [fondoId, setFondoId] = useState<string>('')
@@ -141,6 +141,11 @@ export default function DialogNuevaPiezaV2({
   const [procesosMarcados, setProcesosMarcados] = useState<Set<string>>(
     new Set(PROCESOS_DEFAULT_MARCADOS)
   )
+  // Tiempos personalizados por proceso (Mario punto 5: poder modificar
+  // los minutos por proceso). Map<codigo, {base, porM2}>
+  const [tiemposPersonalizados, setTiemposPersonalizados] = useState<Map<string, { base: number; porM2: number }>>(
+    new Map()
+  )
 
   const [guardarComoRef, setGuardarComoRef] = useState(false)
   const [nombreRef, setNombreRef] = useState('')
@@ -151,6 +156,16 @@ export default function DialogNuevaPiezaV2({
   const [calculando, setCalculando] = useState(false)
   const [preview, setPreview] = useState<SimularPrecioResultado | null>(null)
   const [errorPreview, setErrorPreview] = useState<string | null>(null)
+
+  // Auto-desmarcar grosor en zocalos/listones <19mm (Mario punto 4)
+  useEffect(() => {
+    const cat = categorias.find((c) => c.id === categoriaId)?.nombre?.toLowerCase() ?? ''
+    const esZocaloOListon = /zocalo|zócalo|liston|listón/.test(cat)
+    const grosorNum = parseFloat(grosor)
+    if (esZocaloOListon && (!isFinite(grosorNum) || grosorNum < 19)) {
+      setContabilizarGrosor(false)
+    }
+  }, [categoriaId, grosor, categorias])
 
   // Resetear + cargar cuando se abre
   useEffect(() => {
@@ -164,18 +179,19 @@ export default function DialogNuevaPiezaV2({
     setGrosor('')
     setLongitudMl('')
     setCaraFrontal(true)
-    setCaraTrasera(false)
-    setCantoSuperior(false)
-    setCantoInferior(false)
-    setCantoIzquierdo(false)
-    setCantoDerecho(false)
-    setContabilizarGrosor(false)
+    setCaraTrasera(true)
+    setCantoSuperior(true)
+    setCantoInferior(true)
+    setCantoIzquierdo(true)
+    setCantoDerecho(true)
+    setContabilizarGrosor(true)
     setLacadoId('')
     setFondoId('')
     setFactor('media')
     setDescuento('0')
     setPrecioAproximado(false)
     setProcesosMarcados(new Set(PROCESOS_DEFAULT_MARCADOS))
+    setTiemposPersonalizados(new Map())
     setGuardarComoRef(false)
     setNombreRef('')
     setPreview(null)
@@ -616,11 +632,9 @@ export default function DialogNuevaPiezaV2({
                   const marcado = procesosMarcados.has(codigo)
                   const consumeLacado = def.tipo_material === 'lacado'
                   const consumeFondo  = def.tipo_material === 'fondo'
+                  const t = tiemposPersonalizados.get(codigo) ?? { base: def.tiempo_base_min, porM2: def.tiempo_por_m2_min }
                   return (
-                    <label
-                      key={codigo}
-                      className="flex items-center gap-2 text-sm cursor-pointer hover:bg-white rounded px-2 py-1"
-                    >
+                    <div key={codigo} className="flex items-center gap-2 text-sm hover:bg-white rounded px-2 py-1">
                       <Checkbox
                         checked={marcado}
                         onCheckedChange={(v) => {
@@ -632,21 +646,53 @@ export default function DialogNuevaPiezaV2({
                           })
                         }}
                       />
-                      <span className="font-medium">{def.nombre}</span>
-                      <span className="text-xs text-slate-500 font-mono ml-auto">
-                        {def.tiempo_base_min} + {def.tiempo_por_m2_min}/m² min
-                      </span>
+                      <span className="font-medium flex-1">{def.nombre}</span>
                       {consumeLacado && (
-                        <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-800 rounded">
-                          usa lacado
-                        </span>
+                        <span className="text-[10px] px-1 py-0.5 bg-purple-100 text-purple-800 rounded">lacado</span>
                       )}
                       {consumeFondo && (
-                        <span className="text-xs px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded">
-                          usa fondo
-                        </span>
+                        <span className="text-[10px] px-1 py-0.5 bg-amber-100 text-amber-800 rounded">fondo</span>
                       )}
-                    </label>
+                      {/* Punto 5: tiempos editables por proceso */}
+                      <div className="flex items-center gap-1 text-[11px] text-slate-600">
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={t.base}
+                          disabled={!marcado}
+                          onChange={(e) => {
+                            const v = parseFloat(e.target.value) || 0
+                            setTiemposPersonalizados((prev) => {
+                              const m = new Map(prev)
+                              m.set(codigo, { ...t, base: v })
+                              return m
+                            })
+                          }}
+                          className="w-12 rounded border px-1 py-0.5 text-right disabled:opacity-50"
+                          title="Minutos fijos"
+                        />
+                        <span>+</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.5"
+                          value={t.porM2}
+                          disabled={!marcado}
+                          onChange={(e) => {
+                            const v = parseFloat(e.target.value) || 0
+                            setTiemposPersonalizados((prev) => {
+                              const m = new Map(prev)
+                              m.set(codigo, { ...t, porM2: v })
+                              return m
+                            })
+                          }}
+                          className="w-12 rounded border px-1 py-0.5 text-right disabled:opacity-50"
+                          title="Minutos por m²"
+                        />
+                        <span>/m²</span>
+                      </div>
+                    </div>
                   )
                 })}
               </div>
@@ -656,11 +702,13 @@ export default function DialogNuevaPiezaV2({
                 const ordenados = PROCESOS_ORDEN.filter((c) => procesosMarcados.has(c))
                 const totalBase = ordenados.reduce((a, c) => {
                   const d = getProcesoDefault(c)
-                  return a + (d?.tiempo_base_min ?? 0)
+                  const t = tiemposPersonalizados.get(c)
+                  return a + (t?.base ?? d?.tiempo_base_min ?? 0)
                 }, 0)
                 const totalPorM2 = ordenados.reduce((a, c) => {
                   const d = getProcesoDefault(c)
-                  return a + (d?.tiempo_por_m2_min ?? 0)
+                  const t = tiemposPersonalizados.get(c)
+                  return a + (t?.porM2 ?? d?.tiempo_por_m2_min ?? 0)
                 }, 0)
                 return (
                   <div className="text-xs text-blue-800 bg-blue-50 border border-blue-200 rounded p-2">

@@ -479,10 +479,71 @@ export async function completarTarea(
 
   await propagarCompletado(t.pieza_id)
 
+  // Mario punto 28: si la tarea completada es PICKING, intentar crear
+  // albaran automatico para esa pieza. No bloquea si falla.
+  let albaranCreado: { id: string; numero?: string } | null = null
+  if (codigoProc === 'PICKING') {
+    try {
+      // Buscar pedido de esta pieza
+      const { data: piezaInfo } = await supabase
+        .from('piezas')
+        .select('id, linea_pedido:lineas_pedido(pedido_id)')
+        .eq('id', t.pieza_id)
+        .maybeSingle()
+      const pedidoId = (piezaInfo as any)?.linea_pedido?.pedido_id
+      if (pedidoId) {
+        // ¿Hay ya un albarán "borrador" sobre este pedido? Anadimos a el.
+        const { data: albaranExistente } = await supabase
+          .from('albaranes')
+          .select('id')
+          .eq('pedido_id', pedidoId)
+          .eq('estado', 'borrador')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        if (albaranExistente?.id) {
+          await supabase.from('lineas_albaran').insert({
+            albaran_id: albaranExistente.id, pieza_id: t.pieza_id, cantidad: 1,
+          })
+          albaranCreado = { id: albaranExistente.id }
+        } else {
+          const { data: numAlb } = await supabase.rpc('generar_numero_secuencial', { p_tipo: 'albaran' })
+          const { data: cliPed } = await supabase
+            .from('pedidos')
+            .select('cliente_id')
+            .eq('id', pedidoId)
+            .maybeSingle()
+          const { data: nuevo } = await supabase
+            .from('albaranes')
+            .insert({
+              numero: numAlb,
+              pedido_id: pedidoId,
+              cliente_id: (cliPed as any)?.cliente_id ?? null,
+              estado: 'borrador',
+              fecha_entrega: ahora.toISOString().slice(0, 10),
+              observaciones: 'Generado automáticamente al completar PICKING',
+            })
+            .select('id')
+            .single()
+          if (nuevo?.id) {
+            await supabase.from('lineas_albaran').insert({
+              albaran_id: nuevo.id, pieza_id: t.pieza_id, cantidad: 1,
+            })
+            albaranCreado = { id: nuevo.id, numero: numAlb as any }
+          }
+        }
+      }
+    } catch (e) {
+      // Solo logueamos; no impedimos completar la tarea
+      console.warn('[completarTarea] albaran auto fallo:', e)
+    }
+  }
+
   return {
     tarea: data,
     estado: 'completada' as const,
     consumo: resultadoConsumo,
+    albaran: albaranCreado,
   }
 }
 

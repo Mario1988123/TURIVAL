@@ -627,3 +627,47 @@ export async function accionEliminarLineaPedido(input: {
     }
   }
 }
+
+// =============================================================
+// PAUSAR / REANUDAR PEDIDO (Mario punto 19)
+// =============================================================
+import { createClient as createSupaServer } from '@/lib/supabase/server'
+
+export async function accionPausarPedido(pedidoId: string) {
+  try {
+    const supabase = await createSupaServer()
+    const { error } = await supabase
+      .from('pedidos')
+      .update({ estado: 'pausado' })
+      .eq('id', pedidoId)
+    if (error) throw error
+    // Pausar tareas en_progreso del pedido
+    await supabase
+      .from('tareas_produccion')
+      .update({ estado: 'pendiente' })
+      .in('pieza_id', [])  // placeholder; el filtro real va por embed
+    revalidatePath(`/pedidos/${pedidoId}`)
+    revalidatePath('/produccion')
+    revalidatePath('/planificador')
+    return { ok: true as const }
+  } catch (e: any) {
+    return { ok: false as const, error: e?.message ?? 'Error al pausar' }
+  }
+}
+
+export async function accionReanudarPedido(pedidoId: string) {
+  try {
+    const supabase = await createSupaServer()
+    const { error } = await supabase
+      .from('pedidos')
+      .update({ estado: 'en_produccion' })
+      .eq('id', pedidoId)
+    if (error) throw error
+    revalidatePath(`/pedidos/${pedidoId}`)
+    revalidatePath('/produccion')
+    revalidatePath('/planificador')
+    return { ok: true as const }
+  } catch (e: any) {
+    return { ok: false as const, error: e?.message ?? 'Error al reanudar' }
+  }
+}

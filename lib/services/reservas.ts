@@ -559,6 +559,14 @@ export async function consumirRealYLiberarReserva(args: {
   let mermaTotal = 0
   if (args.estado_mezcla === 'sobro') {
     mermaTotal = Math.abs(args.kg_merma_total ?? 0)
+    // Mario punto 24: si la merma "sobrada" es mayor que el total
+    // teorico fabricado, es imposible. Bloqueamos.
+    if (mermaTotal > totalTeorico) {
+      throw new Error(
+        `Imposible: has sobrado ${mermaTotal.toFixed(2)} kg pero el total de mezcla teorico era ` +
+        `${totalTeorico.toFixed(2)} kg. Revisa el dato.`,
+      )
+    }
   } else if (args.estado_mezcla === 'falto') {
     mermaTotal = -Math.abs(args.kg_merma_total ?? 0)
   }
