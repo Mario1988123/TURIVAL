@@ -24,7 +24,7 @@
  * CSS: Tailwind + grid CSS puro. Sin librerías de calendario.
  */
 
-import { useMemo, useState, useTransition } from 'react'
+import { useMemo, useState, useTransition, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import {
@@ -59,7 +59,7 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core'
 import type { VistaPlanificador, FilaPlanificador } from '@/lib/services/planificador'
-import type { PresupuestoPendiente } from '@/lib/services/simulador-entrega'
+import type { PresupuestoPendiente, PedidoConFechaSinReservar } from '@/lib/services/simulador-entrega'
 import { accionMoverTarea } from '@/lib/actions/planificador'
 import { accionDescansoGlobal, accionDescansoGlobalActivo } from '@/lib/actions/fichajes'
 import PanelSugerencias from './panel-sugerencias'
@@ -96,6 +96,7 @@ interface Props {
     prioridad?: string
   }
   presupuestosPendientes?: PresupuestoPendiente[]
+  pedidosFechaSinReservar?: PedidoConFechaSinReservar[]
 }
 
 interface Carril {
@@ -215,7 +216,7 @@ function snapTo(mins: number, step: number): number {
 // COMPONENTE PRINCIPAL
 // =============================================================
 
-export default function PlanificadorCliente({ vista, desde, dias, modo, filtros: _filtros, presupuestosPendientes = [] }: Props) {
+export default function PlanificadorCliente({ vista, desde, dias, modo, filtros: _filtros, presupuestosPendientes = [], pedidosFechaSinReservar = [] }: Props) {
   const router = useRouter()
   const [, startTransition] = useTransition()
 
@@ -224,13 +225,24 @@ export default function PlanificadorCliente({ vista, desde, dias, modo, filtros:
   const [enviando, setEnviando] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
   const [descansoActivo, setDescansoActivo] = useState<boolean>(false)
+  const [operariosEnPausa, setOperariosEnPausa] = useState<Set<string>>(new Set())
 
-  // Cargar estado del descanso global al montar
-  useState(() => {
+  // Cargar estado del descanso global y operarios en pausa al montar
+  useEffect(() => {
     accionDescansoGlobalActivo().then(res => {
       if (res.ok && res.data) setDescansoActivo(res.data.activo)
     }).catch(() => undefined)
-  })
+    // Cargar estado operarios (quiénes están en pausa ahora)
+    import('@/lib/actions/fichajes').then(({ accionEstadoOperariosHoy }) => {
+      accionEstadoOperariosHoy().then(res => {
+        if (res.ok && res.data) {
+          const set = new Set<string>()
+          for (const op of res.data) if (op.estado === 'en_pausa') set.add(op.operario_id)
+          setOperariosEnPausa(set)
+        }
+      }).catch(() => undefined)
+    })
+  }, [])
 
   const tareasPlanificadas = useMemo(
     () => vista.tareas.filter(t => t.inicio_planificado != null),
@@ -450,6 +462,38 @@ export default function PlanificadorCliente({ vista, desde, dias, modo, filtros:
         {/* Banners de violaciones + operarios parados + presupuestos pendientes */}
         <BannersViolaciones vista={vista} />
         <BannerOperariosParados vista={vista} />
+        {pedidosFechaSinReservar.length > 0 && (
+          <div className="flex items-start gap-2 rounded-md border border-orange-400 bg-orange-50 px-3 py-2 text-sm text-orange-900">
+            <Calendar className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            <div className="min-w-0 flex-1">
+              <div className="font-semibold">
+                {pedidosFechaSinReservar.length} pedido(s) con fecha acordada pero sin reservar hueco
+              </div>
+              <div className="mt-0.5 text-xs">
+                Fecha comprometida con cliente pero las tareas aún no están planificadas en el Gantt. Si metes otros trabajos en esos huecos, habrá que renegociar.
+              </div>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {pedidosFechaSinReservar.slice(0, 8).map((p) => (
+                  <Link
+                    key={p.id}
+                    href={`/pedidos/${p.id}`}
+                    className="inline-flex items-center gap-1 rounded border border-orange-300 bg-white px-2 py-0.5 text-[11px] font-mono hover:bg-orange-100"
+                    title={`${p.cliente_nombre} · ${p.piezas_count} pieza(s)`}
+                  >
+                    <span className="font-semibold">{p.numero}</span>
+                    <span className="text-slate-600">· {p.cliente_nombre}</span>
+                    <span className="text-red-700 font-semibold">
+                      {new Date(p.fecha_entrega_estimada).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}
+                    </span>
+                  </Link>
+                ))}
+                {pedidosFechaSinReservar.length > 8 && (
+                  <span className="text-xs text-orange-800">+{pedidosFechaSinReservar.length - 8} más</span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         {presupuestosPendientes.length > 0 && (
           <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             <FileWarning className="mt-0.5 h-4 w-4 flex-shrink-0" />
@@ -531,6 +575,31 @@ export default function PlanificadorCliente({ vista, desde, dias, modo, filtros:
                   modo={modo}
                   dragActivado={dragActivado}
                   onVerDetalles={setDetalleTarea}
+                  operarioEnPausa={modo === 'operario' && operariosEnPausa.has(c.id)}
+                  onToggleOperarioPausa={modo === 'operario' ? async (operario_id, pausar) => {
+                    const { accionRegistrarFichaje } = await import('@/lib/actions/fichajes')
+                    const tipo = pausar ? 'pausa_inicio' : 'pausa_fin'
+                    // Si no está "dentro" hay que meter entrada antes
+                    if (pausar) {
+                      // Asegurar entrada
+                      const resEntrada = await accionRegistrarFichaje({ operario_id, tipo: 'entrada' })
+                      if (!resEntrada.ok && !resEntrada.error?.includes('Ya hay una entrada')) {
+                        pushToast({ tipo: 'error', texto: 'Error', detalle: resEntrada.error })
+                        return
+                      }
+                    }
+                    const res = await accionRegistrarFichaje({ operario_id, tipo })
+                    if (res.ok) {
+                      setOperariosEnPausa(prev => {
+                        const next = new Set(prev)
+                        if (pausar) next.add(operario_id); else next.delete(operario_id)
+                        return next
+                      })
+                      pushToast({ tipo: 'ok', texto: pausar ? 'Operario pausado' : 'Operario reanudado' })
+                    } else {
+                      pushToast({ tipo: 'error', texto: 'Error', detalle: res.error })
+                    }
+                  } : undefined}
                 />
               ))
             )}
@@ -580,6 +649,8 @@ function FilaCarril({
   modo,
   dragActivado,
   onVerDetalles,
+  operarioEnPausa,
+  onToggleOperarioPausa,
 }: {
   carril: Carril
   dias: Date[]
@@ -588,16 +659,29 @@ function FilaCarril({
   modo: ModoCarril
   dragActivado: boolean
   onVerDetalles: (t: FilaPlanificador) => void
+  operarioEnPausa?: boolean
+  onToggleOperarioPausa?: (operario_id: string, pausar: boolean) => void
 }) {
   return (
     <div
-      className={`grid border-b ${alternado ? 'bg-slate-50/50' : 'bg-white'}`}
+      className={`grid border-b ${alternado ? 'bg-slate-50/50' : 'bg-white'} ${operarioEnPausa ? 'bg-amber-50/60' : ''}`}
       style={{ gridTemplateColumns: `${ANCHO_LABEL_PX}px repeat(${dias.length}, ${ANCHO_DIA_PX}px)`, minHeight: ALTO_FILA_PX }}
     >
       <div className="flex items-center gap-2 border-r px-3 text-sm">
         {carril.color && <span className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: carril.color }} />}
-        <span className="truncate font-medium text-slate-800">{carril.label}</span>
-        {carril.sublabel && <span className="truncate text-xs text-slate-500">{carril.sublabel}</span>}
+        <div className="flex-1 min-w-0">
+          <div className="truncate font-medium text-slate-800">{carril.label}</div>
+          {carril.sublabel && <div className="truncate text-xs text-slate-500">{carril.sublabel}</div>}
+        </div>
+        {modo === 'operario' && onToggleOperarioPausa && (
+          <button
+            onClick={() => onToggleOperarioPausa(carril.id, !operarioEnPausa)}
+            className={`flex-shrink-0 rounded p-1 text-xs ${operarioEnPausa ? 'bg-amber-200 text-amber-900 hover:bg-amber-300' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700'}`}
+            title={operarioEnPausa ? 'Reanudar este operario' : 'Pausar este operario'}
+          >
+            {operarioEnPausa ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
+          </button>
+        )}
       </div>
       {dias.map((dia, i) => (
         <CeldaDia

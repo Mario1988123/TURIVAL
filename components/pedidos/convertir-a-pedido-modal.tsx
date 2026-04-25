@@ -556,7 +556,7 @@ export function ConvertirAPedidoModal({
             ) : (
               <>
                 <FilePlus2 className="mr-2 h-4 w-4" />
-                Crear pedido en borrador
+                Crear pedido
               </>
             )}
           </Button>

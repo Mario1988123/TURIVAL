@@ -58,6 +58,7 @@ import {
 import type { EstadoPedido, PrioridadPedido } from '@/lib/services/pedidos'
 import MoverPiezaModal from '@/components/pedidos/mover-pieza-modal'
 import AgregarLineasPedidoModal from '@/components/pedidos/agregar-lineas-pedido-modal'
+import BotonRecomendarFechaPedido from '@/components/pedidos/boton-recomendar-fecha-pedido'
 import ReservasPanel from '@/components/pedidos/reservas-panel'
 
 // =============================================================
@@ -263,10 +264,10 @@ export default function PedidoDetalleCliente({
             <Button
               onClick={() => setConfirmOpen(true)}
               size="lg"
-              className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-lg ring-4 ring-amber-300/50 animate-pulse"
+              className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-lg ring-4 ring-amber-300/50"
             >
-              <CheckCircle className="w-4 h-4 mr-2" />
-              Confirmar pedido
+              <Play className="w-4 h-4 mr-2" />
+              Pasar a producción
             </Button>
           )}
           {puedeArrancar && (
@@ -288,6 +289,7 @@ export default function PedidoDetalleCliente({
               Cancelar pedido
             </Button>
           )}
+          <BotonRecomendarFechaPedido pedido_id={pedido.id} />
         </div>
       </div>
 
@@ -306,24 +308,24 @@ export default function PedidoDetalleCliente({
             </div>
             <div className="flex-1">
               <h3 className="text-lg font-bold text-amber-900">
-                ⚠️ Este pedido NO tiene piezas todavía
+                ⚠️ Este pedido NO está en producción todavía
               </h3>
               <p className="mt-1 text-sm text-amber-800">
-                Los pedidos se crean en estado <strong>borrador</strong>. Las piezas físicas (las que llevan QR, aparecen en etiquetas y pasan por producción) se crean <strong>cuando confirmas el pedido</strong>.
+                Está en <strong>borrador</strong>. Las piezas (QR, etiquetas, tareas de producción) se crean al pasarlo a producción.
               </p>
               <p className="mt-2 text-sm text-amber-800">
-                👉 Pulsa el botón naranja grande <strong>&quot;Confirmar pedido&quot;</strong> de arriba. Se te pedirá elegir una ubicación inicial (ej. Carrito 1) y automáticamente se crearán todas las piezas con sus tareas de producción.
+                👉 Pulsa <strong>&quot;Pasar a producción&quot;</strong> de arriba. Elige una ubicación inicial (ej. Carrito 1) y de un solo click: se crean las piezas, se generan las tareas y el pedido arranca (tareas a la cola del Gantt).
               </p>
               <p className="mt-2 text-xs text-amber-700">
-                Mientras no confirmes: las etiquetas saldrán vacías, producción no verá tareas, y el Gantt no pintará nada para este pedido.
+                Mientras no lo hagas: etiquetas vacías, producción no ve tareas, Gantt no pinta nada de este pedido.
               </p>
               <Button
                 onClick={() => setConfirmOpen(true)}
                 size="lg"
                 className="mt-3 bg-amber-500 hover:bg-amber-600 text-white shadow-md"
               >
-                <CheckCircle className="mr-2 h-5 w-5" />
-                Confirmar pedido ahora
+                <Play className="mr-2 h-5 w-5" />
+                Pasar a producción ahora
               </Button>
             </div>
           </div>
@@ -893,16 +895,30 @@ function DialogConfirmarPedido({
       return
     }
     startTransition(async () => {
+      // Paso 1: confirmar (crea piezas + tareas)
       const res = await accionConfirmarPedido({ pedidoId, ubicacionId })
-      if (res.ok) {
+      if (!res.ok) {
+        setErrorSubmit(res.error ?? 'Error al confirmar')
+        return
+      }
+      // Paso 2: arrancar producción automáticamente → pedido pasa a 'en_produccion'
+      //         y las tareas pendiente → en_cola. Así desbloqueamos el flujo
+      //         que Mario pedía: un solo click = piezas + producción.
+      const resArr = await accionArrancarProduccion(pedidoId)
+      if (!resArr.ok) {
+        // Las piezas ya están creadas. Mostramos aviso pero no bloqueamos.
         onOpenChange(false)
         onDone(
           true,
-          `Pedido confirmado. Se han creado ${res.piezasCreadas} pieza${res.piezasCreadas === 1 ? '' : 's'} y ${res.tareasCreadas} tarea${res.tareasCreadas === 1 ? '' : 's'} de producción.`
+          `Pedido confirmado con ${res.piezasCreadas} pieza${res.piezasCreadas === 1 ? '' : 's'}. ⚠️ No se pudo arrancar producción automáticamente: ${resArr.error}. Pulsa "Arrancar producción" manualmente.`
         )
-      } else {
-        setErrorSubmit(res.error ?? 'Error al confirmar')
+        return
       }
+      onOpenChange(false)
+      onDone(
+        true,
+        `✅ Pedido en producción. ${res.piezasCreadas} pieza${res.piezasCreadas === 1 ? '' : 's'} creada${res.piezasCreadas === 1 ? '' : 's'} · ${res.tareasCreadas} tarea${res.tareasCreadas === 1 ? '' : 's'} en cola de producción.`
+      )
     })
   }
 
@@ -910,11 +926,12 @@ function DialogConfirmarPedido({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Confirmar pedido</DialogTitle>
+          <DialogTitle>Pasar a producción</DialogTitle>
           <DialogDescription>
             Se van a crear <strong>{totalPiezas}</strong> pieza
-            {totalPiezas === 1 ? '' : 's'} y sus tareas de producción
-            asociadas. Indica dónde se dejan físicamente al confirmar.
+            {totalPiezas === 1 ? '' : 's'}, sus tareas de producción y se
+            <strong> arrancará la producción</strong> automáticamente (las tareas
+            pasan a la cola). Indica dónde se dejan físicamente las piezas al iniciar.
           </DialogDescription>
         </DialogHeader>
 
@@ -987,12 +1004,12 @@ function DialogConfirmarPedido({
             {isPending ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                Confirmando...
+                Pasando a producción...
               </>
             ) : (
               <>
-                <CheckCircle className="w-4 h-4 mr-2" />
-                Confirmar pedido
+                <Play className="w-4 h-4 mr-2" />
+                Pasar a producción
               </>
             )}
           </Button>
