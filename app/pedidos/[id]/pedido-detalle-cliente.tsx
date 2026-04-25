@@ -15,6 +15,8 @@ import {
   Factory,
   Plus,
   Trash2,
+  QrCode,
+  Truck,
 } from 'lucide-react'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -290,6 +292,22 @@ export default function PedidoDetalleCliente({
             </Button>
           )}
           <BotonRecomendarFechaPedido pedido_id={pedido.id} />
+          {totalPiezasReales > 0 && (
+            <>
+              <Link href={`/etiquetas/pedido/${pedido.id}`}>
+                <Button variant="outline" size="default" title="Imprimir etiquetas/QR de las piezas">
+                  <QrCode className="w-4 h-4 mr-2" />
+                  Imprimir etiquetas
+                </Button>
+              </Link>
+              <Link href={`/albaranes?pedido_id=${pedido.id}`}>
+                <Button variant="outline" size="default" title="Crear albarán para este pedido">
+                  <Truck className="w-4 h-4 mr-2" />
+                  Albarán
+                </Button>
+              </Link>
+            </>
+          )}
         </div>
       </div>
 

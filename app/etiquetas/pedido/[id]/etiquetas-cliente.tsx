@@ -129,20 +129,30 @@ export default function EtiquetasCliente({
           if (!valor) continue
           el.innerHTML = '' // limpiar render anterior
 
+          // Tamaños proporcionales al tamaño de la etiqueta (1mm ≈ 3.78px).
+          // Si el contenedor del código tiene width medible lo usamos, si no
+          // calculamos desde cfg.ancho_mm × cfg.alto_mm como fallback.
+          const rect = el.getBoundingClientRect()
+          const anchoCajaPx = rect.width > 0 ? rect.width : Math.round(cfg.ancho_mm * 3.78 * 0.45)
+          const altoCajaPx  = rect.height > 0 ? rect.height : Math.round(cfg.alto_mm * 3.78 * 0.55)
+          const ladoQrPx    = Math.max(48, Math.min(anchoCajaPx, altoCajaPx) - 4)
+          const altoBarcode = Math.max(24, Math.round(altoCajaPx - 6))
+          const anchoBarra  = Math.max(0.8, Math.min(2, anchoCajaPx / 90))
+
           if (cfg.tipo_codigo === 'code128' && jsbarcodeMod) {
-            const svg = document.createElementNS(
-              'http://www.w3.org/2000/svg',
-              'svg'
-            )
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
             el.appendChild(svg)
             try {
               jsbarcodeMod.default(svg, valor, {
                 format: 'CODE128',
                 displayValue: false,
                 margin: 0,
-                height: 40,
-                width: 1.5,
+                height: altoBarcode,
+                width: anchoBarra,
               })
+              ;(svg as any).style.width = '100%'
+              ;(svg as any).style.height = '100%'
+              ;(svg as any).setAttribute('preserveAspectRatio', 'none')
             } catch {
               el.textContent = valor
             }
@@ -153,8 +163,12 @@ export default function EtiquetasCliente({
               await qrcodeMod.toCanvas(canvas, url, {
                 errorCorrectionLevel: 'M',
                 margin: 0,
-                width: 120,
+                width: ladoQrPx,
               })
+              canvas.style.width = `${ladoQrPx}px`
+              canvas.style.height = `${ladoQrPx}px`
+              canvas.style.maxWidth = '100%'
+              canvas.style.maxHeight = '100%'
             } catch {
               el.textContent = valor
             }
