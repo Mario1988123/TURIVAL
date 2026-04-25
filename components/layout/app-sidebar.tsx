@@ -11,8 +11,12 @@ import {
   Menu,
   X,
   Shield,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 import { MENU_ITEMS } from './menu-items'
+
+const LS_KEY = 'turival:sidebar_collapsed'
 
 interface AppLayoutProps {
   children: React.ReactNode
@@ -21,10 +25,27 @@ interface AppLayoutProps {
 
 export function AppLayout({ children, title }: AppLayoutProps) {
   const [isOpen, setIsOpen] = useState(false)
+  const [collapsed, setCollapsed] = useState(false)
   const [user, setUser] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
   const router = useRouter()
   const supabase = createClient()
+
+  // Cargar estado colapsado desde localStorage
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const saved = localStorage.getItem(LS_KEY)
+    if (saved === '1') setCollapsed(true)
+  }, [])
+
+  // Persistir cambios
+  function toggleCollapsed() {
+    setCollapsed(v => {
+      const nuevo = !v
+      try { localStorage.setItem(LS_KEY, nuevo ? '1' : '0') } catch {}
+      return nuevo
+    })
+  }
 
   useEffect(() => {
     async function checkUser() {
@@ -56,26 +77,30 @@ export function AppLayout({ children, title }: AppLayoutProps) {
     )
   }
 
+  const anchoSidebar = collapsed ? 'md:w-20' : 'md:w-72'
+
   return (
     <div className="flex h-screen bg-slate-100">
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-72 bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 text-white shadow-2xl transition-transform duration-300 ease-out md:relative md:translate-x-0 flex flex-col ${
+        className={`fixed inset-y-0 left-0 z-50 w-72 bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 text-white shadow-2xl transition-all duration-300 ease-out md:relative md:translate-x-0 flex flex-col ${anchoSidebar} ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="px-6 py-8 border-b border-white/10">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-400 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25">
+        <div className={`border-b border-white/10 ${collapsed ? 'px-3 py-6' : 'px-6 py-8'}`}>
+          <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'}`}>
+            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-400 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25 flex-shrink-0">
               <Package className="w-6 h-6 text-white" />
             </div>
-            <div>
-              <h1 className="text-xl font-bold text-white">Turiaval</h1>
-              <p className="text-xs text-slate-400">ERP lacados</p>
-            </div>
+            {!collapsed && (
+              <div>
+                <h1 className="text-xl font-bold text-white">Turiaval</h1>
+                <p className="text-xs text-slate-400">ERP lacados</p>
+              </div>
+            )}
           </div>
         </div>
 
-        <nav className="flex-1 overflow-y-auto py-6 px-4 space-y-1 scrollbar-thin">
+        <nav className={`flex-1 overflow-y-auto py-6 space-y-1 scrollbar-thin ${collapsed ? 'px-2' : 'px-4'}`}>
           {MENU_ITEMS.map((item) => {
             const Icon = item.icon
             return (
@@ -83,19 +108,22 @@ export function AppLayout({ children, title }: AppLayoutProps) {
                 key={item.href}
                 href={item.href}
                 onClick={() => setIsOpen(false)}
-                className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-300 hover:text-white hover:bg-white/10 transition-all duration-200 group"
+                title={collapsed ? item.label : undefined}
+                className={`flex items-center rounded-xl text-slate-300 hover:text-white hover:bg-white/10 transition-all duration-200 group ${
+                  collapsed ? 'justify-center p-2' : 'gap-3 px-4 py-3'
+                }`}
               >
-                <div className="w-9 h-9 rounded-lg bg-white/5 flex items-center justify-center group-hover:bg-white/10 transition-colors">
+                <div className="w-9 h-9 rounded-lg bg-white/5 flex items-center justify-center group-hover:bg-white/10 transition-colors flex-shrink-0">
                   <Icon className="w-5 h-5" />
                 </div>
-                <span className="font-medium text-sm">{item.label}</span>
+                {!collapsed && <span className="font-medium text-sm truncate">{item.label}</span>}
               </Link>
             )
           })}
         </nav>
 
-        <div className="border-t border-white/10 p-4 space-y-3">
-          {user && (
+        <div className={`border-t border-white/10 space-y-3 ${collapsed ? 'p-2' : 'p-4'}`}>
+          {user && !collapsed && (
             <div className="px-4 py-3 bg-white/5 rounded-xl">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold text-sm">
@@ -112,21 +140,37 @@ export function AppLayout({ children, title }: AppLayoutProps) {
           {user?.rol === 'admin' && (
             <Link
               href="/dashboard/admin"
-              className="flex items-center gap-3 px-4 py-3 rounded-xl bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 transition-colors"
+              title={collapsed ? 'Panel Admin' : undefined}
+              className={`flex items-center rounded-xl bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 transition-colors ${
+                collapsed ? 'justify-center p-3' : 'gap-3 px-4 py-3'
+              }`}
             >
-              <Shield className="w-5 h-5" />
-              <span className="font-medium text-sm">Panel Admin</span>
+              <Shield className="w-5 h-5 flex-shrink-0" />
+              {!collapsed && <span className="font-medium text-sm">Panel Admin</span>}
             </Link>
           )}
 
           <button
             onClick={handleLogout}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+            title={collapsed ? 'Cerrar sesión' : undefined}
+            className={`w-full flex items-center rounded-xl text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors ${
+              collapsed ? 'justify-center p-3' : 'gap-3 px-4 py-3'
+            }`}
           >
-            <LogOut className="w-5 h-5" />
-            <span className="font-medium text-sm">Cerrar sesion</span>
+            <LogOut className="w-5 h-5 flex-shrink-0" />
+            {!collapsed && <span className="font-medium text-sm">Cerrar sesion</span>}
           </button>
         </div>
+
+        {/* Botón minimizar/expandir (solo escritorio) */}
+        <button
+          onClick={toggleCollapsed}
+          className="hidden md:flex absolute -right-3 top-6 h-6 w-6 items-center justify-center rounded-full bg-white text-slate-700 shadow-md hover:bg-slate-50 border border-slate-200 z-[55]"
+          title={collapsed ? 'Expandir sidebar' : 'Contraer sidebar'}
+          aria-label={collapsed ? 'Expandir sidebar' : 'Contraer sidebar'}
+        >
+          {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+        </button>
       </aside>
 
       <button
