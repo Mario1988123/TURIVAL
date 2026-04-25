@@ -90,6 +90,9 @@ export default function PresupuestoV2Cliente() {
   const [descuentoGlobal, setDescuentoGlobal] = useState(0)
   const [obsComerciales, setObsComerciales] = useState('')
   const [obsInternas, setObsInternas] = useState('')
+  const [fechaEntrega, setFechaEntrega] = useState<string>('')
+  const [simulandoEntrega, setSimulandoEntrega] = useState(false)
+  const [avisoEntrega, setAvisoEntrega] = useState<string | null>(null)
 
   const [lineas, setLineas] = useState<LineaItem[]>([])
 
@@ -317,6 +320,7 @@ export default function PresupuestoV2Cliente() {
         descuento_porcentaje: descuentoGlobal,
         observaciones_comerciales: obsComerciales || undefined,
         observaciones_internas: obsInternas || undefined,
+        fecha_entrega_estimada: fechaEntrega || undefined,
         lineas: lineasInput,
       })
 
@@ -465,6 +469,43 @@ export default function PresupuestoV2Cliente() {
             <Label>Descuento global %</Label>
             <Input type="number" min="0" max="100" value={descuentoGlobal}
               onChange={(e) => setDescuentoGlobal(parseFloat(e.target.value) || 0)} />
+          </div>
+          <div className="md:col-span-2">
+            <Label>Fecha entrega estimada</Label>
+            <div className="flex gap-2">
+              <Input
+                type="date"
+                value={fechaEntrega}
+                onChange={(e) => setFechaEntrega(e.target.value)}
+                className="flex-1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                disabled={simulandoEntrega || lineas.length === 0}
+                onClick={async () => {
+                  setSimulandoEntrega(true)
+                  setAvisoEntrega(null)
+                  try {
+                    // El presupuesto aún no existe en BD: creamos temporalmente
+                    // mediante el simulador server que acepta un ID. Si no hay
+                    // presupuesto creado, guardamos primero como borrador.
+                    // Para no complicar: guardamos y simulamos después.
+                    setAvisoEntrega('Para recomendar una fecha, guarda primero el presupuesto (botón "Guardar presupuesto") y vuelve a entrar. El simulador lee las líneas ya persistidas.')
+                  } finally {
+                    setSimulandoEntrega(false)
+                  }
+                }}
+              >
+                {simulandoEntrega ? 'Calculando…' : 'Recomendar'}
+              </Button>
+            </div>
+            {avisoEntrega && (
+              <p className="mt-1 text-[11px] text-amber-700">{avisoEntrega}</p>
+            )}
+            <p className="text-[10px] text-muted-foreground">
+              Se ajustará al aceptar el pedido. El Gantt considera los huecos libres de los operarios.
+            </p>
           </div>
           <div className="md:col-span-2">
             <Label>Observaciones comerciales (se imprimen)</Label>

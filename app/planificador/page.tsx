@@ -1,4 +1,5 @@
 import { accionObtenerVistaPlanificador } from '@/lib/actions/planificador'
+import { accionPresupuestosPendientes } from '@/lib/actions/simulador-entrega'
 import PlanificadorCliente from './planificador-cliente'
 
 export const dynamic = 'force-dynamic'
@@ -43,14 +44,17 @@ export default async function PlanificadorPage({
 
   const modo = (params.modo === 'proceso' || params.modo === 'pedido') ? params.modo : 'operario'
 
-  const res = await accionObtenerVistaPlanificador({
-    desde: desde.toISOString(),
-    hasta: hasta.toISOString(),
-    operario_id: params.operario_id,
-    pedido_id: params.pedido_id,
-    prioridad: (params.prioridad as any) || undefined,
-    incluir_sin_planificar: true,
-  })
+  const [res, pendRes] = await Promise.all([
+    accionObtenerVistaPlanificador({
+      desde: desde.toISOString(),
+      hasta: hasta.toISOString(),
+      operario_id: params.operario_id,
+      pedido_id: params.pedido_id,
+      prioridad: (params.prioridad as any) || undefined,
+      incluir_sin_planificar: true,
+    }),
+    accionPresupuestosPendientes(),
+  ])
 
   if (!res.ok) {
     return (
@@ -74,6 +78,7 @@ export default async function PlanificadorPage({
         pedido_id: params.pedido_id,
         prioridad: params.prioridad,
       }}
+      presupuestosPendientes={pendRes.ok ? pendRes.items : []}
     />
   )
 }

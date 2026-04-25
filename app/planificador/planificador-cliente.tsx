@@ -59,11 +59,14 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core'
 import type { VistaPlanificador, FilaPlanificador } from '@/lib/services/planificador'
+import type { PresupuestoPendiente } from '@/lib/services/simulador-entrega'
 import { accionMoverTarea } from '@/lib/actions/planificador'
 import { accionDescansoGlobal, accionDescansoGlobalActivo } from '@/lib/actions/fichajes'
 import PanelSugerencias from './panel-sugerencias'
 import DialogAutogenerar from './dialog-autogenerar'
 import DialogDetalleTarea from './dialog-detalle-tarea'
+import Link from 'next/link'
+import { FileWarning } from 'lucide-react'
 
 // =============================================================
 // CONSTANTES DE LAYOUT
@@ -92,6 +95,7 @@ interface Props {
     pedido_id?: string
     prioridad?: string
   }
+  presupuestosPendientes?: PresupuestoPendiente[]
 }
 
 interface Carril {
@@ -211,7 +215,7 @@ function snapTo(mins: number, step: number): number {
 // COMPONENTE PRINCIPAL
 // =============================================================
 
-export default function PlanificadorCliente({ vista, desde, dias, modo, filtros: _filtros }: Props) {
+export default function PlanificadorCliente({ vista, desde, dias, modo, filtros: _filtros, presupuestosPendientes = [] }: Props) {
   const router = useRouter()
   const [, startTransition] = useTransition()
 
@@ -443,9 +447,43 @@ export default function PlanificadorCliente({ vista, desde, dias, modo, filtros:
           </div>
         )}
 
-        {/* Banners de violaciones + operarios parados */}
+        {/* Banners de violaciones + operarios parados + presupuestos pendientes */}
         <BannersViolaciones vista={vista} />
         <BannerOperariosParados vista={vista} />
+        {presupuestosPendientes.length > 0 && (
+          <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            <FileWarning className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            <div className="min-w-0 flex-1">
+              <div className="font-medium">
+                {presupuestosPendientes.length} presupuesto(s) pendientes de aceptar
+              </div>
+              <div className="mt-0.5 text-xs">
+                Si llenas los huecos con otros trabajos y luego aceptan, habrá que recalcular fechas.
+              </div>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {presupuestosPendientes.slice(0, 6).map((p) => (
+                  <Link
+                    key={p.id}
+                    href={`/presupuestos/${p.id}`}
+                    className="inline-flex items-center gap-1 rounded border border-amber-300 bg-white px-2 py-0.5 text-[11px] font-mono hover:bg-amber-100"
+                    title={`${p.cliente_nombre} · ${p.piezas_count} pieza(s) · ${p.total.toFixed(0)}€`}
+                  >
+                    <span className="font-semibold">{p.numero}</span>
+                    <span className="text-slate-600">· {p.cliente_nombre}</span>
+                    {p.fecha_entrega_estimada && (
+                      <span className="text-slate-500">
+                        · {new Date(p.fecha_entrega_estimada).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}
+                      </span>
+                    )}
+                  </Link>
+                ))}
+                {presupuestosPendientes.length > 6 && (
+                  <span className="text-xs text-amber-800">+{presupuestosPendientes.length - 6} más</span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Leyenda */}
         <div className="flex flex-wrap items-center gap-3 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">

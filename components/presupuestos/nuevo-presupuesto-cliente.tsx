@@ -1005,7 +1005,7 @@ export default function NuevoPresupuestoCliente() {
                 onChange={(e) => setFechaEntrega(e.target.value)}
               />
               <p className="text-[10px] text-muted-foreground">
-                Provisional. Se recalculará con Gantt (módulo 6).
+                Se recalcula con el simulador del Planificador al pulsar "Recomendar fecha".
               </p>
             </div>
           </CardContent>

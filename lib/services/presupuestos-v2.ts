@@ -75,6 +75,7 @@ export interface CrearPresupuestoV2Input {
   descuento_porcentaje?: number   // descuento global, default 0
   observaciones_comerciales?: string
   observaciones_internas?: string
+  fecha_entrega_estimada?: string // ISO date YYYY-MM-DD (calculada por simulador)
   lineas: LineaPresupuestoInput[]
 }
 
@@ -124,6 +125,7 @@ export async function crearPresupuestoV2(
       iva_porcentaje: input.iva_porcentaje ?? 21,
       iva_importe: 0,
       total: 0,
+      fecha_entrega_estimada: input.fecha_entrega_estimada ?? null,
       user_id: authData.user.id,
     })
     .select()
