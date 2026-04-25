@@ -287,10 +287,10 @@ export function parsearComandoVoz(
   // Cliente: busca antes de extraer linea (la linea puede usar ese cliente_id)
   let cliente: ClienteDic | undefined
   let cliente_varios = false
-  if (/cliente\s*var(io|ios)|var\b/i.test(textoNorm)) {
+  if (/\bclient[ea]\s*vari(o|os|as|a)\b|\bvarios?\b\s*$|\bvarias?\b\s*$/i.test(textoNorm)) {
     cliente_varios = true
     const cVarios = dic.clientes.find((c) =>
-      c.alias.some((a) => a.includes('vario')),
+      c.alias.some((a) => a.includes('vario') || a.includes('varia')),
     )
     if (cVarios) {
       cliente = cVarios
@@ -305,15 +305,34 @@ export function parsearComandoVoz(
   }
 
   // ANADIR LINEA
-  if (/^(anade|añade|agrega|agregar|otra linea|otra pieza|mete tambien|mete una)/.test(textoNorm)) {
+  if (/^(anade|añade|agrega|agregar|otra linea|otra pieza|mete tambien|mete una|añadir|anadir)/.test(textoNorm)) {
     const linea = extraerLinea(textoBruto, textoNorm, dic, cliente?.id, warnings, resueltos)
     return { tipo: 'anadir_linea', texto_original: original, lineas: [linea], warnings, resueltos }
   }
 
-  // CREAR PRESUPUESTO (default si hay palabras clave o si hay cliente+linea identificables)
-  const esPresupuesto = /(presupuesto|presupuestar|cotizacion|cotización|cotizar|hazme un presupuesto|quiero un presupuesto|nuevo presupuesto)/.test(textoNorm)
-  if (esPresupuesto || (cliente && (extraerDimensiones(textoBruto).ancho_mm || buscarReferencia(textoNorm, dic, cliente?.id)))) {
+  // Detectores secundarios para inferir presupuesto cuando no hay palabra clave
+  const dims = extraerDimensiones(textoBruto)
+  const tieneDims = !!(dims.ancho_mm || dims.longitud_ml)
+  const procesosDetectados = detectarProcesos(textoNorm)
+  const tieneProcesos = procesosDetectados.length > 0
+  const tieneCategoria = !!buscarCategoria(textoNorm, dic)
+  const tieneRAL = /ral\s*\d{4}/i.test(textoNorm)
+  const tieneRef = !!buscarReferencia(textoNorm, dic, cliente?.id)
+  const tieneMaterial = !!buscarMaterial(textoNorm, dic)
+
+  const esPresupuesto = /(presupuesto|presupuestar|cotizacion|cotización|cotizar|hazme un presupuesto|quiero un presupuesto|nuevo presupuesto|hazme un|quiero|nueva\s*pieza)/.test(textoNorm)
+
+  // Si hay CUALQUIER pista (cliente, dims, RAL, referencia, categoria, material o procesos),
+  // intentamos crear presupuesto. Solo caemos a "desconocido" cuando literalmente
+  // no hemos detectado nada util.
+  const tieneAlgunaSenal = !!cliente || tieneDims || tieneRAL || tieneRef
+    || tieneCategoria || tieneMaterial || tieneProcesos
+
+  if (esPresupuesto || tieneAlgunaSenal) {
     const linea = extraerLinea(textoBruto, textoNorm, dic, cliente?.id, warnings, resueltos)
+    if (!cliente) {
+      warnings.push('no detecte cliente — di "para CLIENTE_X" o "cliente varios"')
+    }
     return {
       tipo: 'crear_presupuesto', texto_original: original,
       cliente, cliente_varios,
@@ -322,9 +341,22 @@ export function parsearComandoVoz(
     }
   }
 
+  // De verdad no hay nada — explica que palabras detecto y cuales no
+  const debug: string[] = []
+  if (!cliente) debug.push('cliente: ✗')
+  if (!tieneCategoria) debug.push('categoria: ✗')
+  if (!tieneDims) debug.push('dimensiones: ✗')
+  if (!tieneRAL) debug.push('color RAL: ✗')
+  if (!tieneRef) debug.push('referencia recurrente: ✗')
+
   return {
     tipo: 'desconocido', texto_original: original,
-    warnings: [...warnings, 'no entendi el comando — di "presupuesto", "anade linea", "fecha de entrega", "urgentes" o "reorganiza"'],
+    warnings: [
+      ...warnings,
+      `no entendi el comando "${textoBruto.slice(0, 80)}"`,
+      `pistas que no encontre: ${debug.join(', ')}`,
+      'di al menos un cliente, una categoria (puerta, zocalo, panel...) o unas dimensiones (200x50)',
+    ],
     resueltos,
   }
 }
