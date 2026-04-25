@@ -15,6 +15,7 @@ import {
   ChevronRight,
 } from 'lucide-react'
 import { MENU_ITEMS } from './menu-items'
+import AsistenteVoz from '@/components/asistente/asistente-voz'
 
 const LS_KEY = 'turival:sidebar_collapsed'
 
@@ -236,6 +237,9 @@ export function AppLayout({ children, title }: AppLayoutProps) {
           </div>
         </main>
       </div>
+
+      {/* Asistente por voz flotante (Capa 9 sin LLM, gratis) */}
+      <AsistenteVoz />
     </div>
   )
 }
