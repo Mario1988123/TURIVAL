@@ -483,6 +483,9 @@ export async function convertirPresupuestoAPedido(
     contabilizar_grosor: l.src.contabilizar_grosor ?? false,
     precio_aproximado: l.src.precio_aproximado ?? false,
     desglose_coste_json: l.src.desglose_coste_json ?? null,
+    // --- Secuencia de procesos del flujo v2 (G1-G8) ---
+    // Sin esto, confirmarPedido no puede generar tareas para líneas sin producto_id.
+    procesos_codigos: l.src.procesos_codigos ?? null,
   }))
 
   const { error: errLP2 } = await supabase
@@ -505,7 +508,7 @@ export async function confirmarPedido(input: ConfirmarPedidoInput) {
   const supabase = await getSupabase()
   const userId = await getUserIdOrThrow()
 
-  // 1. Cargar pedido + líneas necesarias
+  // 1. Cargar pedido + líneas necesarias (incluye campos v2)
   const { data: pedido, error: errP } = await supabase
     .from('pedidos')
     .select(
@@ -515,7 +518,12 @@ export async function confirmarPedido(input: ConfirmarPedidoInput) {
         id, producto_id, cantidad, nivel_complejidad,
         color_id, tratamiento_id, tipo_pieza,
         ancho, alto, grosor, longitud_ml, superficie_m2,
-        material_disponible, fecha_llegada_material
+        material_disponible, fecha_llegada_material,
+        procesos_codigos, categoria_pieza_id,
+        material_lacado_id, material_fondo_id,
+        contabilizar_grosor,
+        cara_frontal, cara_trasera,
+        canto_superior, canto_inferior, canto_izquierdo, canto_derecho
       )
     `
     )
@@ -569,6 +577,17 @@ export async function confirmarPedido(input: ConfirmarPedidoInput) {
         fecha_confirmacion: ahora,
         material_disponible: linea.material_disponible ?? false,
         fecha_llegada_material: linea.fecha_llegada_material ?? null,
+        // --- Snapshot v2: caras y materiales se arrastran a la pieza ---
+        material_lacado_id: linea.material_lacado_id ?? null,
+        material_fondo_id: linea.material_fondo_id ?? null,
+        categoria_pieza_id: linea.categoria_pieza_id ?? null,
+        contabilizar_grosor: linea.contabilizar_grosor ?? false,
+        cara_frontal: linea.cara_frontal ?? true,
+        cara_trasera: linea.cara_trasera ?? true,
+        canto_superior: linea.canto_superior ?? true,
+        canto_inferior: linea.canto_inferior ?? true,
+        canto_izquierdo: linea.canto_izquierdo ?? true,
+        canto_derecho: linea.canto_derecho ?? true,
       })
     }
   }
@@ -608,9 +627,11 @@ export async function confirmarPedido(input: ConfirmarPedidoInput) {
     .insert(movsPayload)
   if (errMov) throw errMov
 
-  // 5. Generar tareas de producción para cada pieza
-  //    Carga una sola vez procesos_producto de todos los productos implicados
+  // 5. Generar tareas de producción para cada pieza.
+  //    DUAL: dos caminos según si la línea es flujo clásico (producto_id) o v2 (procesos_codigos).
   const lineasPorId = new Map<string, any>(lineas.map((l) => [l.id, l]))
+
+  // --- Camino A: flujo clásico con producto_id + procesos_producto ---
   const productosIds = [
     ...new Set(lineas.map((l) => l.producto_id).filter(Boolean)),
   ]
@@ -643,37 +664,119 @@ export async function confirmarPedido(input: ConfirmarPedidoInput) {
     procesosPorProducto.get(p.producto_id)!.push(p)
   }
 
-  // Mapa proceso_id → rol_operario_requerido (para auto-asignación posterior)
+  // --- Camino B: flujo v2 con procesos_codigos + config_tiempos_proceso ---
+  // Recoger todos los códigos únicos usados por cualquier línea v2
+  const codigosV2 = new Set<string>()
+  const categoriasV2 = new Set<string>()
+  for (const l of lineas) {
+    const codigos = Array.isArray(l.procesos_codigos) ? l.procesos_codigos : []
+    for (const c of codigos) if (c) codigosV2.add(c)
+    if (l.categoria_pieza_id) categoriasV2.add(l.categoria_pieza_id)
+  }
+
+  // Catálogo de procesos por código (id, codigo, rol, activo, escala_por_m2, requiere_secado, tiempo_secado_minutos)
+  const procesosCatalogoPorCodigo = new Map<string, any>()
+  if (codigosV2.size > 0) {
+    const { data: catProcs, error: errCat } = await supabase
+      .from('procesos_catalogo')
+      .select('id, codigo, activo, escala_por_m2, rol_operario_requerido, requiere_secado, tiempo_secado_minutos')
+      .in('codigo', Array.from(codigosV2))
+    if (errCat) throw errCat
+    for (const pc of ((catProcs ?? []) as any[])) {
+      procesosCatalogoPorCodigo.set(pc.codigo, pc)
+    }
+  }
+
+  // config_tiempos_proceso: prioriza entrada por (proceso_id, categoria_pieza_id); fallback a (proceso_id, NULL)
+  type ConfigTiempo = { proceso_id: string; categoria_pieza_id: string | null; tiempo_base_min: number; tiempo_por_m2_min: number; tiempo_por_ml_min: number }
+  let tiemposRows: ConfigTiempo[] = []
+  const procesoIdsV2 = Array.from(procesosCatalogoPorCodigo.values()).map((p: any) => p.id)
+  if (procesoIdsV2.length > 0) {
+    const { data: ct } = await supabase
+      .from('config_tiempos_proceso')
+      .select('proceso_id, categoria_pieza_id, tiempo_base_min, tiempo_por_m2_min, tiempo_por_ml_min')
+      .in('proceso_id', procesoIdsV2)
+    tiemposRows = ((ct ?? []) as any[]) as ConfigTiempo[]
+  }
+  const tiempoClave = (procesoId: string, categoriaId: string | null) => `${procesoId}__${categoriaId ?? 'null'}`
+  const mapaTiempos = new Map<string, ConfigTiempo>()
+  for (const t of tiemposRows) mapaTiempos.set(tiempoClave(t.proceso_id, t.categoria_pieza_id), t)
+
+  function tiempoV2(procesoId: string, categoria: string | null, sup_m2: number, longitud_ml: number): number {
+    // Prioridad: por categoría → global
+    const porCat = categoria ? mapaTiempos.get(tiempoClave(procesoId, categoria)) : null
+    const global = mapaTiempos.get(tiempoClave(procesoId, null))
+    const elegido = porCat ?? global
+    if (!elegido) return 0
+    const base = Number(elegido.tiempo_base_min) || 0
+    const porM2 = Number(elegido.tiempo_por_m2_min) || 0
+    const porMl = Number(elegido.tiempo_por_ml_min) || 0
+    return Math.round(base + porM2 * (sup_m2 || 0) + porMl * (longitud_ml || 0))
+  }
+
+  // Mapa proceso_id → rol_operario_requerido (se rellena desde ambos caminos)
   const rolPorProcesoId = new Map<string, string | null>()
   for (const p of procesos) {
     const pc = Array.isArray(p.proceso) ? p.proceso[0] : p.proceso
     rolPorProcesoId.set(p.proceso_id, pc?.rol_operario_requerido ?? null)
   }
+  for (const pc of procesosCatalogoPorCodigo.values()) {
+    rolPorProcesoId.set(pc.id, pc.rol_operario_requerido ?? null)
+  }
 
   const tareasPayload: any[] = []
   for (const pieza of piezasArr) {
     const linea = lineasPorId.get(pieza.linea_pedido_id)
-    if (!linea || !linea.producto_id) continue
-    const procs = procesosPorProducto.get(linea.producto_id) ?? []
-    for (const pp of procs) {
-      const pc = Array.isArray(pp.proceso) ? pp.proceso[0] : (pp.proceso ?? {})
-      if (pc?.activo === false) continue
-      const tiempoEst = calcularTiempoTarea(
-        pp,
-        pc,
-        linea.superficie_m2 ?? 0,
-        linea.nivel_complejidad ?? 2
+    if (!linea) continue
+
+    // Camino A — clásico
+    if (linea.producto_id) {
+      const procs = procesosPorProducto.get(linea.producto_id) ?? []
+      for (const pp of procs) {
+        const pc = Array.isArray(pp.proceso) ? pp.proceso[0] : (pp.proceso ?? {})
+        if (pc?.activo === false) continue
+        const tiempoEst = calcularTiempoTarea(
+          pp,
+          pc,
+          linea.superficie_m2 ?? 0,
+          linea.nivel_complejidad ?? 2
+        )
+        tareasPayload.push({
+          pieza_id: pieza.id,
+          proceso_id: pp.proceso_id,
+          secuencia: pp.secuencia,
+          es_opcional: pp.es_opcional ?? false,
+          depende_de_secuencia: pp.depende_de_secuencia ?? null,
+          estado: 'pendiente',
+          tiempo_estimado_minutos: tiempoEst,
+        })
+      }
+      continue
+    }
+
+    // Camino B — v2 por procesos_codigos
+    const codigos = Array.isArray(linea.procesos_codigos) ? linea.procesos_codigos : []
+    if (codigos.length === 0) continue
+
+    codigos.forEach((codigo: string, idx: number) => {
+      const pc = procesosCatalogoPorCodigo.get(codigo)
+      if (!pc || pc.activo === false) return
+      const tiempoEst = tiempoV2(
+        pc.id,
+        linea.categoria_pieza_id ?? null,
+        Number(linea.superficie_m2) || 0,
+        Number(linea.longitud_ml) || 0,
       )
       tareasPayload.push({
         pieza_id: pieza.id,
-        proceso_id: pp.proceso_id,
-        secuencia: pp.secuencia,
-        es_opcional: pp.es_opcional ?? false,
-        depende_de_secuencia: pp.depende_de_secuencia ?? null,
+        proceso_id: pc.id,
+        secuencia: idx + 1,
+        es_opcional: false,
+        depende_de_secuencia: idx > 0 ? idx : null,
         estado: 'pendiente',
         tiempo_estimado_minutos: tiempoEst,
       })
-    }
+    })
   }
 
   // Insertar tareas y recoger las IDs creadas (necesarias para candidatos)
