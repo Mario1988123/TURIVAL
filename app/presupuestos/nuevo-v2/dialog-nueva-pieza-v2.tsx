@@ -41,6 +41,8 @@ import {
 } from '@/lib/services/presupuestos-v2'
 import type { FactorComplejidad } from '@/lib/motor/coste'
 import type { CategoriaPieza, MaterialConProveedor } from '@/lib/types/erp'
+import SelectorCategoriaPieza from '@/components/presupuestos/selector-categoria-pieza'
+import SelectorMaterialColor from '@/components/presupuestos/selector-material-color'
 
 // --- Datos que devuelve este dialog al padre ---
 export interface NuevaPiezaData {
@@ -422,21 +424,40 @@ export default function DialogNuevaPiezaV2({
               </div>
             </div>
 
-            {/* Categoría */}
+            {/* Categoría — selector visual con iconos y presets */}
             <div>
               <Label>Categoría de pieza *</Label>
-              <Select value={categoriaId} onValueChange={setCategoriaId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecciona una categoría" />
-                </SelectTrigger>
-                <SelectContent>
-                  {categorias.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <p className="mb-1.5 text-[11px] text-slate-500">
+                Al elegir una categoría, se pre-rellenan caras, modo de precio y procesos por defecto.
+              </p>
+              <SelectorCategoriaPieza
+                categorias={categorias}
+                categoriaSeleccionadaId={categoriaId || null}
+                onSeleccionar={(cat) => {
+                  setCategoriaId(cat.id)
+                  // Aplicar preset de la categoría
+                  if (cat.modo_precio_default === 'ml' || cat.modo_precio_default === 'pieza' || cat.modo_precio_default === 'm2') {
+                    setModoPrecio(cat.modo_precio_default as 'm2' | 'pieza' | 'ml')
+                  }
+                  setContabilizarGrosor(cat.contabilizar_grosor_default ?? false)
+                  // Caras según caras_default: 1 = solo frontal, 2 = frontal+trasera, 4 = + cantos laterales, 6 = todas
+                  const n = cat.caras_default ?? 6
+                  setCaraFrontal(n >= 1)
+                  setCaraTrasera(n >= 2)
+                  setCantoIzquierdo(n >= 4)
+                  setCantoDerecho(n >= 4)
+                  setCantoSuperior(n >= 6)
+                  setCantoInferior(n >= 6)
+                  // Procesos por defecto de la categoría
+                  const procDefault = Array.isArray((cat as any).procesos_default) ? (cat as any).procesos_default : []
+                  if (procDefault.length > 0) {
+                    const codigos: string[] = procDefault
+                      .map((p: any) => p?.proceso_codigo)
+                      .filter(Boolean)
+                    if (codigos.length > 0) setProcesosMarcados(new Set(codigos))
+                  }
+                }}
+              />
             </div>
 
             {/* Modo precio */}
@@ -561,39 +582,27 @@ export default function DialogNuevaPiezaV2({
               </div>
             )}
 
-            {/* Materiales */}
+            {/* Materiales — selector visual con muestras de color */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <Label>Lacado (color)</Label>
-                <Select value={lacadoId || '__ninguna__'} onValueChange={(v) => setLacadoId(v === '__ninguna__' ? '' : v)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Opcional" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-72">
-                    <SelectItem value="__ninguna__">— Sin lacado —</SelectItem>
-                    {lacados.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        {m.codigo ? `${m.codigo} · ` : ''}{m.nombre}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SelectorMaterialColor
+                  materiales={lacados}
+                  valorId={lacadoId}
+                  onSeleccionar={setLacadoId}
+                  placeholder="Selecciona un color…"
+                  etiqueta="lacado"
+                />
               </div>
               <div>
                 <Label>Fondo</Label>
-                <Select value={fondoId || '__ninguna__'} onValueChange={(v) => setFondoId(v === '__ninguna__' ? '' : v)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Opcional" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__ninguna__">— Sin fondo —</SelectItem>
-                    {fondos.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        {m.codigo ? `${m.codigo} · ` : ''}{m.nombre}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SelectorMaterialColor
+                  materiales={fondos}
+                  valorId={fondoId}
+                  onSeleccionar={setFondoId}
+                  placeholder="Selecciona fondo…"
+                  etiqueta="fondo"
+                />
               </div>
             </div>
 
