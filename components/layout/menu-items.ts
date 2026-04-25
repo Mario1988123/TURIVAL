@@ -27,6 +27,7 @@ import {
   Clock,
   Settings,
   TrendingUp,
+  CircleDot,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -44,6 +45,7 @@ export const MENU_ITEMS: MenuItem[] = [
   { label: 'Presupuestos', href: '/presupuestos', icon: FileText },
   { label: 'Pedidos', href: '/pedidos', icon: ShoppingCart },
   { label: 'Producción', href: '/produccion', icon: Factory },
+  { label: 'Fichajes', href: '/fichajes', icon: CircleDot },
   { label: 'Albaranes', href: '/albaranes', icon: Truck },
   { label: 'Productos', href: '/productos', icon: Package },
   { label: 'Materiales', href: '/materiales', icon: Palette },

@@ -60,6 +60,7 @@ import {
 } from '@dnd-kit/core'
 import type { VistaPlanificador, FilaPlanificador } from '@/lib/services/planificador'
 import { accionMoverTarea } from '@/lib/actions/planificador'
+import { accionDescansoGlobal, accionDescansoGlobalActivo } from '@/lib/actions/fichajes'
 import PanelSugerencias from './panel-sugerencias'
 import DialogAutogenerar from './dialog-autogenerar'
 import DialogDetalleTarea from './dialog-detalle-tarea'
@@ -218,6 +219,14 @@ export default function PlanificadorCliente({ vista, desde, dias, modo, filtros:
   const [detalleTarea, setDetalleTarea] = useState<FilaPlanificador | null>(null)
   const [enviando, setEnviando] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
+  const [descansoActivo, setDescansoActivo] = useState<boolean>(false)
+
+  // Cargar estado del descanso global al montar
+  useState(() => {
+    accionDescansoGlobalActivo().then(res => {
+      if (res.ok && res.data) setDescansoActivo(res.data.activo)
+    }).catch(() => undefined)
+  })
 
   const tareasPlanificadas = useMemo(
     () => vista.tareas.filter(t => t.inicio_planificado != null),
@@ -383,32 +392,33 @@ export default function PlanificadorCliente({ vista, desde, dias, modo, filtros:
               onAfterApply={() => router.refresh()}
             />
             <Button
-              variant="outline"
+              variant={descansoActivo ? 'default' : 'outline'}
               size="sm"
               className="gap-1.5"
-              title="Pausa global del taller. Requiere la tabla fichajes (script 031). Aparcado hasta que Mario ejecute el SQL."
-              onClick={() => pushToast({
-                tipo: 'warn',
-                texto: 'Descanso aparcado',
-                detalle: 'Requiere ejecutar scripts/031_tabla_fichajes.sql en Supabase antes de activarse.',
-              })}
+              title={descansoActivo ? 'Reanudar taller (cierra descanso global)' : 'Iniciar descanso global del taller'}
+              onClick={async () => {
+                setEnviando(true)
+                try {
+                  const res = await accionDescansoGlobal(!descansoActivo)
+                  if (!res.ok) {
+                    pushToast({
+                      tipo: res.hint === 'instalar_031' ? 'warn' : 'error',
+                      texto: res.hint === 'instalar_031' ? 'Falta ejecutar SQL 031' : 'No se pudo registrar',
+                      detalle: res.error,
+                    })
+                  } else {
+                    setDescansoActivo(!descansoActivo)
+                    pushToast({
+                      tipo: 'ok',
+                      texto: descansoActivo ? 'Taller reanudado' : 'Descanso iniciado',
+                    })
+                  }
+                } finally { setEnviando(false) }
+              }}
               disabled={enviando}
             >
-              <Pause className="h-4 w-4" /> Descanso
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5"
-              title="Reanudar taller tras descanso. Requiere la tabla fichajes (script 031)."
-              onClick={() => pushToast({
-                tipo: 'warn',
-                texto: 'Reanudar aparcado',
-                detalle: 'Requiere ejecutar scripts/031_tabla_fichajes.sql en Supabase antes de activarse.',
-              })}
-              disabled={enviando}
-            >
-              <Play className="h-4 w-4" /> Reanudar
+              {descansoActivo ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+              {descansoActivo ? 'Reanudar' : 'Descanso'}
             </Button>
             <Select value={String(dias)} onValueChange={cambiarDias}>
               <SelectTrigger className="w-[110px]"><SelectValue /></SelectTrigger>
