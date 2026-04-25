@@ -258,25 +258,12 @@ export default function PedidoDetalleCliente({
           </div>
         </div>
 
-        {puedeConfirmar && (
-          <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-            <div className="flex items-start gap-2">
-              <CheckCircle className="mt-0.5 h-5 w-5 flex-shrink-0" />
-              <div>
-                <div className="font-semibold">Este pedido está en borrador y todavía no tiene piezas.</div>
-                <div className="mt-0.5 text-xs">
-                  Pulsa <strong>&quot;Confirmar pedido&quot;</strong> para crear las piezas (una por cada unidad de cada línea) y sus tareas de producción. Hasta que no confirmes, las etiquetas estarán vacías.
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
         <div className="flex gap-2 flex-wrap">
           {puedeConfirmar && (
             <Button
               onClick={() => setConfirmOpen(true)}
-              className="bg-blue-600 hover:bg-blue-700"
+              size="lg"
+              className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-lg ring-4 ring-amber-300/50 animate-pulse"
             >
               <CheckCircle className="w-4 h-4 mr-2" />
               Confirmar pedido
@@ -308,6 +295,39 @@ export default function PedidoDetalleCliente({
         <Alert variant={mensaje.tipo === 'error' ? 'destructive' : 'default'}>
           <AlertDescription>{mensaje.texto}</AlertDescription>
         </Alert>
+      )}
+
+      {/* AVISO GORDO: pedido en borrador sin piezas */}
+      {puedeConfirmar && (
+        <div className="rounded-xl border-4 border-amber-400 bg-gradient-to-r from-amber-50 to-orange-50 p-5 shadow-md">
+          <div className="flex items-start gap-3">
+            <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-amber-500 text-white">
+              <CheckCircle className="h-7 w-7" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-bold text-amber-900">
+                ⚠️ Este pedido NO tiene piezas todavía
+              </h3>
+              <p className="mt-1 text-sm text-amber-800">
+                Los pedidos se crean en estado <strong>borrador</strong>. Las piezas físicas (las que llevan QR, aparecen en etiquetas y pasan por producción) se crean <strong>cuando confirmas el pedido</strong>.
+              </p>
+              <p className="mt-2 text-sm text-amber-800">
+                👉 Pulsa el botón naranja grande <strong>&quot;Confirmar pedido&quot;</strong> de arriba. Se te pedirá elegir una ubicación inicial (ej. Carrito 1) y automáticamente se crearán todas las piezas con sus tareas de producción.
+              </p>
+              <p className="mt-2 text-xs text-amber-700">
+                Mientras no confirmes: las etiquetas saldrán vacías, producción no verá tareas, y el Gantt no pintará nada para este pedido.
+              </p>
+              <Button
+                onClick={() => setConfirmOpen(true)}
+                size="lg"
+                className="mt-3 bg-amber-500 hover:bg-amber-600 text-white shadow-md"
+              >
+                <CheckCircle className="mr-2 h-5 w-5" />
+                Confirmar pedido ahora
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* CLIENTE + PRESUPUESTO ORIGEN */}
