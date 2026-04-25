@@ -27,7 +27,7 @@ import {
   MODULOS_DISPONIBLES,
   type PerfilUsuario,
   type RolUsuario,
-} from '@/lib/services/auth-roles'
+} from '@/lib/types/auth-roles'
 
 interface Props {
   perfilesIniciales: PerfilUsuario[]

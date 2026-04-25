@@ -1,69 +1,25 @@
 /**
  * Servicio de ROLES y permisos por modulo (Capa 9 — auth granular).
  *
- * Mario pidio el 25-abr: admin (mario.ortigueira@me.com) crea otros
- * admin u operarios, y a cada operario le marca solo los modulos que
- * pueda ver. Cliente entra por token y solo ve sus piezas.
- *
- * Tabla: usuario_perfiles (script 035).
+ * SOLO SE USA DESDE SERVIDOR (importa lib/supabase/server). Los Client
+ * Components deben importar tipos de '@/lib/types/auth-roles' y llamar
+ * a las server actions de '@/lib/actions/auth-roles'.
  */
 
 import { createClient } from '@/lib/supabase/server'
+import type { PerfilUsuario, RolUsuario } from '@/lib/types/auth-roles'
 
-export type RolUsuario = 'admin' | 'operario' | 'cliente'
+export type {
+  PerfilUsuario,
+  RolUsuario,
+} from '@/lib/types/auth-roles'
 
-export interface PerfilUsuario {
-  user_id: string
-  rol: RolUsuario
-  nombre: string | null
-  email: string | null
-  modulos_permitidos: string[]
-  activo: boolean
-  created_by: string | null
-  created_at: string
-  updated_at: string
-}
+export {
+  MODULOS_DISPONIBLES,
+  TODOS_LOS_MODULOS,
+  puedeAccederAModulo,
+} from '@/lib/types/auth-roles'
 
-/**
- * Lista de modulos disponibles. El slug debe coincidir con el path
- * de la URL para que el filtrado del sidebar funcione.
- */
-export const MODULOS_DISPONIBLES = [
-  { slug: 'dashboard',     nombre: 'Dashboard' },
-  { slug: 'presupuestos',  nombre: 'Presupuestos' },
-  { slug: 'pedidos',       nombre: 'Pedidos' },
-  { slug: 'planificador',  nombre: 'Planificador (Gantt)' },
-  { slug: 'produccion',    nombre: 'Produccion' },
-  { slug: 'agenda',        nombre: 'Agenda' },
-  { slug: 'albaranes',     nombre: 'Albaranes' },
-  { slug: 'etiquetas',     nombre: 'Etiquetas' },
-  { slug: 'fichajes',      nombre: 'Fichajes' },
-  { slug: 'materiales',    nombre: 'Materiales' },
-  { slug: 'productos',     nombre: 'Productos' },
-  { slug: 'tarifas',       nombre: 'Tarifas' },
-  { slug: 'tratamientos',  nombre: 'Tratamientos' },
-  { slug: 'trazabilidad',  nombre: 'Trazabilidad' },
-  { slug: 'informes',      nombre: 'Informes' },
-  { slug: 'configuracion', nombre: 'Configuracion' },
-] as const
-
-export const TODOS_LOS_MODULOS = MODULOS_DISPONIBLES.map(m => m.slug)
-
-/**
- * Devuelve true si el perfil puede acceder al modulo `slug`.
- * Admin (modulos_permitidos contiene '*') siempre puede.
- */
-export function puedeAccederAModulo(perfil: PerfilUsuario | null, slug: string): boolean {
-  if (!perfil || !perfil.activo) return false
-  if (perfil.rol === 'admin') return true
-  if (perfil.modulos_permitidos.includes('*')) return true
-  return perfil.modulos_permitidos.includes(slug)
-}
-
-/**
- * Recupera el perfil del usuario autenticado actual.
- * Devuelve null si no esta logueado o no tiene perfil aun.
- */
 export async function obtenerPerfilActual(): Promise<PerfilUsuario | null> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -80,9 +36,6 @@ export async function obtenerPerfilActual(): Promise<PerfilUsuario | null> {
   return data as PerfilUsuario
 }
 
-/**
- * Lista todos los perfiles. Solo admin (la funcion SQL valida).
- */
 export async function listarPerfiles(): Promise<PerfilUsuario[]> {
   const supabase = await createClient()
   const { data, error } = await supabase.rpc('listar_perfiles_admin')
@@ -90,10 +43,6 @@ export async function listarPerfiles(): Promise<PerfilUsuario[]> {
   return (data ?? []) as PerfilUsuario[]
 }
 
-/**
- * Asigna o actualiza el rol y los modulos de un usuario ya existente
- * en auth.users. Solo admin puede llamarla (SQL valida).
- */
 export async function asignarRol(params: {
   user_id: string
   rol: RolUsuario
