@@ -258,6 +258,20 @@ export default function PedidoDetalleCliente({
           </div>
         </div>
 
+        {puedeConfirmar && (
+          <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+            <div className="flex items-start gap-2">
+              <CheckCircle className="mt-0.5 h-5 w-5 flex-shrink-0" />
+              <div>
+                <div className="font-semibold">Este pedido está en borrador y todavía no tiene piezas.</div>
+                <div className="mt-0.5 text-xs">
+                  Pulsa <strong>&quot;Confirmar pedido&quot;</strong> para crear las piezas (una por cada unidad de cada línea) y sus tareas de producción. Hasta que no confirmes, las etiquetas estarán vacías.
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="flex gap-2 flex-wrap">
           {puedeConfirmar && (
             <Button
