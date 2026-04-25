@@ -91,6 +91,12 @@ export interface TareaPlanificable {
   /** Contexto del pedido (para prioridad y plazo). */
   pedido_prioridad: PrioridadPedido
   pedido_fecha_entrega_estimada: Date | null
+
+  /**
+   * Reserva tentativa: la tarea proviene de un presupuesto sin confirmar
+   * y el Gantt la pinta difuminada hasta que se valide.
+   */
+  tentativa?: boolean
 }
 
 export interface OperarioDisponible {

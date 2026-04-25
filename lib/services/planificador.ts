@@ -160,6 +160,7 @@ function construirTareaPlanificable(row: any): TareaPlanificable | null {
     operario_id: row.operario_id ?? null,
     pedido_prioridad: prioridadDePedido(pedido.prioridad),
     pedido_fecha_entrega_estimada: fromISO(pedido.fecha_entrega_estimada),
+    tentativa: row.tentativa === true,
   }
 }
 
@@ -183,7 +184,7 @@ function construirContexto(row: any): FilaPlanificadorContexto {
 /** Select compartido para todas las consultas del planificador. */
 const SELECT_GANTT = `
   id, secuencia, estado, es_opcional, depende_de_secuencia,
-  tiempo_estimado_minutos, fecha_inicio_planificada, operario_id,
+  tiempo_estimado_minutos, fecha_inicio_planificada, operario_id, tentativa,
   operario:operarios(id, nombre, rol, color, activo),
   proceso:procesos_catalogo(
     id, codigo, nombre, abreviatura, color_gantt,

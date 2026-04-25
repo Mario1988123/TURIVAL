@@ -16,8 +16,9 @@ import {
   Camera, ImageIcon,
 } from 'lucide-react'
 import { parsearComandoVoz, type IntencionDetectada, type LineaDictada } from '@/lib/motor/asistente-voz/parser'
-import { construirDiccionario, type DiccionarioAsistente } from '@/lib/motor/asistente-voz/diccionario'
+import { construirDiccionario, invalidarDiccionario, type DiccionarioAsistente } from '@/lib/motor/asistente-voz/diccionario'
 import { crearPresupuestoV2 } from '@/lib/services/presupuestos-v2'
+import { createClient } from '@/lib/supabase/client'
 
 // =============================================================
 // Web Speech API typing
@@ -53,6 +54,85 @@ interface MensajeLog {
   texto: string
   detalle?: string
   href?: string
+  /** Acciones contextuales (ej. crear cliente que falta, guardar como referencia) */
+  acciones?: Array<{ label: string; onClick: () => void | Promise<void>; estilo?: 'primario' | 'secundario' }>
+}
+
+/**
+ * Pre-procesa una imagen para mejorar resultado del OCR:
+ *   - redimensiona si es enorme (max 2000px de lado largo)
+ *   - aumenta contraste
+ *   - convierte a escala de grises
+ * Devuelve un Blob image/png. Si falla, devuelve el File original.
+ */
+async function preprocesarImagen(file: File): Promise<Blob> {
+  return new Promise<Blob>((resolve, reject) => {
+    if (typeof window === 'undefined') return resolve(file)
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      try {
+        const MAX = 2000
+        const escala = Math.min(1, MAX / Math.max(img.width, img.height))
+        const w = Math.round(img.width * escala)
+        const h = Math.round(img.height * escala)
+        const canvas = document.createElement('canvas')
+        canvas.width = w; canvas.height = h
+        const ctx = canvas.getContext('2d')
+        if (!ctx) { URL.revokeObjectURL(url); resolve(file); return }
+        ctx.drawImage(img, 0, 0, w, h)
+        // Escala de grises + contraste +50%
+        const data = ctx.getImageData(0, 0, w, h)
+        const arr = data.data
+        const factor = 1.5
+        const intercept = 128 * (1 - factor)
+        for (let i = 0; i < arr.length; i += 4) {
+          const gray = 0.299 * arr[i] + 0.587 * arr[i + 1] + 0.114 * arr[i + 2]
+          let v = gray * factor + intercept
+          v = Math.max(0, Math.min(255, v))
+          arr[i] = v; arr[i + 1] = v; arr[i + 2] = v
+        }
+        ctx.putImageData(data, 0, 0)
+        canvas.toBlob((b) => {
+          URL.revokeObjectURL(url)
+          if (b) resolve(b)
+          else resolve(file)
+        }, 'image/png')
+      } catch {
+        URL.revokeObjectURL(url)
+        resolve(file)
+      }
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('No se pudo cargar la imagen'))
+    }
+    img.src = url
+  })
+}
+
+/**
+ * Busca patrones tipo "CLIENTE: X" en las primeras 5 lineas del texto
+ * OCR. Si lo encuentra, devuelve el nombre para usar como cabecera.
+ */
+function detectarClienteEnCabecera(texto: string): string | null {
+  const lineas = texto.split(/\r?\n/).slice(0, 8)
+  for (const l of lineas) {
+    const m = l.match(/cliente\s*[:\-]?\s*([A-ZÑÁÉÍÓÚa-zñáéíóú0-9.\-\s]{3,50})/i)
+    if (m) return m[1].trim().replace(/\s+/g, ' ')
+  }
+  return null
+}
+
+function leerEnVoz(texto: string) {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
+  try {
+    const u = new SpeechSynthesisUtterance(texto)
+    u.lang = 'es-ES'
+    u.rate = 1.05
+    window.speechSynthesis.cancel()
+    window.speechSynthesis.speak(u)
+  } catch { /* silencio */ }
 }
 
 // =============================================================
@@ -90,6 +170,8 @@ export default function AsistenteVoz({
   const [diccionario, setDiccionario] = useState<DiccionarioAsistente | null>(null)
   const [cargandoDic, setCargandoDic] = useState(false)
   const [progresoOCR, setProgresoOCR] = useState<number | null>(null)
+  const [presupuestoActivo, setPresupuestoActivo] = useState<{ id: string; numero: string; cliente_id: string } | null>(null)
+  const [vozRespuesta, setVozRespuesta] = useState<boolean>(true)
   const idRef = useRef(0)
   const srRef = useRef<SpeechRecognitionLike | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -171,22 +253,23 @@ export default function AsistenteVoz({
 
       switch (intencion.tipo) {
         case 'crear_presupuesto':
-          await ejecutarCrearPresupuesto(intencion, pushLog, router)
+          await ejecutarCrearPresupuesto(intencion, pushLog, router, setPresupuestoActivo, vozRespuesta, setDiccionario)
           break
         case 'anadir_linea':
-          pushLog({ tipo: 'asistente', texto: 'Para añadir lineas, abre el presupuesto y usa "Añadir linea". Hago esa accion en proxima version.' })
+          await ejecutarAnadirLinea(intencion, pushLog, presupuestoActivo, vozRespuesta)
           break
         case 'simular_fecha':
           pushLog({ tipo: 'asistente', texto: 'Usa el boton "Recomendar fecha" en /presupuestos/[id] o /pedidos/[id]. Lo conecto al asistente proximamente.' })
           break
         case 'listar_urgentes':
-          await ejecutarListarUrgentes(pushLog)
+          await ejecutarListarUrgentes(pushLog, vozRespuesta)
           break
         case 'proponer_reorganizacion':
           pushLog({ tipo: 'asistente', texto: 'Reorganizar pedidos: planificador + drag&drop. La reorganizacion automatica llega en proxima iteracion.' })
           break
         case 'cancelar':
           pushLog({ tipo: 'ok', texto: 'Cancelado.' })
+          setPresupuestoActivo(null)
           break
       }
     } catch (e: any) {
@@ -205,14 +288,17 @@ export default function AsistenteVoz({
   }
 
   // -------------------------------------------------------------
-  // OCR de imagen
+  // OCR de imagen — con pre-procesado y multi-linea
   // -------------------------------------------------------------
   async function procesarFoto(file: File) {
     setProgresoOCR(0)
     pushLog({ tipo: 'asistente', texto: `Leyendo foto "${file.name}" con OCR…` })
     try {
+      // 1) Pre-procesar imagen: redimensionar a max 2000px y aumentar contraste
+      const blobProcesado = await preprocesarImagen(file).catch(() => file)
+
       const Tesseract = await import('tesseract.js')
-      const result = await Tesseract.recognize(file, 'spa', {
+      const result = await Tesseract.recognize(blobProcesado as any, 'spa', {
         logger: (m: any) => {
           if (m.status === 'recognizing text' && typeof m.progress === 'number') {
             setProgresoOCR(Math.round(m.progress * 100))
@@ -226,8 +312,35 @@ export default function AsistenteVoz({
         return
       }
       pushLog({ tipo: 'asistente', texto: 'Texto reconocido:', detalle: textoExtraido })
-      // Pipeline normal con el texto OCR
-      ejecutar(textoExtraido)
+
+      // 2) Detectar cabecera con cliente y aplicar a todas las lineas
+      const clienteCabecera = detectarClienteEnCabecera(textoExtraido)
+      const prefijoCliente = clienteCabecera ? `Para ${clienteCabecera}, ` : ''
+
+      // 3) Partir en lineas y procesar cada una como comando independiente
+      const lineas = textoExtraido
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter((s) => s.length >= 4 && /[a-zñáéíóú0-9]/i.test(s))
+        // Excluir lineas que son solo cabecera/footer ruido
+        .filter((s) => !/^(cliente|fecha|telefono|teléfono|n\.?\s*pedido|total|pagado|firma)\s*:?\s*$/i.test(s))
+
+      if (lineas.length === 0) {
+        pushLog({ tipo: 'error', texto: 'OCR no encontro lineas utiles.' })
+        return
+      }
+
+      let primeraLinea = true
+      for (const linea of lineas) {
+        // Saltar la linea de cabecera del cliente (ya la usamos como prefijo)
+        if (clienteCabecera && linea.toUpperCase().includes(clienteCabecera.toUpperCase())) continue
+        // Construir comando: primera linea crea presupuesto, resto añade
+        const comando = primeraLinea
+          ? `${prefijoCliente}${linea}`
+          : `Anade ${linea}`
+        await ejecutar(comando)
+        primeraLinea = false
+      }
     } catch (e: any) {
       setProgresoOCR(null)
       pushLog({ tipo: 'error', texto: `OCR fallo: ${e?.message ?? e}` })
@@ -265,11 +378,24 @@ export default function AsistenteVoz({
                     ({diccionario.clientes.length}c · {diccionario.materiales.length}m · {diccionario.referencias.length}ref)
                   </span>
                 )}
+                {presupuestoActivo && (
+                  <span className="ml-1 text-blue-700 font-semibold">· activo: {presupuestoActivo.numero}</span>
+                )}
               </div>
             </div>
-            <button type="button" onClick={() => setAbierto(false)} className="rounded-md p-1 text-slate-400 hover:bg-slate-100">
-              <X className="h-4 w-4" />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setVozRespuesta((v) => !v)}
+                className={`text-[10px] px-1.5 py-0.5 rounded ${vozRespuesta ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}
+                title={vozRespuesta ? 'Voz activada' : 'Voz desactivada'}
+              >
+                {vozRespuesta ? '🔊' : '🔇'}
+              </button>
+              <button type="button" onClick={() => setAbierto(false)} className="rounded-md p-1 text-slate-400 hover:bg-slate-100">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2 text-sm">
@@ -300,6 +426,24 @@ export default function AsistenteVoz({
                   <button type="button" onClick={() => router.push(m.href!)} className="mt-1 text-xs text-blue-700 underline">
                     Abrir →
                   </button>
+                )}
+                {m.acciones && m.acciones.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {m.acciones.map((a, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => a.onClick()}
+                        className={`text-[11px] px-2 py-1 rounded border ${
+                          a.estilo === 'primario'
+                            ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
+                            : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        {a.label}
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
             ))}
@@ -387,20 +531,54 @@ async function ejecutarCrearPresupuesto(
   intencion: IntencionDetectada,
   pushLog: (m: Omit<MensajeLog, 'id'>) => void,
   router: ReturnType<typeof useRouter>,
+  setPresupuestoActivo: (p: { id: string; numero: string; cliente_id: string } | null) => void,
+  vozRespuesta: boolean,
+  setDiccionario: (d: DiccionarioAsistente | null) => void,
 ) {
   const lineas = intencion.lineas ?? []
   if (lineas.length === 0) {
     pushLog({ tipo: 'error', texto: 'No detecte ninguna pieza.' })
     return
   }
+
+  // Si no hay cliente, ofrecer crearlo al vuelo
   if (!intencion.cliente) {
-    pushLog({ tipo: 'error', texto: 'No detecte cliente. Di "para CLIENTE_X" o "cliente varios".' })
+    const nombreCandidato = intencion.texto_original.match(/para\s+([A-ZÑÁÉÍÓÚa-zñáéíóú0-9.\-\s]{3,40})(?:[,.]|$)/i)?.[1]?.trim()
+    const accionesCrear: MensajeLog['acciones'] = []
+    if (nombreCandidato) {
+      accionesCrear.push({
+        label: `Crear cliente "${nombreCandidato}"`,
+        estilo: 'primario',
+        onClick: async () => {
+          const cliente_id = await crearClienteRapido(nombreCandidato, pushLog)
+          if (cliente_id) {
+            invalidarDiccionario()
+            const dic = await construirDiccionario(true)
+            setDiccionario(dic)
+            // Re-ejecutar el comando original ahora que el cliente existe
+            const nueva: IntencionDetectada = {
+              ...intencion,
+              cliente: {
+                id: cliente_id,
+                razon_social: nombreCandidato.toUpperCase(),
+                nombre_comercial: nombreCandidato.toUpperCase(),
+                alias: [],
+              } as any,
+            }
+            await ejecutarCrearPresupuesto(nueva, pushLog, router, setPresupuestoActivo, vozRespuesta, setDiccionario)
+          }
+        },
+      })
+    }
+    pushLog({
+      tipo: 'error',
+      texto: `No encuentro al cliente. ${nombreCandidato ? `¿Lo creo como "${nombreCandidato}"?` : 'Di "para CLIENTE_X" o "cliente varios".'}`,
+      acciones: accionesCrear.length > 0 ? accionesCrear : undefined,
+    })
     return
   }
 
-  // Mapear lineas a LineaPresupuestoInput
   const lineasInput: any[] = lineas.map((l, i) => construirLineaPresupuesto(l, i))
-
   const lineasPendientes = lineas.filter((l) => l.pendiente).length
 
   const res = await crearPresupuestoV2({
@@ -411,13 +589,156 @@ async function ejecutarCrearPresupuesto(
       : `[Asistente] Origen: "${intencion.texto_original.slice(0, 200)}"`,
   })
 
+  setPresupuestoActivo({ id: res.presupuesto_id, numero: res.numero, cliente_id: intencion.cliente.id })
+
+  // Acciones contextuales: guardar como referencia recurrente
+  const accionesPost: MensajeLog['acciones'] = []
+  for (const linea of lineas) {
+    if (!linea.pendiente && linea.categoria && (linea.ancho_mm || linea.longitud_ml) && !linea.referencia) {
+      accionesPost.push({
+        label: `Guardar "${linea.descripcion.slice(0, 30)}…" como referencia recurrente`,
+        onClick: async () => guardarComoReferencia(intencion.cliente!.id, linea, pushLog),
+      })
+      break // máximo 1 sugerencia por commit
+    }
+  }
+
+  const textoOk = `Presupuesto ${res.numero} creado para ${intencion.cliente.razon_social ?? intencion.cliente.nombre_comercial}, ${res.lineas_creadas} ${res.lineas_creadas === 1 ? 'linea' : 'lineas'}, total ${res.total.toFixed(2)} euros`
   pushLog({
     tipo: 'ok',
     texto: `Presupuesto ${res.numero} creado (${intencion.cliente.razon_social ?? intencion.cliente.nombre_comercial})`,
-    detalle: `${res.lineas_creadas} linea(s) · ${res.total.toFixed(2)} €${lineasPendientes > 0 ? ` · ⚠ ${lineasPendientes} pendiente(s)` : ''}`,
+    detalle: `${res.lineas_creadas} linea(s) · ${res.total.toFixed(2)} €${lineasPendientes > 0 ? ` · ⚠ ${lineasPendientes} pendiente(s)` : ''}\nDi "anade …" para añadir mas lineas a este presupuesto.`,
     href: `/presupuestos/${res.presupuesto_id}`,
+    acciones: accionesPost.length > 0 ? accionesPost : undefined,
   })
+  if (vozRespuesta) leerEnVoz(textoOk)
   router.refresh()
+}
+
+async function ejecutarAnadirLinea(
+  intencion: IntencionDetectada,
+  pushLog: (m: Omit<MensajeLog, 'id'>) => void,
+  presupuestoActivo: { id: string; numero: string; cliente_id: string } | null,
+  vozRespuesta: boolean,
+) {
+  if (!presupuestoActivo) {
+    pushLog({ tipo: 'error', texto: 'Primero crea un presupuesto. "Añade linea" anade al ultimo presupuesto creado en esta sesion.' })
+    return
+  }
+  const lineas = intencion.lineas ?? []
+  if (lineas.length === 0) {
+    pushLog({ tipo: 'error', texto: 'No detecte la linea a anadir.' })
+    return
+  }
+
+  // Insert directo a lineas_presupuesto y actualizar totales
+  const supabase = createClient()
+  // Obtener orden maximo actual
+  const { data: existentes } = await supabase
+    .from('lineas_presupuesto')
+    .select('orden, total_linea')
+    .eq('presupuesto_id', presupuestoActivo.id)
+  const ordenMax = (existentes ?? []).reduce((m: number, l: any) => Math.max(m, Number(l.orden ?? 0)), 0)
+
+  let totalAnadido = 0
+  for (let i = 0; i < lineas.length; i++) {
+    const l = lineas[i]
+    const insert: any = {
+      presupuesto_id: presupuestoActivo.id,
+      orden: ordenMax + i + 1,
+      cantidad: l.cantidad,
+      descripcion: l.descripcion,
+      modo_precio: l.modo_precio ?? 'm2',
+      ancho: l.ancho_mm ?? null,
+      alto: l.alto_mm ?? null,
+      grosor: l.grosor_mm ?? null,
+      longitud_ml: l.longitud_ml ?? null,
+      categoria_pieza_id: l.categoria?.id ?? null,
+      material_lacado_id: l.material_lacado?.id ?? null,
+      material_fondo_id: l.material_fondo?.id ?? null,
+      procesos_codigos: l.procesos,
+      precio_unitario: 0,
+      total_linea: 0,
+      cara_frontal: true,
+    }
+    const { error } = await supabase.from('lineas_presupuesto').insert(insert)
+    if (error) {
+      pushLog({ tipo: 'error', texto: `Error anadiendo linea: ${error.message}` })
+      return
+    }
+  }
+
+  pushLog({
+    tipo: 'ok',
+    texto: `Anadidas ${lineas.length} linea(s) al presupuesto ${presupuestoActivo.numero}`,
+    detalle: `Repasa precios en /presupuestos/${presupuestoActivo.id}`,
+    href: `/presupuestos/${presupuestoActivo.id}`,
+  })
+  if (vozRespuesta) leerEnVoz(`Anadidas ${lineas.length} lineas al presupuesto ${presupuestoActivo.numero}`)
+}
+
+async function crearClienteRapido(
+  nombre: string,
+  pushLog: (m: Omit<MensajeLog, 'id'>) => void,
+): Promise<string | null> {
+  const supabase = createClient()
+  const nombreUpper = nombre.toUpperCase().trim()
+  const { data, error } = await supabase
+    .from('clientes')
+    .insert({
+      razon_social: nombreUpper,
+      nombre_comercial: nombreUpper,
+    })
+    .select('id')
+    .single()
+  if (error || !data) {
+    pushLog({ tipo: 'error', texto: `No pude crear el cliente: ${error?.message ?? 'error'}` })
+    return null
+  }
+  pushLog({ tipo: 'ok', texto: `Cliente "${nombreUpper}" creado.` })
+  return data.id
+}
+
+async function guardarComoReferencia(
+  cliente_id: string,
+  linea: LineaDictada,
+  pushLog: (m: Omit<MensajeLog, 'id'>) => void,
+) {
+  const supabase = createClient()
+  // Codigo derivado: {CATEGORIA}-{ANCHO}x{ALTO} o aleatorio
+  const cat = (linea.categoria?.nombre ?? 'PIEZA').toUpperCase().replace(/\s+/g, '-').slice(0, 20)
+  const dim = linea.ancho_mm && linea.alto_mm
+    ? `${linea.ancho_mm}x${linea.alto_mm}`
+    : linea.longitud_ml
+      ? `${linea.longitud_ml}ML`
+      : Math.floor(Math.random() * 9999).toString()
+  const codigo = `${cat}-${dim}`
+
+  const { error } = await supabase.from('referencias_cliente').insert({
+    cliente_id,
+    referencia_cliente: codigo,
+    nombre_pieza: linea.descripcion,
+    descripcion: `Auto-creada por asistente. ${linea.descripcion}`,
+    modo_precio: linea.modo_precio ?? 'm2',
+    ancho: linea.ancho_mm ?? null,
+    alto: linea.alto_mm ?? null,
+    grosor: linea.grosor_mm ?? null,
+    longitud_ml: linea.longitud_ml ?? null,
+    categoria_pieza_id: linea.categoria?.id ?? null,
+    material_lacado_id: linea.material_lacado?.id ?? null,
+    material_fondo_id: linea.material_fondo?.id ?? null,
+    cara_frontal: true,
+    procesos: linea.procesos.map((c, i) => ({ proceso_codigo: c, orden: i })),
+    factor_complejidad: 'media',
+    descuento_porcentaje: 0,
+    activo: true,
+  })
+  if (error) {
+    pushLog({ tipo: 'error', texto: `No pude guardar la referencia: ${error.message}` })
+    return
+  }
+  invalidarDiccionario()
+  pushLog({ tipo: 'ok', texto: `Referencia "${codigo}" guardada. La proxima vez que este cliente la pida, el OCR la detectara.` })
 }
 
 function construirLineaPresupuesto(l: LineaDictada, i: number): any {
@@ -481,15 +802,23 @@ function construirLineaPresupuesto(l: LineaDictada, i: number): any {
   }
 }
 
-async function ejecutarListarUrgentes(pushLog: (m: Omit<MensajeLog, 'id'>) => void) {
+async function ejecutarListarUrgentes(
+  pushLog: (m: Omit<MensajeLog, 'id'>) => void,
+  vozRespuesta: boolean,
+) {
   const { accionPedidosFechaSinReservar } = await import('@/lib/actions/simulador-entrega')
   const res = await accionPedidosFechaSinReservar()
   if (!res.ok) { pushLog({ tipo: 'error', texto: `No pude consultar: ${res.error}` }); return }
-  if (res.items.length === 0) { pushLog({ tipo: 'ok', texto: 'No hay pedidos con fecha sin reservar. Todo bajo control.' }); return }
+  if (res.items.length === 0) {
+    pushLog({ tipo: 'ok', texto: 'No hay pedidos con fecha sin reservar. Todo bajo control.' })
+    if (vozRespuesta) leerEnVoz('No hay pedidos urgentes. Todo bajo control.')
+    return
+  }
   pushLog({
     tipo: 'asistente',
     texto: `Hay ${res.items.length} pedido(s) con fecha sin reservar:`,
     detalle: res.items.slice(0, 6).map((p) => `${p.numero} · ${p.cliente_nombre} · ${new Date(p.fecha_entrega_estimada).toLocaleDateString('es-ES')}`).join('\n'),
     href: '/planificador',
   })
+  if (vozRespuesta) leerEnVoz(`Hay ${res.items.length} pedidos con fecha sin reservar`)
 }

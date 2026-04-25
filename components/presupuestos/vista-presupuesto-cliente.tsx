@@ -326,6 +326,11 @@ Un saludo,`
               presupuestoNumero={presupuesto.numero}
             />
           )}
+
+          {/* Reservar horas tentativas en Gantt */}
+          {presupuesto.estado !== 'aceptado' && presupuesto.estado !== 'rechazado' && presupuesto.estado !== 'caducado' && (
+            <BotonReservarHoras presupuestoId={presupuesto.id} />
+          )}
         </div>
       </div>
 
@@ -683,6 +688,55 @@ Un saludo,`
           </CardContent>
         </Card>
       )}
+    </div>
+  )
+}
+
+// ============================================================
+// Boton "Reservar horas en Gantt" (tentativa)
+// ============================================================
+
+function BotonReservarHoras({ presupuestoId }: { presupuestoId: string }) {
+  const [estado, setEstado] = useState<'idle' | 'reservando' | 'liberando'>('idle')
+  const [mensajeLocal, setMensajeLocal] = useState<string | null>(null)
+
+  async function reservar() {
+    setEstado('reservando')
+    setMensajeLocal(null)
+    try {
+      const { accionReservarHoras } = await import('@/lib/actions/reservas-presupuesto')
+      const res = await accionReservarHoras(presupuestoId)
+      if (res.ok) setMensajeLocal(`✓ ${res.tareas_creadas} tareas tentativas en el Gantt`)
+      else setMensajeLocal(`✗ ${res.error ?? 'Error'}`)
+    } finally {
+      setEstado('idle')
+    }
+  }
+
+  async function liberar() {
+    setEstado('liberando')
+    setMensajeLocal(null)
+    try {
+      const { accionLiberarReservas } = await import('@/lib/actions/reservas-presupuesto')
+      const res = await accionLiberarReservas(presupuestoId)
+      if (res.ok) setMensajeLocal('✓ reserva liberada')
+      else setMensajeLocal(`✗ ${res.error ?? 'Error'}`)
+    } finally {
+      setEstado('idle')
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <div className="flex gap-2">
+        <Button size="sm" variant="outline" onClick={reservar} disabled={estado !== 'idle'}>
+          {estado === 'reservando' ? 'Reservando…' : 'Reservar horas (Gantt)'}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={liberar} disabled={estado !== 'idle'} className="text-slate-500">
+          {estado === 'liberando' ? 'Liberando…' : 'Liberar'}
+        </Button>
+      </div>
+      {mensajeLocal && <p className="text-[11px] text-slate-600">{mensajeLocal}</p>}
     </div>
   )
 }
