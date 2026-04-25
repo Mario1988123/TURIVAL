@@ -304,6 +304,11 @@ export default function ProduccionCliente({
         </CardContent>
       </Card>
 
+      {/* Mini-Gantt del dia (Mario punto 21) */}
+      {tareasFiltradas.length > 0 && (
+        <MiniGanttDelDia tareas={tareasFiltradas} ahora={ahora} />
+      )}
+
       {/* Contenido */}
       {tareas.length === 0 && (
         <EstadoVacio
@@ -479,5 +484,105 @@ function VistaLista({
         />
       ))}
     </div>
+  )
+}
+
+// ============================================================
+// Mini-Gantt del dia (Mario punto 21) — barra horizontal compacta
+// con las tareas planificadas hoy, agrupadas por operario.
+// ============================================================
+
+function MiniGanttDelDia({ tareas, ahora }: { tareas: any[]; ahora: number }) {
+  const ahoraDate = new Date(ahora)
+  const inicioDia = new Date(ahoraDate); inicioDia.setHours(0, 0, 0, 0)
+  const finDia = new Date(inicioDia); finDia.setDate(finDia.getDate() + 1)
+  const HORA_INI = 8
+  const HORA_FIN = 17
+  const minutosJornada = (HORA_FIN - HORA_INI) * 60
+
+  // Filtrar tareas del día con fecha planificada
+  const delDia = tareas.filter((t) => {
+    if (!t.fecha_inicio_planificada) return false
+    const d = new Date(t.fecha_inicio_planificada).getTime()
+    return d >= inicioDia.getTime() && d < finDia.getTime()
+  })
+  if (delDia.length === 0) return null
+
+  // Agrupar por operario
+  const porOperario = new Map<string, { nombre: string; tareas: any[] }>()
+  for (const t of delDia) {
+    const opId = t.operario_id ?? 'sin-asignar'
+    const opNombre = (t as any).operario?.nombre ?? 'Sin asignar'
+    if (!porOperario.has(opId)) porOperario.set(opId, { nombre: opNombre, tareas: [] })
+    porOperario.get(opId)!.tareas.push(t)
+  }
+
+  // Hora actual como linea vertical
+  const ahoraMin = (ahoraDate.getHours() - HORA_INI) * 60 + ahoraDate.getMinutes()
+  const mostrarLineaAhora = ahoraMin >= 0 && ahoraMin <= minutosJornada
+
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-sm font-semibold text-slate-800">Gantt del día</div>
+          <div className="text-xs text-slate-500">
+            {ahoraDate.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'short' })} · {delDia.length} tareas
+          </div>
+        </div>
+
+        {/* Cabecera horas */}
+        <div className="grid mb-1" style={{ gridTemplateColumns: '120px 1fr' }}>
+          <div />
+          <div className="grid grid-cols-9 text-[10px] text-slate-500 border-b">
+            {Array.from({ length: 9 }).map((_, i) => (
+              <div key={i} className="text-center">
+                {String(HORA_INI + i).padStart(2, '0')}:00
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Filas operario */}
+        <div className="space-y-1">
+          {Array.from(porOperario.entries()).map(([opId, info]) => (
+            <div key={opId} className="grid items-center" style={{ gridTemplateColumns: '120px 1fr' }}>
+              <div className="text-xs font-medium text-slate-700 truncate pr-2">{info.nombre}</div>
+              <div className="relative h-7 bg-slate-50 rounded">
+                {mostrarLineaAhora && (
+                  <div
+                    className="absolute top-0 bottom-0 w-px bg-red-500 z-10"
+                    style={{ left: `${(ahoraMin / minutosJornada) * 100}%` }}
+                    title="Ahora"
+                  />
+                )}
+                {info.tareas.map((t) => {
+                  const ini = new Date(t.fecha_inicio_planificada)
+                  const minIni = (ini.getHours() - HORA_INI) * 60 + ini.getMinutes()
+                  const dur = Number(t.tiempo_estimado_minutos ?? 30)
+                  const left = Math.max(0, (minIni / minutosJornada) * 100)
+                  const width = Math.max(0.5, (dur / minutosJornada) * 100)
+                  if (left >= 100) return null
+                  return (
+                    <div
+                      key={t.id}
+                      className="absolute top-0.5 bottom-0.5 rounded text-[9px] text-white px-1 overflow-hidden whitespace-nowrap"
+                      style={{
+                        left: `${left}%`,
+                        width: `${Math.min(width, 100 - left)}%`,
+                        background: t.proceso?.color_gantt ?? '#64748b',
+                      }}
+                      title={`${t.proceso?.nombre} · ${t.pedido_numero ?? ''}`}
+                    >
+                      {t.proceso?.abreviatura ?? '?'}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   )
 }

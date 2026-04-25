@@ -295,7 +295,7 @@ export async function cambiarEstadoAlbaran(params: {
     .eq('id', params.albaran_id)
   if (error) return { ok: false, error: error.message }
 
-  // Si se marca entregado, marcar también las piezas
+  // Si se marca entregado, marcar piezas + liberar carrito + comprobar pedido
   if (params.estado === 'entregado') {
     const { data: lineas } = await supabase
       .from('lineas_albaran')
@@ -305,10 +305,37 @@ export async function cambiarEstadoAlbaran(params: {
       .map((l) => l.pieza_id)
       .filter((x): x is string => !!x)
     if (piezasIds.length > 0) {
+      // Mario punto 29: al marcar entregado liberamos ubicacion_id (carrito)
+      // y marcamos pieza como entregada
       await supabase
         .from('piezas')
-        .update({ estado: 'entregada', fecha_entrega: new Date().toISOString() })
+        .update({
+          estado: 'entregada',
+          fecha_entrega: new Date().toISOString(),
+          ubicacion_id: null,
+        })
         .in('id', piezasIds)
+
+      // Comprobar si todas las piezas del pedido están entregadas → pedido completado
+      const { data: alb } = await supabase
+        .from('albaranes')
+        .select('pedido_id')
+        .eq('id', params.albaran_id)
+        .maybeSingle()
+      const pedidoId = (alb as any)?.pedido_id
+      if (pedidoId) {
+        const { data: piezasPedido } = await supabase
+          .from('piezas')
+          .select('id, estado, linea_pedido:lineas_pedido!inner(pedido_id)')
+          .eq('linea_pedido.pedido_id', pedidoId)
+        const todas = ((piezasPedido ?? []) as any[])
+        if (todas.length > 0 && todas.every((p) => p.estado === 'entregada' || p.estado === 'anulada')) {
+          await supabase
+            .from('pedidos')
+            .update({ estado: 'entregado' })
+            .eq('id', pedidoId)
+        }
+      }
     }
   }
 

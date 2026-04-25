@@ -215,13 +215,31 @@ export async function accionListarUbicacionesActivas() {
     const supabase = await createClient()
     const { data, error } = await supabase
       .from('ubicaciones')
-      .select('id, codigo, nombre, tipo')
+      .select('id, codigo, nombre, tipo, capacidad_aprox')
       .eq('activo', true)
       .order('codigo', { ascending: true })
     if (error) throw error
+
+    // Mario punto 12: para cada ubicacion contar piezas NO entregadas
+    // (estado != entregada/anulada) y calcular huecos libres si tiene
+    // capacidad_aprox definida. Asi en el modal se ve si esta libre.
+    const ubicaciones = (data ?? []) as Array<UbicacionOpcion & { capacidad_aprox?: number | null }>
+    const enriquecidas = await Promise.all(ubicaciones.map(async (u) => {
+      const { count } = await supabase
+        .from('piezas')
+        .select('*', { count: 'exact', head: true })
+        .eq('ubicacion_id', u.id)
+        .not('estado', 'in', '(entregada,anulada,completada)')
+      const piezas_actuales = count ?? 0
+      const huecos_libres = u.capacidad_aprox != null
+        ? Math.max(0, Number(u.capacidad_aprox) - piezas_actuales)
+        : null
+      return { ...u, piezas_actuales, huecos_libres }
+    }))
+
     return {
       ok: true as const,
-      ubicaciones: (data ?? []) as UbicacionOpcion[],
+      ubicaciones: enriquecidas as any[],
     }
   } catch (e: any) {
     return {

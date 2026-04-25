@@ -273,16 +273,18 @@ export default function PresupuestoImprimible({
             <tbody>
               {lineas.map((l, idx) => {
                 const tipo = l.tipo_pieza ?? 'tablero'
+                // Mario punto 8: en el PDF tiene que verse claramente que
+                // caras y cantos se van a lacar, separados.
                 const caras = [
                   l.cara_frontal && 'Frontal',
                   l.cara_trasera && 'Trasera',
-                  l.canto_superior && 'C.sup',
-                  l.canto_inferior && 'C.inf',
-                  l.canto_izquierdo && 'C.izq',
-                  l.canto_derecho && 'C.der',
-                ]
-                  .filter(Boolean)
-                  .join(', ')
+                ].filter(Boolean).join(' + ')
+                const cantos = [
+                  l.canto_superior && 'sup',
+                  l.canto_inferior && 'inf',
+                  l.canto_izquierdo && 'izq',
+                  l.canto_derecho && 'der',
+                ].filter(Boolean).join(' + ')
                 return (
                   <tr key={l.id} className="border-b border-slate-200 align-top linea-row">
                     <td className="p-2">{idx + 1}</td>
@@ -298,7 +300,15 @@ export default function PresupuestoImprimible({
                             · Perfil: {l.ancho ?? '?'}×{l.grosor ?? '?'} mm
                           </div>
                         ) : tipo === 'irregular' ? (
-                          <div>Pieza irregular · precio pactado</div>
+                          <>
+                            <div>Pieza irregular · precio pactado</div>
+                            {(caras || cantos) && (
+                              <>
+                                {caras && <div>Caras a lacar: <strong>{caras}</strong></div>}
+                                {cantos && <div>Cantos a lacar: <strong>{cantos}</strong></div>}
+                              </>
+                            )}
+                          </>
                         ) : (
                           <>
                             <div>
@@ -308,7 +318,11 @@ export default function PresupuestoImprimible({
                                 {l.ancho ?? 0} × {l.alto ?? 0} × {l.grosor ?? 0} mm
                               </strong>
                             </div>
-                            {caras && <div>Caras lacadas: {caras}</div>}
+                            {caras && <div>Caras a lacar: <strong>{caras}</strong></div>}
+                            {cantos && <div>Cantos a lacar: <strong>{cantos}</strong></div>}
+                            {!caras && !cantos && (
+                              <div className="text-amber-700">⚠ Sin caras ni cantos marcados</div>
+                            )}
                           </>
                         )}
                         <div>

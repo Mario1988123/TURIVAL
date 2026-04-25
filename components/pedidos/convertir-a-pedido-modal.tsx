@@ -164,7 +164,9 @@ export function ConvertirAPedidoModal({
           const cli = res.presupuesto.cliente
           if (cli) {
             setDireccionEntrega(direccionDefectoCliente(cli))
-            setContactoEntrega(cli.persona_contacto ?? '')
+            // Mario punto 13: si no hay persona_contacto, usamos el
+            // nombre_comercial como fallback. Y siempre teléfono del cliente.
+            setContactoEntrega(cli.persona_contacto ?? cli.nombre_comercial ?? '')
             setTelefonoEntrega(cli.telefono ?? '')
           }
         } else if (!res.ok) {
@@ -534,12 +536,24 @@ export function ConvertirAPedidoModal({
                     <SelectValue placeholder={ubicaciones.length === 0 ? 'No hay ubicaciones activas' : 'Elige ubicación…'} />
                   </SelectTrigger>
                   <SelectContent>
-                    {ubicaciones.map((u) => (
-                      <SelectItem key={u.id} value={u.id}>
-                        <span className="font-mono">{u.codigo}</span> — {u.nombre}
-                        <span className="ml-2 text-xs text-muted-foreground">({u.tipo})</span>
-                      </SelectItem>
-                    ))}
+                    {ubicaciones.map((u: any) => {
+                      const lleno = u.huecos_libres === 0
+                      const huecos = u.huecos_libres
+                      return (
+                        <SelectItem key={u.id} value={u.id} disabled={lleno}>
+                          <span className="font-mono">{u.codigo}</span> — {u.nombre}
+                          <span className="ml-2 text-xs text-muted-foreground">({u.tipo})</span>
+                          {huecos != null && (
+                            <span className={`ml-2 text-[10px] ${lleno ? 'text-red-600' : huecos < 3 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                              · {lleno ? 'LLENO' : `${huecos} hueco${huecos === 1 ? '' : 's'}`}
+                            </span>
+                          )}
+                          {u.huecos_libres == null && u.piezas_actuales > 0 && (
+                            <span className="ml-2 text-[10px] text-slate-500">· {u.piezas_actuales} piezas</span>
+                          )}
+                        </SelectItem>
+                      )
+                    })}
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
