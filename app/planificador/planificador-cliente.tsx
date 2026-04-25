@@ -59,6 +59,7 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core'
 import type { VistaPlanificador, FilaPlanificador } from '@/lib/services/planificador'
+import { formatearMinutosJornada } from '@/lib/motor/planificador'
 import type { PresupuestoPendiente, PedidoConFechaSinReservar } from '@/lib/services/simulador-entrega'
 import { accionMoverTarea, accionAutogenerar } from '@/lib/actions/planificador'
 import { accionDescansoGlobal, accionDescansoGlobalActivo } from '@/lib/actions/fichajes'
@@ -885,8 +886,9 @@ function BannersViolaciones({ vista }: { vista: VistaPlanificador }) {
           <div>
             <div className="font-medium">{violaciones_plazo.length} pieza(s) pasan de plazo</div>
             <div className="text-xs">
-              {violaciones_plazo.slice(0, 3).map(v => `+${Math.round(v.retraso_minutos)}m`).join(', ')}
+              {violaciones_plazo.slice(0, 3).map(v => `+${formatearMinutosJornada(v.retraso_minutos)}`).join(', ')}
               {violaciones_plazo.length > 3 ? '…' : ''}
+              <span className="ml-1 text-slate-500">(horas de jornada laboral)</span>
             </div>
           </div>
         </div>
@@ -991,7 +993,17 @@ function DialogDiaAmpliado({
   const inicioDia = new Date(dia); inicioDia.setHours(0, 0, 0, 0)
   const finDia = new Date(dia); finDia.setHours(23, 59, 59, 999)
 
-  // Agrupar tareas del día por carril
+  // Granularidad de la cuadrícula del Gantt ampliado: 15 ó 30 min.
+  // Mario lo pidió así (25-abr noche).
+  const [granularidadMin, setGranularidadMin] = useState<15 | 30>(15)
+
+  // Jornada visible: 08:00–17:00 = 540 min
+  const HORA_INI = 8
+  const HORA_FIN = 17
+  const minutosJornada = (HORA_FIN - HORA_INI) * 60
+
+  // Agrupar tareas del día por carril (incluye tareas que entran ese día,
+  // aunque hayan empezado el día anterior).
   const filasConTareas: Array<{ carril: Carril; tareas: FilaPlanificador[] }> = []
   let totalDia = 0
   for (const c of carriles) {
@@ -999,7 +1011,10 @@ function DialogDiaAmpliado({
     const delDia = todas.filter((t) => {
       if (!t.inicio_planificado) return false
       const ini = new Date(t.inicio_planificado).getTime()
-      return ini >= inicioDia.getTime() && ini <= finDia.getTime()
+      const dur = (t.tiempo_estimado_minutos ?? 0) * 60_000
+      const fin = ini + dur
+      // Cruza el día si: empieza antes del finDia y acaba después del inicioDia
+      return ini <= finDia.getTime() && fin >= inicioDia.getTime()
     }).sort((a, b) =>
       new Date(a.inicio_planificado!).getTime() - new Date(b.inicio_planificado!).getTime()
     )
@@ -1009,84 +1024,225 @@ function DialogDiaAmpliado({
     }
   }
 
+  // Helpers para posicionar barras en la cuadrícula
+  function minutosDesdeInicioJornada(d: Date): number {
+    const h = d.getHours() + d.getMinutes() / 60
+    return Math.round((h - HORA_INI) * 60)
+  }
+
+  // Marcas de tiempo verticales (cada `granularidadMin`)
+  const totalSlots = Math.ceil(minutosJornada / granularidadMin)
+  const slots: number[] = Array.from({ length: totalSlots + 1 }, (_, i) => i * granularidadMin)
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={onClose}
     >
       <div
-        className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-lg bg-white shadow-2xl"
+        className="max-h-[95vh] w-full max-w-6xl overflow-y-auto rounded-lg bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 flex items-center justify-between border-b bg-white px-6 py-4">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-white px-6 py-4 gap-4 flex-wrap">
           <div>
             <h2 className="text-lg font-bold text-slate-900">
               {dia.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
             </h2>
             <p className="text-xs text-slate-500">
-              {totalDia} {totalDia === 1 ? 'tarea' : 'tareas'} planificadas · jornada 08:00–17:00 · vista por {modo}
+              {totalDia} {totalDia === 1 ? 'tarea' : 'tareas'} · jornada 08:00–17:00 · vista por {modo}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1 text-sm hover:bg-slate-50"
-          >
-            Cerrar
-          </button>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-600">Cuadricula:</span>
+            <button
+              type="button"
+              onClick={() => setGranularidadMin(15)}
+              className={`rounded px-2 py-1 text-xs ${granularidadMin === 15 ? 'bg-blue-600 text-white' : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50'}`}
+            >
+              15 min
+            </button>
+            <button
+              type="button"
+              onClick={() => setGranularidadMin(30)}
+              className={`rounded px-2 py-1 text-xs ${granularidadMin === 30 ? 'bg-blue-600 text-white' : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50'}`}
+            >
+              30 min
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="ml-2 rounded-md border border-slate-300 bg-white px-3 py-1 text-sm hover:bg-slate-50"
+            >
+              Cerrar
+            </button>
+          </div>
         </div>
 
-        <div className="p-6">
-          {filasConTareas.length === 0 ? (
-            <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
-              No hay tareas planificadas en este día.
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {filasConTareas.map(({ carril, tareas }) => (
-                <div key={carril.id} className="rounded-md border bg-white">
+        <div className="p-6 space-y-6">
+          {/* === VISTA 1: GANTT AMPLIADO (cuadrícula 15/30 min) === */}
+          <section>
+            <h3 className="mb-2 text-sm font-semibold text-slate-800">
+              Gantt ampliado · cuadricula de {granularidadMin} min
+            </h3>
+            {filasConTareas.length === 0 ? (
+              <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
+                No hay tareas planificadas en este día.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-md border bg-white">
+                <div style={{ minWidth: 64 + totalSlots * Math.max(8, 28 - granularidadMin / 2) }}>
+                  {/* Header de horas */}
                   <div
-                    className="border-b bg-slate-50 px-3 py-2"
-                    style={{ borderLeft: carril.color ? `4px solid ${carril.color}` : undefined }}
+                    className="sticky top-0 z-10 grid border-b bg-slate-50"
+                    style={{ gridTemplateColumns: `120px repeat(${totalSlots}, minmax(0, 1fr))` }}
                   >
-                    <div className="text-sm font-semibold text-slate-800">{carril.label}</div>
-                    {carril.sublabel && <div className="text-xs text-slate-500">{carril.sublabel}</div>}
-                  </div>
-                  <ul className="divide-y">
-                    {tareas.map((t) => {
-                      const ini = new Date(t.inicio_planificado!)
-                      const finMs = ini.getTime() + (t.tiempo_estimado_minutos ?? 0) * 60_000
-                      const fin = new Date(finMs)
-                      const horaIni = ini.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-                      const horaFin = fin.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+                    <div className="border-r px-2 py-1 text-[10px] font-semibold text-slate-600">
+                      Operario / proceso
+                    </div>
+                    {slots.slice(0, -1).map((min, i) => {
+                      const h = HORA_INI + Math.floor(min / 60)
+                      const m = min % 60
+                      // Mostrar etiqueta solo cada 30 min para no apelmazar cuando es 15min
+                      const mostrarLabel = granularidadMin === 30 || m === 0 || m === 30
+                      const esHora = m === 0
                       return (
-                        <li key={t.id}>
-                          <button
-                            type="button"
-                            onClick={() => onVerDetalles(t)}
-                            className="flex w-full items-start gap-3 px-3 py-2 text-left hover:bg-blue-50"
-                          >
-                            <div className="font-mono text-xs font-semibold text-slate-700 w-24 flex-shrink-0">
-                              {horaIni}–{horaFin}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="text-sm font-medium text-slate-900 truncate">
-                                {t.proceso_codigo} · {t.pedido_numero ?? '—'}
-                              </div>
-                              <div className="text-xs text-slate-500 truncate">
-                                {t.cliente_nombre ?? '—'} · {t.tiempo_estimado_minutos ?? 0} min
-                              </div>
-                            </div>
-                            <div className="text-xs text-slate-400">→ ver</div>
-                          </button>
-                        </li>
+                        <div
+                          key={i}
+                          className={`border-r px-0.5 py-1 text-center text-[9px] ${esHora ? 'font-semibold text-slate-700 bg-white' : 'text-slate-400'}`}
+                        >
+                          {mostrarLabel ? `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}` : ''}
+                        </div>
                       )
                     })}
-                  </ul>
+                  </div>
+
+                  {/* Filas con barras posicionadas */}
+                  {filasConTareas.map(({ carril, tareas }) => (
+                    <div
+                      key={carril.id}
+                      className="grid border-b last:border-b-0 hover:bg-slate-50/40"
+                      style={{ gridTemplateColumns: `120px 1fr` }}
+                    >
+                      <div className="border-r px-2 py-2 text-xs">
+                        <div className="font-semibold text-slate-800 truncate">{carril.label}</div>
+                        {carril.sublabel && <div className="text-[10px] text-slate-500 truncate">{carril.sublabel}</div>}
+                      </div>
+                      {/* Pista con barras absolutas */}
+                      <div className="relative h-12">
+                        {/* Líneas verticales de la cuadrícula */}
+                        {slots.slice(1, -1).map((min, i) => {
+                          const left = (min / minutosJornada) * 100
+                          const esHora = min % 60 === 0
+                          return (
+                            <div
+                              key={i}
+                              className="absolute top-0 bottom-0 border-l"
+                              style={{
+                                left: `${left}%`,
+                                borderColor: esHora ? '#cbd5e1' : '#e2e8f0',
+                              }}
+                            />
+                          )
+                        })}
+                        {/* Barras de tareas */}
+                        {tareas.map((t) => {
+                          const ini = new Date(t.inicio_planificado!)
+                          const dur = t.tiempo_estimado_minutos ?? 0
+                          const minDesdeJornada = minutosDesdeInicioJornada(ini)
+                          // Recortar al rango visible
+                          const startMin = Math.max(0, minDesdeJornada)
+                          const endMin = Math.min(minutosJornada, minDesdeJornada + dur)
+                          if (endMin <= 0 || startMin >= minutosJornada) return null
+                          const left = (startMin / minutosJornada) * 100
+                          const width = ((endMin - startMin) / minutosJornada) * 100
+                          const horaIni = ini.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+                          const finReal = new Date(ini.getTime() + dur * 60_000)
+                          const horaFin = finReal.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+                          const claseFondo = PRIORIDAD_CLASES[t.pedido_prioridad] ?? PRIORIDAD_CLASES.normal
+                          const borde = t.color_gantt ?? '#64748b'
+                          return (
+                            <button
+                              type="button"
+                              key={t.id}
+                              onClick={() => onVerDetalles(t)}
+                              title={`${t.pedido_numero} · ${t.proceso_nombre} · ${t.pieza_numero}\n${horaIni}–${horaFin}`}
+                              className={`absolute top-1 bottom-1 overflow-hidden rounded border text-[10px] hover:ring-2 hover:ring-blue-400 transition-shadow ${claseFondo}`}
+                              style={{
+                                left: `${left}%`,
+                                width: `${Math.max(0.5, width)}%`,
+                                borderLeftColor: borde,
+                                borderLeftWidth: 3,
+                              }}
+                            >
+                              <div className="flex h-full flex-col justify-center px-1">
+                                <div className="truncate font-semibold">
+                                  {t.proceso_abreviatura || t.proceso_codigo} · {t.pieza_numero}
+                                </div>
+                                <div className="truncate opacity-80">
+                                  {horaIni}–{horaFin} · {dur}min
+                                </div>
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
+              </div>
+            )}
+          </section>
+
+          {/* === VISTA 2: LISTA DETALLADA (la que ya tenia) === */}
+          <section>
+            <h3 className="mb-2 text-sm font-semibold text-slate-800">Lista detallada</h3>
+            {filasConTareas.length === 0 ? null : (
+              <div className="space-y-3">
+                {filasConTareas.map(({ carril, tareas }) => (
+                  <div key={carril.id} className="rounded-md border bg-white">
+                    <div
+                      className="border-b bg-slate-50 px-3 py-2"
+                      style={{ borderLeft: carril.color ? `4px solid ${carril.color}` : undefined }}
+                    >
+                      <div className="text-sm font-semibold text-slate-800">{carril.label}</div>
+                      {carril.sublabel && <div className="text-xs text-slate-500">{carril.sublabel}</div>}
+                    </div>
+                    <ul className="divide-y">
+                      {tareas.map((t) => {
+                        const ini = new Date(t.inicio_planificado!)
+                        const finMs = ini.getTime() + (t.tiempo_estimado_minutos ?? 0) * 60_000
+                        const fin = new Date(finMs)
+                        const horaIni = ini.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+                        const horaFin = fin.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+                        return (
+                          <li key={t.id}>
+                            <button
+                              type="button"
+                              onClick={() => onVerDetalles(t)}
+                              className="flex w-full items-start gap-3 px-3 py-2 text-left hover:bg-blue-50"
+                            >
+                              <div className="font-mono text-xs font-semibold text-slate-700 w-28 flex-shrink-0">
+                                {horaIni}–{horaFin}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium text-slate-900 truncate">
+                                  {t.proceso_codigo} · {t.pedido_numero ?? '—'}
+                                </div>
+                                <div className="text-xs text-slate-500 truncate">
+                                  {t.cliente_nombre ?? '—'} · {t.tiempo_estimado_minutos ?? 0} min
+                                </div>
+                              </div>
+                              <div className="text-xs text-slate-400">→ ver</div>
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
         </div>
       </div>
     </div>

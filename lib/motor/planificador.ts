@@ -231,6 +231,74 @@ function minutosEntre(a: Date, b: Date): number {
   return Math.round((b.getTime() - a.getTime()) / MS_POR_MIN)
 }
 
+/**
+ * Minutos de JORNADA LABORAL entre `desde` y `hasta`. Solo cuenta
+ * tiempo dentro de los días/horas laborables — descarta noches y fines
+ * de semana. Útil para expresar "cuánto se pasa de plazo" en términos
+ * de horas reales de taller, no de horas wallclock.
+ *
+ * Si `hasta <= desde` devuelve 0.
+ */
+export function minutosJornadaEntre(
+  desde: Date,
+  hasta: Date,
+  jornada: JornadaLaboral,
+): number {
+  if (hasta.getTime() <= desde.getTime()) return 0
+  const minutosPorDia = (() => {
+    const ini = parseHHMM(jornada.hora_inicio)
+    const fin = parseHHMM(jornada.hora_fin)
+    const total = (fin.h * 60 + fin.m) - (ini.h * 60 + ini.m)
+    return Math.max(0, total - (jornada.minutos_descanso_intermedio ?? 0))
+  })()
+  if (minutosPorDia <= 0) return 0
+
+  let acc = 0
+  // Iteramos por día calendario desde `desde` hasta `hasta`.
+  const cursor = new Date(desde)
+  cursor.setHours(0, 0, 0, 0)
+  const limite = new Date(hasta)
+  limite.setHours(0, 0, 0, 0)
+  while (cursor.getTime() <= limite.getTime()) {
+    if (jornada.dias_laborables.includes(cursor.getDay())) {
+      const inicioLab = conHora(cursor, jornada.hora_inicio)
+      const finLab = conHora(cursor, jornada.hora_fin)
+      const sliceIni = desde > inicioLab ? desde : inicioLab
+      const sliceFin = hasta < finLab ? hasta : finLab
+      if (sliceFin > sliceIni) {
+        acc += Math.round((sliceFin.getTime() - sliceIni.getTime()) / MS_POR_MIN)
+      }
+    }
+    cursor.setDate(cursor.getDate() + 1)
+  }
+  return acc
+}
+
+/**
+ * Formatea minutos en algo legible: "2d 4h 15m" / "5h 30m" / "45m".
+ * Usa días de jornada laboral (540 min) si jornada se pasa, en otro
+ * caso usa días de 24h. Ejemplo de uso desde UI:
+ *   formatearMinutos(1939) → "1d 5h 19m" (con jornada de 540 min/día)
+ */
+export function formatearMinutosJornada(
+  minutos: number,
+  jornada: JornadaLaboral = JORNADA_DEFAULT,
+): string {
+  const ini = parseHHMM(jornada.hora_inicio)
+  const fin = parseHHMM(jornada.hora_fin)
+  const minPorDia = Math.max(60, (fin.h * 60 + fin.m) - (ini.h * 60 + ini.m) - (jornada.minutos_descanso_intermedio ?? 0))
+  const total = Math.max(0, Math.round(minutos))
+  const dias = Math.floor(total / minPorDia)
+  const resto1 = total - dias * minPorDia
+  const horas = Math.floor(resto1 / 60)
+  const mins = resto1 - horas * 60
+  const partes: string[] = []
+  if (dias > 0) partes.push(`${dias}d`)
+  if (horas > 0) partes.push(`${horas}h`)
+  if (mins > 0 || partes.length === 0) partes.push(`${mins}m`)
+  return partes.join(' ')
+}
+
 function parseHHMM(hhmm: string): { h: number; m: number } {
   const [h, m] = hhmm.split(':').map(Number)
   return { h: h || 0, m: m || 0 }
@@ -471,7 +539,10 @@ export function detectarViolacionesSecuencia(tareas: TareaPlanificada[]): Violac
   return violaciones
 }
 
-export function detectarViolacionesPlazo(tareas: TareaPlanificada[]): ViolacionPlazo[] {
+export function detectarViolacionesPlazo(
+  tareas: TareaPlanificada[],
+  jornada: JornadaLaboral = JORNADA_DEFAULT,
+): ViolacionPlazo[] {
   const porPieza = new Map<string, TareaPlanificada[]>()
   for (const t of tareas) {
     const arr = porPieza.get(t.pieza_id) ?? []
@@ -484,12 +555,16 @@ export function detectarViolacionesPlazo(tareas: TareaPlanificada[]): ViolacionP
     if (!fechaEntrega) continue
     const finUltima = arr.reduce((max, t) => t.fin_con_secado > max ? t.fin_con_secado : max, arr[0].fin_con_secado)
     if (finUltima > fechaEntrega) {
+      // El retraso se mide en minutos de JORNADA, no wallclock. Si entre
+      // la fecha de entrega y el fin de la última tarea hay un finde, no
+      // contamos esos minutos. Asi "+1939m" calendario se queda en "+540m
+      // jornada" si solo hay un dia laboral de retraso.
       violaciones.push({
         pieza_id,
         pedido_id: arr[0].pedido_id,
         fecha_entrega: fechaEntrega,
         fin_ultima_tarea: finUltima,
-        retraso_minutos: minutosEntre(fechaEntrega, finUltima),
+        retraso_minutos: minutosJornadaEntre(fechaEntrega, finUltima, jornada),
       })
     }
   }
@@ -720,14 +795,22 @@ export function sugerirHorasExtra(
   pedido_id: string,
   tareasPedido: TareaPlanificada[],
   fechaEntrega: Date,
+  jornada: JornadaLaboral = JORNADA_DEFAULT,
 ): SugerenciaHorasExtra | null {
   const violaciones = tareasPedido.filter(t => t.fin_con_secado > fechaEntrega)
   if (violaciones.length === 0) return null
-  const minutos = violaciones.reduce((acc, t) => acc + minutosEntre(fechaEntrega, t.fin_con_secado), 0)
+  // En vez de sumar todos los retrasos (sobrecuenta cuando varias tareas
+  // van encadenadas), tomamos el retraso de la tarea que termina mas tarde.
+  // Y lo medimos en minutos de jornada laboral, no calendario.
+  const finMasTardio = violaciones.reduce(
+    (max, t) => t.fin_con_secado > max ? t.fin_con_secado : max,
+    violaciones[0].fin_con_secado,
+  )
+  const minutos = minutosJornadaEntre(fechaEntrega, finMasTardio, jornada)
   const roles = Array.from(new Set(violaciones.map(t => t.rol_operario_requerido).filter((x): x is string => !!x)))
   return {
     tipo: 'horas_extra',
-    mensaje: `Pedido ${pedido_id} se pasa de plazo en ${Math.round(minutos)} min acumulados`,
+    mensaje: `Pedido ${pedido_id} se pasa ${formatearMinutosJornada(minutos, jornada)} de plazo`,
     pedido_id,
     minutos_necesarios: minutos,
     fecha_entrega: fechaEntrega,

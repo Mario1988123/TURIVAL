@@ -21,10 +21,11 @@ import {
   accionSugerenciasHorasExtra,
   accionAplicarAgrupacion,
 } from '@/lib/actions/planificador'
-import type {
-  SugerenciaHueco,
-  SugerenciaHorasExtra,
-  SugerenciaAgrupacion,
+import {
+  formatearMinutosJornada,
+  type SugerenciaHueco,
+  type SugerenciaHorasExtra,
+  type SugerenciaAgrupacion,
 } from '@/lib/motor/planificador'
 import type { OperarioDisponible } from '@/lib/motor/planificador'
 
@@ -247,7 +248,7 @@ function SeccionHorasExtra({ horasExtra }: { horasExtra: SugerenciaHorasExtra[] 
             <CardContent className="p-3">
               <div className="text-xs font-medium text-red-900">{s.mensaje}</div>
               <div className="text-xs text-red-700">
-                +{Math.round(s.minutos_necesarios)} min · {s.roles_afectados.length ? `roles: ${s.roles_afectados.join(', ')}` : 'sin rol específico'}
+                +{formatearMinutosJornada(s.minutos_necesarios)} de jornada · {s.roles_afectados.length ? `roles: ${s.roles_afectados.join(', ')}` : 'sin rol específico'}
               </div>
             </CardContent>
           </Card>
