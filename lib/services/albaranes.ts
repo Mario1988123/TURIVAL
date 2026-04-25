@@ -62,11 +62,15 @@ export async function listarAlbaranes(filtros?: {
   pedido_id?: string
 }): Promise<AlbaranListado[]> {
   const supabase = await createClient()
+
+  // Nota: albaranes.pedido_id NO tiene FK declarada en el schema (albaranes_pedido_id_fkey
+  // falta). PostgREST no puede hacer embed `pedido:pedidos(...)` sin FK, por eso
+  // hacemos dos queries y mergeamos manualmente. Fix definitivo pendiente: añadir
+  // FK en scripts/032_fix_fk_albaranes_pedido.sql.
   let q = supabase
     .from('albaranes')
     .select(`
-      id, numero, estado, fecha_entrega, observaciones, created_at,
-      pedido:pedidos(numero),
+      id, numero, pedido_id, estado, fecha_entrega, observaciones, created_at,
       cliente:clientes(nombre_comercial),
       lineas:lineas_albaran(id)
     `)
@@ -76,15 +80,27 @@ export async function listarAlbaranes(filtros?: {
 
   const { data, error } = await q
   if (error) throw error
+  const albaranesRows = ((data ?? []) as any[])
 
-  return ((data ?? []) as any[]).map((a) => ({
+  // Cargar pedidos referenciados en un solo round-trip
+  const pedidoIds = Array.from(new Set(albaranesRows.map(a => a.pedido_id).filter(Boolean)))
+  const pedidoNumMap = new Map<string, string>()
+  if (pedidoIds.length > 0) {
+    const { data: pedidos } = await supabase
+      .from('pedidos')
+      .select('id, numero')
+      .in('id', pedidoIds)
+    for (const p of ((pedidos ?? []) as any[])) pedidoNumMap.set(p.id, p.numero)
+  }
+
+  return albaranesRows.map((a) => ({
     id: a.id,
     numero: a.numero,
     estado: a.estado,
     fecha_entrega: a.fecha_entrega,
     observaciones: a.observaciones,
-    pedido_numero: a.pedido?.numero ?? '',
-    cliente_nombre: a.cliente?.nombre_comercial ?? '',
+    pedido_numero: pedidoNumMap.get(a.pedido_id) ?? '',
+    cliente_nombre: (Array.isArray(a.cliente) ? a.cliente[0]?.nombre_comercial : a.cliente?.nombre_comercial) ?? '',
     piezas_count: (a.lineas ?? []).length,
     created_at: a.created_at,
   }))
@@ -95,8 +111,7 @@ export async function obtenerAlbaran(id: string): Promise<AlbaranDetalle | null>
   const { data, error } = await supabase
     .from('albaranes')
     .select(`
-      id, numero, estado, fecha_entrega, observaciones, firma_cliente, created_at,
-      pedido:pedidos(numero),
+      id, numero, pedido_id, estado, fecha_entrega, observaciones, firma_cliente, created_at,
       cliente:clientes(nombre_comercial, direccion, ciudad, cif_nif),
       lineas:lineas_albaran(
         id, pieza_id, descripcion, cantidad, observaciones,
@@ -108,6 +123,20 @@ export async function obtenerAlbaran(id: string): Promise<AlbaranDetalle | null>
   if (error) return null
 
   const a = data as any
+
+  // Cargar número de pedido en query separada (FK ausente, ver listarAlbaranes)
+  let pedido_numero = ''
+  if (a.pedido_id) {
+    const { data: ped } = await supabase
+      .from('pedidos')
+      .select('numero')
+      .eq('id', a.pedido_id)
+      .maybeSingle()
+    pedido_numero = (ped as any)?.numero ?? ''
+  }
+
+  const cli: any = Array.isArray(a.cliente) ? a.cliente[0] : a.cliente
+
   return {
     id: a.id,
     numero: a.numero,
@@ -116,20 +145,23 @@ export async function obtenerAlbaran(id: string): Promise<AlbaranDetalle | null>
     observaciones: a.observaciones,
     firma_cliente: a.firma_cliente,
     created_at: a.created_at,
-    pedido_numero: a.pedido?.numero ?? '',
-    cliente_nombre: a.cliente?.nombre_comercial ?? '',
-    cliente_direccion: a.cliente?.direccion ?? null,
-    cliente_ciudad: a.cliente?.ciudad ?? null,
-    cliente_cif: a.cliente?.cif_nif ?? null,
+    pedido_numero,
+    cliente_nombre: cli?.nombre_comercial ?? '',
+    cliente_direccion: cli?.direccion ?? null,
+    cliente_ciudad: cli?.ciudad ?? null,
+    cliente_cif: cli?.cif_nif ?? null,
     piezas_count: (a.lineas ?? []).length,
-    piezas: (a.lineas ?? []).map((l: any) => ({
-      linea_id: l.id,
-      pieza_id: l.pieza_id,
-      pieza_numero: l.pieza?.numero ?? null,
-      descripcion: l.descripcion,
-      cantidad: l.cantidad ?? 1,
-      observaciones: l.observaciones,
-    })),
+    piezas: (a.lineas ?? []).map((l: any) => {
+      const pz: any = Array.isArray(l.pieza) ? l.pieza[0] : l.pieza
+      return {
+        linea_id: l.id,
+        pieza_id: l.pieza_id,
+        pieza_numero: pz?.numero ?? null,
+        descripcion: l.descripcion,
+        cantidad: l.cantidad ?? 1,
+        observaciones: l.observaciones,
+      }
+    }),
   }
 }
 
