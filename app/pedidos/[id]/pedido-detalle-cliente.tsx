@@ -787,7 +787,60 @@ function LineaCard({
             Tratamiento: <strong>{linea.tratamiento.nombre}</strong>
           </div>
         )}
+        {linea.cantidad != null && (
+          <div>
+            Cantidad: <strong>{linea.cantidad}</strong>
+          </div>
+        )}
+        {linea.tiempo_estimado != null && Number(linea.tiempo_estimado) > 0 && (
+          <div>
+            Tiempo estim.: <strong>{Math.round(Number(linea.tiempo_estimado))} min</strong>
+          </div>
+        )}
+        {linea.precio_unitario != null && (
+          <div>
+            Precio ud.: <strong>{Number(linea.precio_unitario).toFixed(2)} €</strong>
+          </div>
+        )}
+        {linea.total_linea != null && (
+          <div>
+            Total línea: <strong>{Number(linea.total_linea).toFixed(2)} €</strong>
+          </div>
+        )}
       </div>
+
+      {/* Procesos a aplicar (flujo v2) */}
+      {Array.isArray(linea.procesos_codigos) && linea.procesos_codigos.length > 0 && (
+        <div className="text-xs text-muted-foreground mb-2">
+          <span className="font-semibold text-slate-700">Procesos: </span>
+          {linea.procesos_codigos.map((c: string, i: number) => (
+            <Badge key={i} variant="outline" className="mr-1 text-[10px]">
+              {c.replace(/_/g, ' ')}
+            </Badge>
+          ))}
+        </div>
+      )}
+
+      {/* Materiales reservados */}
+      {(linea.material_lacado_id || linea.material_fondo_id) && (
+        <div className="text-xs text-muted-foreground mb-2 flex flex-wrap gap-x-4 gap-y-1">
+          {linea.material_lacado_id && (
+            <div>
+              Lacado: <span className="font-mono">{linea.material_lacado_id.slice(0, 8)}…</span>
+            </div>
+          )}
+          {linea.material_fondo_id && (
+            <div>
+              Fondo: <span className="font-mono">{linea.material_fondo_id.slice(0, 8)}…</span>
+            </div>
+          )}
+          {linea.categoria_pieza_id && (
+            <div>
+              Categoría: <span className="font-mono">{linea.categoria_pieza_id.slice(0, 8)}…</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {piezas.length > 0 && (
         <div className="mt-3 pt-3 border-t bg-white -mx-4 -mb-4 px-4 pb-4 rounded-b-lg">
