@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/table'
 import {
   FileText, Plus, Save, Loader2, X, Trash2, Layers, Edit3, Info,
+  Search, User as UserIcon,
 } from 'lucide-react'
 import DialogNuevaPiezaV2, { type NuevaPiezaData } from './dialog-nueva-pieza-v2'
 
@@ -414,11 +415,11 @@ export default function PresupuestoV2Cliente() {
       <div>
         <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
           <FileText className="w-8 h-8" />
-          Nuevo presupuesto (motor ERP)
+          Nuevo presupuesto
         </h1>
         <p className="text-muted-foreground">
-          Carga piezas recurrentes del cliente o añade líneas manuales.
-          El coste, margen y consumo de materiales se calcula automáticamente.
+          Carga piezas recurrentes del cliente o añade nuevas piezas. El coste,
+          margen y consumo de materiales se calcula automáticamente.
         </p>
       </div>
 
@@ -430,16 +431,11 @@ export default function PresupuestoV2Cliente() {
         <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="md:col-span-3">
             <Label>Cliente *</Label>
-            <Select value={clienteId} onValueChange={setClienteId}>
-              <SelectTrigger><SelectValue placeholder="Selecciona un cliente…" /></SelectTrigger>
-              <SelectContent>
-                {clientes.map(c => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.nombre_comercial}{c.razon_social ? ` — ${c.razon_social}` : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SelectorClienteModal
+              clientes={clientes}
+              valorId={clienteId}
+              onSeleccionar={setClienteId}
+            />
           </div>
 
           <div>
@@ -462,7 +458,7 @@ export default function PresupuestoV2Cliente() {
               onChange={(e) => setDescuentoGlobal(parseFloat(e.target.value) || 0)} />
           </div>
           <div className="md:col-span-2">
-            <Label>Fecha entrega estimada</Label>
+            <Label>Fecha entrega estimada (Planificador)</Label>
             <div className="flex gap-2">
               <Input
                 type="date"
@@ -495,7 +491,7 @@ export default function PresupuestoV2Cliente() {
               <p className="mt-1 text-[11px] text-amber-700">{avisoEntrega}</p>
             )}
             <p className="text-[10px] text-muted-foreground">
-              Se ajustará al aceptar el pedido. El Gantt considera los huecos libres de los operarios.
+              Se ajustará al aceptar el pedido. El planificador considera los huecos libres de los operarios.
             </p>
           </div>
           <div className="md:col-span-2">
@@ -678,7 +674,7 @@ export default function PresupuestoV2Cliente() {
                 <Info className="w-4 h-4" />
                 <AlertDescription className="text-xs">
                   Hay piezas nuevas sin calcular. Su precio se calcula en
-                  servidor al guardar (motor ERP con rendimientos y tarifas),
+                  servidor al guardar (con rendimientos y tarifas),
                   o puedes pulsar <strong>Calcular precio</strong> en el
                   diálogo de cada pieza para verlo ya aquí.
                 </AlertDescription>
@@ -849,5 +845,100 @@ export default function PresupuestoV2Cliente() {
         </div>
       )}
     </div>
+  )
+}
+
+// ============================================================
+// Selector de cliente: modal con buscador (en vez de Select largo)
+// ============================================================
+
+function SelectorClienteModal({
+  clientes,
+  valorId,
+  onSeleccionar,
+}: {
+  clientes: Cliente[]
+  valorId: string
+  onSeleccionar: (id: string) => void
+}) {
+  const [abierto, setAbierto] = useState(false)
+  const [filtro, setFiltro] = useState('')
+
+  const seleccionado = clientes.find((c) => c.id === valorId)
+  const filtrados = useMemo(() => {
+    const q = filtro.trim().toLowerCase()
+    if (!q) return clientes
+    return clientes.filter((c) => {
+      const txt = [c.nombre_comercial, c.razon_social, c.cif_nif, c.email].filter(Boolean).join(' ').toLowerCase()
+      return txt.includes(q)
+    })
+  }, [clientes, filtro])
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setAbierto(true)}
+        className="flex h-10 w-full items-center justify-between rounded-md border bg-white px-3 py-2 text-sm hover:bg-slate-50"
+      >
+        <span className="flex items-center gap-2 truncate">
+          <UserIcon className="h-4 w-4 text-slate-500" />
+          {seleccionado ? (
+            <span className="truncate">
+              <strong>{seleccionado.nombre_comercial}</strong>
+              {seleccionado.razon_social ? <span className="text-slate-500"> · {seleccionado.razon_social}</span> : null}
+            </span>
+          ) : (
+            <span className="text-slate-500">Selecciona un cliente…</span>
+          )}
+        </span>
+        <span className="text-xs text-slate-400">cambiar</span>
+      </button>
+
+      <Dialog open={abierto} onOpenChange={setAbierto}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Seleccionar cliente</DialogTitle>
+            <DialogDescription>Filtra por nombre comercial, razón social, CIF o email.</DialogDescription>
+          </DialogHeader>
+          <div className="relative">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+            <Input
+              autoFocus
+              value={filtro}
+              onChange={(e) => setFiltro(e.target.value)}
+              placeholder="Buscar…"
+              className="pl-9"
+            />
+          </div>
+          <div className="flex-1 overflow-y-auto -mx-2">
+            {filtrados.length === 0 ? (
+              <p className="text-center text-sm text-slate-500 py-8">Sin resultados.</p>
+            ) : (
+              <ul className="divide-y">
+                {filtrados.map((c) => (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSeleccionar(c.id)
+                        setAbierto(false)
+                        setFiltro('')
+                      }}
+                      className={`w-full text-left px-3 py-2 hover:bg-blue-50 ${valorId === c.id ? 'bg-blue-50' : ''}`}
+                    >
+                      <div className="font-semibold text-slate-900">{c.nombre_comercial}</div>
+                      <div className="text-xs text-slate-500">
+                        {c.razon_social || '—'}{c.cif_nif ? ` · ${c.cif_nif}` : ''}
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }

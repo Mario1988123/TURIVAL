@@ -77,10 +77,10 @@ export async function reservarHorasDesdePresupuesto(
     .from('pedidos')
     .insert({
       numero: numData,
-      fecha: new Date().toISOString().slice(0, 10),
+      fecha_creacion: new Date().toISOString().slice(0, 10),
       cliente_id: presupuesto.cliente_id,
       estado: 'borrador',
-      presupuesto_id: presupuesto.id,
+      presupuesto_origen_id: presupuesto.id,
       subtotal: 0, descuento_porcentaje: 0, descuento_importe: 0,
       base_imponible: 0, iva_porcentaje: 21, iva_importe: 0, total: 0,
       observaciones_internas: `[RESERVA-TENTATIVA ${presupuestoId}] No confundir con pedido real. Generado por el flujo "reservar horas desde presupuesto".`,
@@ -92,14 +92,16 @@ export async function reservarHorasDesdePresupuesto(
 
   let tareasCreadas = 0
 
-  // 3) Por cada linea, crear linea_pedido + pieza + tareas tentativas
-  for (const l of (presupuesto.lineas ?? []) as any[]) {
+  // 3) Por cada linea, crear linea_pedido + UNA pieza representante + tareas
+  for (let idx = 0; idx < ((presupuesto.lineas ?? []) as any[]).length; idx++) {
+    const l = (presupuesto.lineas as any[])[idx]
     const cantidad = Math.max(1, Number(l.cantidad ?? 1))
 
     const { data: linPed, error: errLin } = await supabase
       .from('lineas_pedido')
       .insert({
         pedido_id: pedido.id,
+        orden: idx + 1,
         cantidad,
         descripcion: l.descripcion,
         modo_precio: l.modo_precio,
@@ -116,20 +118,19 @@ export async function reservarHorasDesdePresupuesto(
       .single()
     if (errLin || !linPed) continue
 
-    // 1 sola pieza por linea (representante del lote — Mario decidio
-    // "una tarea por linea, no por pieza" hace varias sesiones)
+    // UNA pieza representante por linea (regla "una tarea por linea")
     const { data: numPie } = await supabase.rpc('generar_numero_secuencial', { p_tipo: 'pieza' })
     const { data: pieza, error: errPie } = await supabase
       .from('piezas')
       .insert({
         numero: numPie,
         linea_pedido_id: linPed.id,
-        cantidad,
         ancho: l.ancho, alto: l.alto, grosor: l.grosor,
         longitud_ml: l.longitud_ml,
         material_lacado_id: l.material_lacado_id,
         material_fondo_id: l.material_fondo_id,
-        estado: 'pendiente',
+        categoria_pieza_id: l.categoria_pieza_id,
+        estado: 'sin_producir',
       })
       .select('id')
       .single()

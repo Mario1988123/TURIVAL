@@ -901,12 +901,26 @@ function BannersViolaciones({ vista }: { vista: VistaPlanificador }) {
       {violaciones_plazo.length > 0 && (
         <div className="flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900">
           <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
-          <div>
+          <div className="min-w-0 flex-1">
             <div className="font-medium">{violaciones_plazo.length} pieza(s) pasan de plazo</div>
-            <div className="text-xs">
-              {violaciones_plazo.slice(0, 3).map(v => `+${formatearMinutosJornada(v.retraso_minutos)}`).join(', ')}
-              {violaciones_plazo.length > 3 ? '…' : ''}
-              <span className="ml-1 text-slate-500">(horas de jornada laboral)</span>
+            <div className="text-[11px] text-slate-600 mb-1">click en cada una para abrir el pedido (horas de jornada laboral)</div>
+            <div className="flex flex-wrap gap-1">
+              {violaciones_plazo.slice(0, 8).map((v: any, i) => (
+                <Link
+                  key={i}
+                  href={v.pedido_id ? `/pedidos/${v.pedido_id}` : '/planificador'}
+                  className="inline-flex items-center gap-1 rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] hover:bg-red-100"
+                  title={`+${formatearMinutosJornada(v.retraso_minutos)}`}
+                >
+                  <span className="font-mono font-semibold">{v.pedido_numero ?? v.pedido_id?.slice(0, 8) ?? '?'}</span>
+                  {v.cliente_nombre && <span className="text-slate-600">· {v.cliente_nombre}</span>}
+                  {v.pieza_numero && <span className="text-slate-500">· {v.pieza_numero}</span>}
+                  <span className="text-red-700 font-semibold">+{formatearMinutosJornada(v.retraso_minutos)}</span>
+                </Link>
+              ))}
+              {violaciones_plazo.length > 8 && (
+                <span className="text-xs text-red-700">+{violaciones_plazo.length - 8} más</span>
+              )}
             </div>
           </div>
         </div>

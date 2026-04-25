@@ -176,6 +176,23 @@ export default function VistaPresupuestoCliente({
         .eq('id', presupuesto.id)
       if (error) throw error
       setPresupuesto({ ...presupuesto, estado: nuevoEstado })
+
+      // Punto 2: si presupuesto pasa a "aceptado" y el cliente es
+      // pre_cliente o potencial, promovemos a cliente real.
+      if (nuevoEstado === 'aceptado' && presupuesto.cliente?.id) {
+        const { data: cli } = await supabase
+          .from('clientes')
+          .select('tipo')
+          .eq('id', presupuesto.cliente.id)
+          .maybeSingle()
+        if (cli && (cli as any).tipo && (cli as any).tipo !== 'cliente') {
+          await supabase
+            .from('clientes')
+            .update({ tipo: 'cliente' })
+            .eq('id', presupuesto.cliente.id)
+        }
+      }
+
       setMensaje({ tipo: 'ok', texto: `Estado cambiado a "${ESTADOS[nuevoEstado].label}"` })
     } catch (e: any) {
       setMensaje({ tipo: 'error', texto: e.message })
@@ -289,9 +306,18 @@ Un saludo,`
             <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2 flex-wrap">
               <FileText className="w-8 h-8" />
               {presupuesto.numero}
-              <Badge className={`text-xs border ${estadoInfo.color}`}>
-                {estadoInfo.label}
-              </Badge>
+              <span className="text-slate-500 font-normal text-2xl">·</span>
+              <span className="text-slate-700 text-xl font-semibold">
+                {cliente?.nombre_comercial ?? cliente?.razon_social ?? 'Cliente'}
+              </span>
+              {/* Punto 9: estado clickeable inline en lugar de desplegable + modal */}
+              <BotonEstadoPresupuesto
+                estado={presupuesto.estado}
+                onCambiar={cambiarEstado}
+                disabled={cambiandoEstado}
+                estadoInfo={estadoInfo}
+                ESTADOS={ESTADOS}
+              />
             </h1>
             <p className="text-muted-foreground mt-1">
               {fechaES(presupuesto.fecha)} · Válido hasta{' '}
@@ -314,10 +340,6 @@ Un saludo,`
             email_cliente={presupuesto.cliente?.email ?? null}
           />
           <BotonRecomendarFecha presupuesto_id={presupuesto.id} />
-          <Button variant="outline" onClick={enviarEmail} size="sm">
-            <Mail className="w-4 h-4 mr-2" />
-            Email (mailto)
-          </Button>
 
           {/* Botón Convertir a pedido — solo visible si el presupuesto está ACEPTADO */}
           {presupuesto.estado === 'aceptado' && (
@@ -366,44 +388,19 @@ Un saludo,`
         </Card>
       )}
 
-      {/* ACCIONES DE ESTADO */}
-      <Card>
-        <CardContent className="flex items-center gap-3 flex-wrap py-4">
-          <div className="flex-1 min-w-40">
-            <div className="text-xs font-medium text-slate-700 mb-1">
-              Estado del presupuesto
-            </div>
-            <Select
-              value={presupuesto.estado}
-              onValueChange={(v: Presupuesto['estado']) => cambiarEstado(v)}
-              disabled={cambiandoEstado}
-            >
-              <SelectTrigger className="max-w-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(ESTADOS).map(([k, v]) => (
-                  <SelectItem key={k} value={k}>
-                    {v.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={eliminarPresupuesto}
-              disabled={eliminando}
-              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-            >
-              <Trash2 className="w-4 h-4 mr-1" />
-              Eliminar
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      {/* ELIMINAR (estado se cambia desde el badge inline arriba) */}
+      <div className="flex justify-end">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={eliminarPresupuesto}
+          disabled={eliminando}
+          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+        >
+          <Trash2 className="w-4 h-4 mr-1" />
+          Eliminar presupuesto
+        </Button>
+      </div>
 
       {/* CLIENTE */}
       {cliente && (
@@ -737,6 +734,58 @@ function BotonReservarHoras({ presupuestoId }: { presupuestoId: string }) {
         </Button>
       </div>
       {mensajeLocal && <p className="text-[11px] text-slate-600">{mensajeLocal}</p>}
+    </div>
+  )
+}
+
+// ============================================================
+// Badge de estado clickeable (sustituye al desplegable)
+// ============================================================
+
+function BotonEstadoPresupuesto({
+  estado,
+  onCambiar,
+  disabled,
+  estadoInfo,
+  ESTADOS,
+}: {
+  estado: Presupuesto['estado']
+  onCambiar: (e: Presupuesto['estado']) => void
+  disabled: boolean
+  estadoInfo: { label: string; color: string }
+  ESTADOS: Record<Presupuesto['estado'], { label: string; color: string }>
+}) {
+  const [abierto, setAbierto] = useState(false)
+  return (
+    <div className="relative inline-block">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setAbierto((v) => !v)}
+        className={`text-xs px-2 py-1 rounded-md border ${estadoInfo.color} hover:brightness-95 cursor-pointer disabled:opacity-50`}
+      >
+        {estadoInfo.label} ▾
+      </button>
+      {abierto && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setAbierto(false)} />
+          <div className="absolute z-40 top-full mt-1 left-0 min-w-[160px] rounded-md border bg-white shadow-lg overflow-hidden">
+            {(Object.entries(ESTADOS) as Array<[Presupuesto['estado'], { label: string; color: string }]>).map(([k, v]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => {
+                  onCambiar(k)
+                  setAbierto(false)
+                }}
+                className={`block w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50 ${k === estado ? 'bg-blue-50 font-semibold' : ''}`}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }

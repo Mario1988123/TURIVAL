@@ -307,6 +307,27 @@ export async function obtenerVistaPlanificador(
   const violaciones_secuencia = detectarViolacionesSecuencia(conInicioCalc)
   const violaciones_plazo = detectarViolacionesPlazo(conInicioCalc)
 
+  // Enriquecer con etiquetas legibles para la UI (Mario punto 30, 32):
+  // sustituye UUIDs por numero de pedido y nombre cliente, y permite
+  // navegacion al hacer click.
+  const labelPorPieza = new Map<string, { pedido_id: string; pedido_numero: string; cliente_nombre: string | null; pieza_numero: string }>()
+  for (const f of filas) {
+    if (!labelPorPieza.has(f.pieza_id)) {
+      labelPorPieza.set(f.pieza_id, {
+        pedido_id: f.pedido_id,
+        pedido_numero: f.pedido_numero,
+        cliente_nombre: f.cliente_nombre,
+        pieza_numero: f.pieza_numero,
+      })
+    }
+  }
+  const violaciones_plazo_enriquecidas = violaciones_plazo.map((v) => ({
+    ...v,
+    pedido_numero: labelPorPieza.get(v.pieza_id)?.pedido_numero,
+    cliente_nombre: labelPorPieza.get(v.pieza_id)?.cliente_nombre ?? null,
+    pieza_numero: labelPorPieza.get(v.pieza_id)?.pieza_numero,
+  }))
+
   const operarios = await obtenerOperariosDisponibles()
 
   return {
@@ -314,7 +335,7 @@ export async function obtenerVistaPlanificador(
     operarios,
     solapes,
     violaciones_secuencia,
-    violaciones_plazo,
+    violaciones_plazo: violaciones_plazo_enriquecidas as any,
     rango: { desde: toISO(desde), hasta: toISO(hasta) },
     jornada,
   }
@@ -408,6 +429,35 @@ export async function moverTarea(params: {
     universo,
     jornada,
   )
+
+  // BLOQUEO DE GUARDADO ante violacion de secuencia (Mario punto 31):
+  // si algun proceso queda iniciando antes del fin de su predecesora,
+  // no persistimos. El ripple ya intenta resolverlo, pero si no se puede
+  // (por colision con otra tarea fija), aborta.
+  const resultadosTmp = tareasResultantes.filter((t) => t.inicio_planificado != null)
+  const violacionesSec = detectarViolacionesSecuencia(resultadosTmp)
+  if (violacionesSec.length > 0) {
+    return {
+      ok: false,
+      cambios: [],
+      solapes_generados: [],
+      violaciones_plazo: [],
+      error: `Movimiento bloqueado: ${violacionesSec.length} tarea(s) violarian la secuencia (empezarian antes de terminar su predecesora). Ajusta la fecha o desasigna la tarea anterior.`,
+    }
+  }
+
+  // Mismo bloqueo si genera SOLAPES en el operario (Mario punto 23): un
+  // mismo operario no puede aplicar dos procesos a la vez.
+  const solapesTmp = detectarSolapesEnPlanificacion(resultadosTmp)
+  if (solapesTmp.length > 0) {
+    return {
+      ok: false,
+      cambios: [],
+      solapes_generados: solapesTmp,
+      violaciones_plazo: [],
+      error: `Movimiento bloqueado: el operario tendria ${solapesTmp.length} solape(s) (dos tareas a la vez). Elige otra hora o cambia de operario.`,
+    }
+  }
 
   // Persistir cambios: para cada cambio → UPDATE tareas_produccion.
   const updates = cambios.map((c) => {
@@ -581,24 +631,44 @@ export async function obtenerSugerenciasAgrupacion(
 export async function obtenerSugerenciasHorasExtra(
   filtros: FiltrosPlanificador = {},
   jornada: JornadaLaboral = JORNADA_DEFAULT,
-): Promise<SugerenciaHorasExtra[]> {
+): Promise<Array<SugerenciaHorasExtra & { pedido_numero?: string; cliente_nombre?: string | null }>> {
   const vista = await obtenerVistaPlanificador(filtros, jornada)
 
-  // Agrupar por pedido
+  // Agrupar por pedido + capturar numero/cliente para reemplazar el UUID
+  // de los mensajes (Mario punto 30: "no entiende ese UUID tan largo")
   const porPedido = new Map<string, TareaPlanificada[]>()
+  const labelPorPedido = new Map<string, { numero: string; cliente: string | null }>()
   for (const t of vista.tareas) {
     if (t.inicio_planificado == null) continue
     const arr = porPedido.get(t.pedido_id) ?? []
     arr.push(t)
     porPedido.set(t.pedido_id, arr)
+    if (!labelPorPedido.has(t.pedido_id)) {
+      labelPorPedido.set(t.pedido_id, {
+        numero: (t as any).pedido_numero ?? '',
+        cliente: (t as any).cliente_nombre ?? null,
+      })
+    }
   }
 
-  const resultados: SugerenciaHorasExtra[] = []
+  const resultados: Array<SugerenciaHorasExtra & { pedido_numero?: string; cliente_nombre?: string | null }> = []
   for (const [pedido_id, tareas] of porPedido) {
     const fechaEntrega = tareas[0].pedido_fecha_entrega_estimada
     if (!fechaEntrega) continue
-    const s = motorSugerirHorasExtra(pedido_id, tareas, fechaEntrega)
-    if (s) resultados.push(s)
+    const s = motorSugerirHorasExtra(pedido_id, tareas, fechaEntrega, jornada)
+    if (s) {
+      const label = labelPorPedido.get(pedido_id)
+      // Re-escribir mensaje con número de pedido + cliente legibles
+      const txt = label
+        ? `${label.numero}${label.cliente ? ' · ' + label.cliente : ''} se pasa de plazo`
+        : s.mensaje
+      resultados.push({
+        ...s,
+        mensaje: txt,
+        pedido_numero: label?.numero,
+        cliente_nombre: label?.cliente ?? null,
+      })
+    }
   }
   return resultados
 }

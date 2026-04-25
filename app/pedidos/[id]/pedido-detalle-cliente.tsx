@@ -209,6 +209,16 @@ export default function PedidoDetalleCliente({
     )
   }, [pedido.lineas])
 
+  // Para mostrar el botón de Albarán solo si hay piezas YA terminadas
+  const piezasListasParaAlbaran = useMemo(() => {
+    if (!pedido.lineas) return 0
+    return pedido.lineas.reduce(
+      (s: number, l: any) =>
+        s + (l.piezas?.filter((p: any) => p.estado === 'completada' || p.estado === 'lista').length ?? 0),
+      0
+    )
+  }, [pedido.lineas])
+
   function notificar(tipo: 'ok' | 'error', texto: string) {
     setMensaje({ tipo, texto })
     setTimeout(() => setMensaje(null), 5000)
@@ -292,23 +302,35 @@ export default function PedidoDetalleCliente({
               Cancelar pedido
             </Button>
           )}
-          <BotonRecomendarFechaPedido pedido_id={pedido.id} />
+          {pedido.estado === 'borrador' && (
+            <BotonRecomendarFechaPedido pedido_id={pedido.id} />
+          )}
           <BotonReorganizarGantt pedidoId={pedido.id} pedidoNumero={pedido.numero} />
           {totalPiezasReales > 0 && (
-            <>
-              <Link href={`/etiquetas/pedido/${pedido.id}`}>
-                <Button variant="outline" size="default" title="Imprimir etiquetas/QR de las piezas">
-                  <QrCode className="w-4 h-4 mr-2" />
-                  Imprimir etiquetas
-                </Button>
-              </Link>
-              <Link href={`/albaranes?pedido_id=${pedido.id}`}>
-                <Button variant="outline" size="default" title="Crear albarán para este pedido">
-                  <Truck className="w-4 h-4 mr-2" />
-                  Albarán
-                </Button>
-              </Link>
-            </>
+            <Link href={`/etiquetas/pedido/${pedido.id}`}>
+              <Button variant="outline" size="default" title="Imprimir etiquetas/QR de las piezas">
+                <QrCode className="w-4 h-4 mr-2" />
+                Imprimir etiquetas
+              </Button>
+            </Link>
+          )}
+          {/* Albarán solo si hay piezas YA terminadas/listas (punto 15) */}
+          {piezasListasParaAlbaran > 0 && (
+            <Link href={`/albaranes?pedido_id=${pedido.id}`}>
+              <Button variant="outline" size="default" title={`Crear albarán (${piezasListasParaAlbaran} pieza(s) listas)`}>
+                <Truck className="w-4 h-4 mr-2" />
+                Albarán ({piezasListasParaAlbaran})
+              </Button>
+            </Link>
+          )}
+          {/* Botón directo a producción (punto 18) */}
+          {pedido.estado === 'en_produccion' && (
+            <Link href={`/produccion?pedido_id=${pedido.id}`}>
+              <Button variant="default" className="bg-blue-600 hover:bg-blue-700">
+                <Factory className="w-4 h-4 mr-2" />
+                Ver producción
+              </Button>
+            </Link>
           )}
         </div>
       </div>

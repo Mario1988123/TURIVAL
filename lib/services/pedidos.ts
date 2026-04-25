@@ -214,7 +214,8 @@ export async function obtenerPedido(pedidoId: string) {
         tratamiento:tratamientos(id, nombre),
         piezas:piezas(
           id, numero, estado, ubicacion_id, fecha_prevista_fabricacion,
-          ubicacion:ubicaciones(id, codigo, nombre, tipo)
+          ubicacion:ubicaciones(id, codigo, nombre, tipo),
+          tareas:tareas_produccion(id, fecha_inicio_planificada, estado)
         )
       )
     `
@@ -245,6 +246,22 @@ export async function obtenerPedido(pedidoId: string) {
 
       for (const l of lineas) {
         l.color = l.color_id ? mapColor.get(l.color_id) ?? null : null
+      }
+    }
+
+    // Punto 17: si fecha_prevista_fabricacion está vacía, calcularla a
+    // partir de la primera tarea planificada de la pieza.
+    for (const l of (data as any).lineas as any[]) {
+      for (const p of (l.piezas ?? []) as any[]) {
+        if (!p.fecha_prevista_fabricacion && Array.isArray(p.tareas)) {
+          const fechas = p.tareas
+            .map((t: any) => t.fecha_inicio_planificada)
+            .filter(Boolean)
+            .sort()
+          if (fechas.length > 0) {
+            p.fecha_prevista_fabricacion = String(fechas[0]).slice(0, 10)
+          }
+        }
       }
     }
   }
