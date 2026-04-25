@@ -236,14 +236,28 @@ export async function simularEntregaPresupuesto(presupuesto_id: string): Promise
     id: o.id, nombre: o.nombre, rol: o.rol ?? '', activo: true,
   }))
 
-  // 7. Ejecutar autogenerador con universo = reales + virtuales
+  // 7. Ejecutar autogenerador con universo = reales + virtuales,
+  //    extendiendo rango automaticamente si no caben todas (Mario punto 10)
   const universo = [...reales, ...virtuales]
-  const r = autogenerarPlanificacion({
+  const escalones = [14, 30, 60, 120]
+  let r = autogenerarPlanificacion({
     tareasUniverso: universo,
     operarios,
     rangoFechas: { desde: hoy, hasta },
     jornada: JORNADA_DEFAULT,
   })
+  for (const dias of escalones) {
+    const sinHuecoEnRango = r.sin_asignar.filter((s) => s.razon === 'sin_huecos_en_rango').length
+    if (sinHuecoEnRango === 0) break
+    const hastaIntento = new Date(hoy.getTime() + dias * 86_400_000)
+    if (hastaIntento <= hasta) continue
+    r = autogenerarPlanificacion({
+      tareasUniverso: universo,
+      operarios,
+      rangoFechas: { desde: hoy, hasta: hastaIntento },
+      jornada: JORNADA_DEFAULT,
+    })
+  }
 
   // 8. Extraer fin_estimado del presupuesto virtual
   const asignadasVirtuales = r.asignaciones.filter((a) => a.pedido_id === pseudoPedidoId)
