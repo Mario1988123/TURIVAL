@@ -669,10 +669,12 @@ export async function autogenerar(params: {
   const operarios = await obtenerOperariosDisponibles()
 
   // Auto-extensión del rango si quedan tareas por falta de huecos.
-  // Pasos: el rango pedido por el usuario, luego +60d, +180d, +365d (tope).
+  // Pasos: el rango pedido, luego +14, +30, +90 dias.
+  // Cap en 90 dias: si no caben, mejor que la UI lo avise como "no se
+  // puede planificar todo automaticamente" en lugar de seguir extendiendo.
   const escalonesDias = [
     Math.max(14, Math.round((hastaUsuario.getTime() - desde.getTime()) / MS_DIA)),
-    60, 180, 365,
+    14, 30, 90,
   ]
   let resultado: ResultadoAutogenerar | null = null
   let hastaUsado = hastaUsuario

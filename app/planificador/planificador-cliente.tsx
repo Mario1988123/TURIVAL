@@ -213,6 +213,22 @@ function snapTo(mins: number, step: number): number {
   return Math.round(mins / step) * step
 }
 
+/**
+ * Calcula el step del snap segun el ancho de la columna del dia en
+ * pixeles. Cuanto mas ancha es la columna, mas fino el snap. Mario
+ * pidio "snap proporcional".
+ *   <200px ancho -> 60 min
+ *   200-400px    -> 30 min
+ *   400-700px    -> 15 min
+ *   >700px       -> 5 min
+ */
+function snapProporcional(anchoColumnaPx: number): number {
+  if (anchoColumnaPx >= 700) return 5
+  if (anchoColumnaPx >= 400) return 15
+  if (anchoColumnaPx >= 200) return 30
+  return 60
+}
+
 // =============================================================
 // COMPONENTE PRINCIPAL
 // =============================================================
@@ -328,7 +344,9 @@ export default function PlanificadorCliente({ vista, desde, dias, modo, filtros:
     const offsetPx = translatedRect.left - overRect.left
     const anchoDia = overRect.width
     const minCrudo = (offsetPx / anchoDia) * MIN_JORNADA
-    const minSnap = Math.max(0, Math.min(MIN_JORNADA - 1, snapTo(minCrudo, SNAP_MINUTOS)))
+    // Snap proporcional al zoom: mas ancho = snap mas fino
+    const stepDinamico = snapProporcional(anchoDia)
+    const minSnap = Math.max(0, Math.min(MIN_JORNADA - 1, snapTo(minCrudo, stepDinamico)))
 
     const nuevoInicio = new Date(destino.dia)
     nuevoInicio.setHours(8, 0, 0, 0)
@@ -527,7 +545,7 @@ export default function PlanificadorCliente({ vista, desde, dias, modo, filtros:
           <span className="flex items-center gap-1"><span className="h-3 w-3 rounded-sm border border-orange-400 bg-orange-100" />alta</span>
           <span className="flex items-center gap-1"><span className="h-3 w-3 rounded-sm border border-blue-300 bg-blue-50" />normal</span>
           <span className="flex items-center gap-1"><span className="h-3 w-3 rounded-sm border border-slate-300 bg-slate-100" />baja</span>
-          <span className="ml-auto text-slate-500">Jornada 08:00–17:00 · {tareasPlanificadas.length} planificadas · {tareasSinPlanificar.length} sin planificar · snap {SNAP_MINUTOS} min</span>
+          <span className="ml-auto text-slate-500">Jornada 08:00–17:00 · {tareasPlanificadas.length} planificadas · {tareasSinPlanificar.length} sin planificar · snap {snapProporcional(ANCHO_DIA_PX)} min (proporcional al zoom)</span>
         </div>
 
         {/* Gantt */}
@@ -917,13 +935,23 @@ function BannersViolaciones({ vista }: { vista: VistaPlanificador }) {
 
 function PoolSinPlanificar({ tareas }: { tareas: FilaPlanificador[] }) {
   const [expandido, setExpandido] = useState(false)
-  const mostrar = expandido ? tareas : tareas.slice(0, 6)
+  const mostrar = expandido ? tareas : tareas.slice(0, 12)
+
+  // Patron rayado para destacar visualmente que estas tareas NO tienen fecha
+  // (Mario: "tareas sin fecha (sin reservar) deben distinguirse visualmente")
+  const patronRayado = {
+    backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(148,163,184,0.18) 4px, rgba(148,163,184,0.18) 8px)',
+  } as const
 
   return (
-    <div className="rounded-lg border bg-white p-3 shadow-sm">
+    <div className="rounded-lg border-2 border-dashed border-amber-300 bg-amber-50/30 p-3 shadow-sm">
       <div className="mb-2 flex items-center justify-between">
-        <div className="text-sm font-semibold text-slate-800">Sin planificar ({tareas.length})</div>
-        {tareas.length > 6 && (
+        <div className="text-sm font-semibold text-amber-900 flex items-center gap-1.5">
+          <AlertCircle className="h-4 w-4" />
+          Sin planificar ({tareas.length})
+          <span className="text-[11px] font-normal text-amber-700">arrastra al Gantt o usa autogenerar</span>
+        </div>
+        {tareas.length > 12 && (
           <Button variant="ghost" size="sm" onClick={() => setExpandido(v => !v)}>
             {expandido ? 'Ver menos' : `Ver todas (${tareas.length})`}
           </Button>
@@ -933,16 +961,20 @@ function PoolSinPlanificar({ tareas }: { tareas: FilaPlanificador[] }) {
         {mostrar.map(t => (
           <div
             key={t.id}
-            className={`rounded border px-2 py-1 text-xs ${PRIORIDAD_CLASES[t.pedido_prioridad] ?? PRIORIDAD_CLASES.normal}`}
-            title={`${t.pedido_numero} · ${t.proceso_nombre} · ${t.pieza_numero}${t.tiempo_estimado_minutos ? ` · ${t.tiempo_estimado_minutos}m` : ''}`}
+            className={`rounded border-2 border-dashed px-2 py-1 text-xs ${PRIORIDAD_CLASES[t.pedido_prioridad] ?? PRIORIDAD_CLASES.normal}`}
+            style={patronRayado}
+            title={`${t.pedido_numero} · ${t.proceso_nombre} · ${t.pieza_numero}${t.tiempo_estimado_minutos ? ` · ${t.tiempo_estimado_minutos}min` : ''}${t.cliente_nombre ? ` · ${t.cliente_nombre}` : ''}`}
           >
-            <span className="font-medium">{t.proceso_abreviatura || t.proceso_codigo}</span>
-            <span className="text-slate-600"> · {t.pieza_numero}</span>
-            <span className="ml-1 text-[10px] text-slate-500">{t.pedido_numero}</span>
+            <span className="font-semibold">{t.proceso_abreviatura || t.proceso_codigo}</span>
+            <span className="text-slate-700"> · {t.pieza_numero}</span>
+            <span className="ml-1 text-[10px] text-slate-600">{t.pedido_numero}</span>
+            {t.tiempo_estimado_minutos > 0 && (
+              <span className="ml-1 text-[10px] text-slate-500">{t.tiempo_estimado_minutos}min</span>
+            )}
           </div>
         ))}
       </div>
-      {tareas.length === 0 && <div className="text-xs text-slate-500">No hay tareas pendientes de asignar.</div>}
+      {tareas.length === 0 && <div className="text-xs text-amber-700">No hay tareas pendientes de asignar.</div>}
     </div>
   )
 }
