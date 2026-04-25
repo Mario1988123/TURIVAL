@@ -780,10 +780,15 @@ function BarraTareaDraggable({
 
   const claseFondo = PRIORIDAD_CLASES[tarea.pedido_prioridad] ?? PRIORIDAD_CLASES.normal
   const bordeIzquierdo = tarea.color_gantt ?? '#64748b'
+  // Reservas tentativas: tareas creadas desde un presupuesto sin confirmar.
+  // Se pintan difuminadas + borde punteado para que Mario sepa que hay que
+  // validarlas antes de tomarlas como ocupadas firmes.
+  const esTentativa = (tarea as any).tentativa === true
   const titulo = `${tarea.pedido_numero} · ${tarea.proceso_nombre} · ${tarea.pieza_numero}\n`
     + `${hora(tarea.inicio)} – ${hora(tarea.fin)}`
     + (tarea.requiere_secado ? ` (+${tarea.tiempo_secado_minutos}m secado)` : '')
     + (tarea.operario_nombre ? `\nOperario: ${tarea.operario_nombre}` : '')
+    + (esTentativa ? '\n⚠️ Reserva tentativa (presupuesto sin confirmar)' : '')
     + `\n\nDoble clic: ver detalle${dragActivado ? ' · Arrastra: reprogramar' : ''}`
 
   return (
@@ -792,12 +797,19 @@ function BarraTareaDraggable({
       {...attributes}
       {...listeners}
       onDoubleClick={(e) => { e.stopPropagation(); onVerDetalles(tarea) }}
-      className={`absolute top-1.5 bottom-1.5 overflow-hidden rounded border text-xs ${claseFondo} ${isDragging ? 'opacity-30' : ''} ${dragActivado ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
-      style={{ left: `${left}%`, width: `${Math.max(0.5, width)}%`, borderLeftColor: bordeIzquierdo, borderLeftWidth: 4 }}
+      className={`absolute top-1.5 bottom-1.5 overflow-hidden rounded border text-xs ${claseFondo} ${isDragging ? 'opacity-30' : ''} ${esTentativa ? 'opacity-60' : ''} ${dragActivado ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
+      style={{
+        left: `${left}%`,
+        width: `${Math.max(0.5, width)}%`,
+        borderLeftColor: bordeIzquierdo,
+        borderLeftWidth: 4,
+        borderStyle: esTentativa ? 'dashed' : 'solid',
+      }}
       title={titulo}
     >
       <div className="flex h-full flex-col justify-center gap-0.5 px-1.5">
         <div className="truncate font-semibold">
+          {esTentativa && '⚠️ '}
           {tarea.proceso_abreviatura || tarea.proceso_codigo} · {tarea.pieza_numero}
         </div>
         <div className="truncate text-[10px] opacity-80">

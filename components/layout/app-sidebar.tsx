@@ -28,6 +28,9 @@ export function AppLayout({ children, title }: AppLayoutProps) {
   const [collapsed, setCollapsed] = useState(false)
   const [user, setUser] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
+  // Perfil con rol+modulos (script 035). Si no existe la tabla, queda null
+  // y se permite todo (modo legado, sin filtrar el menu).
+  const [perfil, setPerfil] = useState<{ rol: string; modulos_permitidos: string[] } | null>(null)
   const router = useRouter()
   const supabase = createClient()
 
@@ -56,10 +59,32 @@ export function AppLayout({ children, title }: AppLayoutProps) {
       }
       const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single()
       if (profile) setUser(profile as Profile)
+      // Cargar perfil de roles si la tabla existe (script 035)
+      try {
+        const { data: perfilRol } = await supabase
+          .from('usuario_perfiles')
+          .select('rol, modulos_permitidos')
+          .eq('user_id', session.user.id)
+          .eq('activo', true)
+          .maybeSingle()
+        if (perfilRol) setPerfil(perfilRol as any)
+      } catch {
+        // Tabla no existe, modo legado
+      }
       setLoading(false)
     }
     checkUser()
   }, [router, supabase])
+
+  // Filtrar items del menu segun el perfil. Si no hay perfil registrado
+  // (modo legado), se muestran todos.
+  const itemsVisibles = MENU_ITEMS.filter((item) => {
+    if (!perfil) return true
+    if (perfil.rol === 'admin') return true
+    if (perfil.modulos_permitidos.includes('*')) return true
+    if (!item.moduloSlug) return true
+    return perfil.modulos_permitidos.includes(item.moduloSlug)
+  })
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -101,7 +126,7 @@ export function AppLayout({ children, title }: AppLayoutProps) {
         </div>
 
         <nav className={`flex-1 overflow-y-auto py-6 space-y-1 scrollbar-thin ${collapsed ? 'px-2' : 'px-4'}`}>
-          {MENU_ITEMS.map((item) => {
+          {itemsVisibles.map((item) => {
             const Icon = item.icon
             return (
               <Link
