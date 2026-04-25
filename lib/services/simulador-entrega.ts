@@ -128,7 +128,11 @@ export async function simularEntregaPresupuesto(presupuesto_id: string): Promise
     )
   }
 
-  // 4. Construir tareas virtuales
+  // 4. Construir tareas virtuales POR LÍNEA (no por pieza).
+  //    Consistente con confirmarPedido: cuando lijamos/lacamos un lote de
+  //    piezas iguales, es UNA tarea con duración del lote completo, no
+  //    N tareas iguales. Las piezas se cuentan para trazabilidad pero la
+  //    planificación opera a nivel de línea.
   const virtuales: TareaPlanificable[] = []
   const pseudoPedidoId = `sim-${presupuesto_id}`
   let piezaCounter = 0
@@ -137,41 +141,41 @@ export async function simularEntregaPresupuesto(presupuesto_id: string): Promise
     const codigosL: string[] = Array.isArray(l.procesos_codigos) ? l.procesos_codigos.filter(Boolean) : []
     if (codigosL.length === 0) continue
     const n = Math.max(1, Number(l.cantidad) || 1)
-    for (let u = 0; u < n; u++) {
-      piezaCounter++
-      const pseudoPiezaId = `simp-${presupuesto_id}-${l.id}-${u}`
-      codigosL.forEach((codigo, idx) => {
-        const pc = mapaProceso.get(codigo)
-        if (!pc || pc.activo === false) return
-        virtuales.push({
-          id: `simt-${presupuesto_id}-${l.id}-${u}-${idx}`,
-          pieza_id: pseudoPiezaId,
-          pedido_id: pseudoPedidoId,
-          proceso_id: pc.id,
-          proceso_codigo: pc.codigo,
-          proceso_nombre: pc.nombre ?? pc.codigo,
-          secuencia: idx + 1,
-          es_opcional: false,
-          depende_de_secuencia: idx > 0 ? idx : null,
-          tiempo_estimado_minutos: tiempoMin(
-            pc.id,
-            l.categoria_pieza_id ?? null,
-            Number(l.superficie_m2) || 0,
-            Number(l.longitud_ml) || 0,
-          ),
-          requiere_secado: !!pc.requiere_secado,
-          tiempo_secado_minutos: Number(pc.tiempo_secado_minutos) || 0,
-          requiere_operario: pc.requiere_operario !== false,
-          rol_operario_requerido: pc.rol_operario_requerido ?? null,
-          material_lacado_id: l.material_lacado_id ?? null,
-          material_fondo_id: l.material_fondo_id ?? null,
-          inicio_planificado: null,
-          operario_id: null,
-          pedido_prioridad: 'normal',
-          pedido_fecha_entrega_estimada: null,
-        })
+    piezaCounter += n
+    // Una pseudo-pieza representa el LOTE completo de la línea.
+    const pseudoPiezaId = `simp-${presupuesto_id}-${l.id}`
+    codigosL.forEach((codigo, idx) => {
+      const pc = mapaProceso.get(codigo)
+      if (!pc || pc.activo === false) return
+      virtuales.push({
+        id: `simt-${presupuesto_id}-${l.id}-${idx}`,
+        pieza_id: pseudoPiezaId,
+        pedido_id: pseudoPedidoId,
+        proceso_id: pc.id,
+        proceso_codigo: pc.codigo,
+        proceso_nombre: pc.nombre ?? pc.codigo,
+        secuencia: idx + 1,
+        es_opcional: false,
+        depende_de_secuencia: idx > 0 ? idx : null,
+        // Superficie/longitud son TOTALES de la línea (ya en BD), no por unidad.
+        tiempo_estimado_minutos: tiempoMin(
+          pc.id,
+          l.categoria_pieza_id ?? null,
+          Number(l.superficie_m2) || 0,
+          Number(l.longitud_ml) || 0,
+        ),
+        requiere_secado: !!pc.requiere_secado,
+        tiempo_secado_minutos: Number(pc.tiempo_secado_minutos) || 0,
+        requiere_operario: pc.requiere_operario !== false,
+        rol_operario_requerido: pc.rol_operario_requerido ?? null,
+        material_lacado_id: l.material_lacado_id ?? null,
+        material_fondo_id: l.material_fondo_id ?? null,
+        inicio_planificado: null,
+        operario_id: null,
+        pedido_prioridad: 'normal',
+        pedido_fecha_entrega_estimada: null,
       })
-    }
+    })
   }
 
   // 5. Cargar ocupación real actual (tareas_produccion ya planificadas)

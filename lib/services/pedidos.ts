@@ -724,43 +724,65 @@ export async function confirmarPedido(input: ConfirmarPedidoInput) {
     rolPorProcesoId.set(pc.id, pc.rol_operario_requerido ?? null)
   }
 
+  // Decisión UX (25-abr-2026): las tareas representan el LOTE completo
+  // de la línea, NO una por pieza. Cuando lijamos 25 zócalos no se generan
+  // 25 tareas de LIJADO, solo una que dura el tiempo conjunto. Las piezas
+  // siguen existiendo para las etiquetas y la trazabilidad por QR, pero la
+  // tarea se vincula a la primera pieza de la línea como representante
+  // del lote.
+  //
+  // Camino A (clásico con producto_id): mantiene el comportamiento legacy
+  // porque ya estaba en producción. Se puede migrar a lote en otra iter.
   const tareasPayload: any[] = []
-  for (const pieza of piezasArr) {
-    const linea = lineasPorId.get(pieza.linea_pedido_id)
-    if (!linea) continue
+  const piezasPorLinea = new Map<string, typeof piezasArr>()
+  for (const p of piezasArr) {
+    const arr = piezasPorLinea.get(p.linea_pedido_id) ?? []
+    arr.push(p)
+    piezasPorLinea.set(p.linea_pedido_id, arr)
+  }
 
-    // Camino A — clásico
+  for (const linea of lineas) {
+    const piezasLinea = piezasPorLinea.get(linea.id) ?? []
+    if (piezasLinea.length === 0) continue
+
+    // Camino A — clásico con producto_id: 1 tarea por pieza × proceso (legacy)
     if (linea.producto_id) {
-      const procs = procesosPorProducto.get(linea.producto_id) ?? []
-      for (const pp of procs) {
-        const pc = Array.isArray(pp.proceso) ? pp.proceso[0] : (pp.proceso ?? {})
-        if (pc?.activo === false) continue
-        const tiempoEst = calcularTiempoTarea(
-          pp,
-          pc,
-          linea.superficie_m2 ?? 0,
-          linea.nivel_complejidad ?? 2
-        )
-        tareasPayload.push({
-          pieza_id: pieza.id,
-          proceso_id: pp.proceso_id,
-          secuencia: pp.secuencia,
-          es_opcional: pp.es_opcional ?? false,
-          depende_de_secuencia: pp.depende_de_secuencia ?? null,
-          estado: 'pendiente',
-          tiempo_estimado_minutos: tiempoEst,
-        })
+      for (const pieza of piezasLinea) {
+        const procs = procesosPorProducto.get(linea.producto_id) ?? []
+        for (const pp of procs) {
+          const pc = Array.isArray(pp.proceso) ? pp.proceso[0] : (pp.proceso ?? {})
+          if (pc?.activo === false) continue
+          const tiempoEst = calcularTiempoTarea(
+            pp,
+            pc,
+            linea.superficie_m2 ?? 0,
+            linea.nivel_complejidad ?? 2
+          )
+          tareasPayload.push({
+            pieza_id: pieza.id,
+            proceso_id: pp.proceso_id,
+            secuencia: pp.secuencia,
+            es_opcional: pp.es_opcional ?? false,
+            depende_de_secuencia: pp.depende_de_secuencia ?? null,
+            estado: 'pendiente',
+            tiempo_estimado_minutos: tiempoEst,
+          })
+        }
       }
       continue
     }
 
-    // Camino B — v2 por procesos_codigos
+    // Camino B — v2 por procesos_codigos: 1 tarea por proceso × LÍNEA
     const codigos = Array.isArray(linea.procesos_codigos) ? linea.procesos_codigos : []
     if (codigos.length === 0) continue
 
+    const piezaRepresentante = piezasLinea[0]
     codigos.forEach((codigo: string, idx: number) => {
       const pc = procesosCatalogoPorCodigo.get(codigo)
       if (!pc || pc.activo === false) return
+      // El tiempo se calcula sobre la superficie/longitud TOTAL de la
+      // línea (ya lo está en Supabase: lineas_pedido.superficie_m2 y
+      // longitud_ml son el total de la línea, no por unidad).
       const tiempoEst = tiempoV2(
         pc.id,
         linea.categoria_pieza_id ?? null,
@@ -768,13 +790,16 @@ export async function confirmarPedido(input: ConfirmarPedidoInput) {
         Number(linea.longitud_ml) || 0,
       )
       tareasPayload.push({
-        pieza_id: pieza.id,
+        pieza_id: piezaRepresentante.id,
         proceso_id: pc.id,
         secuencia: idx + 1,
         es_opcional: false,
         depende_de_secuencia: idx > 0 ? idx : null,
         estado: 'pendiente',
         tiempo_estimado_minutos: tiempoEst,
+        notas: piezasLinea.length > 1
+          ? `Lote de ${piezasLinea.length} pieza(s): ${piezasLinea.map((p) => p.numero).join(', ')}`
+          : null,
       })
     })
   }

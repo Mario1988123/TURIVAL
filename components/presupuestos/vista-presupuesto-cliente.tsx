@@ -33,8 +33,7 @@ import {
 import VisualizacionPiezaSVG from './visualizacion-pieza-svg'
 import ConvertirAPedidoModal from '@/components/pedidos/convertir-a-pedido-modal'
 import BotonEnviarEmail from './boton-enviar-email'
-import { accionSimularEntrega } from '@/lib/actions/simulador-entrega'
-import { CalendarRange } from 'lucide-react'
+import BotonRecomendarFecha from './boton-recomendar-fecha'
 
 type Cliente = {
   id: string
@@ -314,36 +313,7 @@ Un saludo,`
             presupuesto_id={presupuesto.id}
             email_cliente={presupuesto.cliente?.email ?? null}
           />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={async () => {
-              const r = await accionSimularEntrega(presupuesto.id)
-              if (!r.ok) {
-                alert(r.error ?? 'No se pudo simular')
-                return
-              }
-              if (!r.recomendado_iso) {
-                alert('No se pudo calcular fecha (faltan procesos en líneas o huecos en 60 días).')
-                return
-              }
-              const d = new Date(r.recomendado_iso)
-              const fmt = d.toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' })
-              const msg = `Fecha recomendada: ${fmt}\n\nSe basa en ${r.piezas_simuladas} pieza(s), ${r.tareas_simuladas} tarea(s).${r.sin_hueco_count > 0 ? `\n⚠️ ${r.sin_hueco_count} tareas no caben en los próximos 60 días.` : ''}\n\n¿Guardar esta fecha en el presupuesto?`
-              if (confirm(msg)) {
-                const supabase = createClient()
-                await supabase
-                  .from('presupuestos')
-                  .update({ fecha_entrega_estimada: r.recomendado_iso })
-                  .eq('id', presupuesto.id)
-                window.location.reload()
-              }
-            }}
-            title="Simula en el Gantt cuándo podría estar listo"
-          >
-            <CalendarRange className="w-4 h-4 mr-2" />
-            Recomendar fecha
-          </Button>
+          <BotonRecomendarFecha presupuesto_id={presupuesto.id} />
           <Button variant="outline" onClick={enviarEmail} size="sm">
             <Mail className="w-4 h-4 mr-2" />
             Email (mailto)
