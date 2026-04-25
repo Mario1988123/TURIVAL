@@ -7,7 +7,8 @@ import { Label } from '@/components/ui/label'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
-import { Mail, Lock, ArrowRight, Package } from 'lucide-react'
+import { Mail, Lock, ArrowRight } from 'lucide-react'
+import { TuriavalLogo } from '@/components/branding/turiaval-logo'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -50,12 +51,10 @@ export default function LoginPage() {
         {/* Content */}
         <div className="relative z-10 flex flex-col justify-center px-16 text-white">
           <div className="flex items-center gap-4 mb-8">
-            <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-cyan-400 rounded-2xl flex items-center justify-center shadow-xl shadow-blue-500/30">
-              <Package className="w-9 h-9 text-white" />
-            </div>
+            <TuriavalLogo size={64} className="rounded-2xl" />
             <div>
-              <h1 className="text-4xl font-bold">Turiaval</h1>
-              <p className="text-blue-300">ERP lacados</p>
+              <h1 className="text-4xl font-bold tracking-tight">Turiaval</h1>
+              <p className="text-blue-300">ERP lacados industriales</p>
             </div>
           </div>
           
@@ -86,11 +85,9 @@ export default function LoginPage() {
         <div className="w-full max-w-md">
           {/* Mobile Logo */}
           <div className="lg:hidden flex items-center gap-3 mb-8 justify-center">
-            <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-400 rounded-xl flex items-center justify-center shadow-lg">
-              <Package className="w-7 h-7 text-white" />
-            </div>
+            <TuriavalLogo size={48} className="rounded-xl" />
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">Turival</h1>
+              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Turiaval</h1>
               <p className="text-xs text-slate-500">ERP Lacados Industriales</p>
             </div>
           </div>
@@ -177,7 +174,7 @@ export default function LoginPage() {
           </div>
 
           <p className="text-center text-slate-400 text-xs mt-6">
-            2024 Turival ERP. Todos los derechos reservados.
+            © 2026 Turiaval ERP · Lacados industriales
           </p>
         </div>
       </div>

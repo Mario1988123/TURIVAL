@@ -368,7 +368,7 @@ export default function AsistenteVoz({
             <div>
               <div className="font-semibold text-slate-900 flex items-center gap-2">
                 <Bot className="h-4 w-4 text-blue-600" />
-                Asistente TURIVAL
+                Asistente Turiaval
               </div>
               <div className="text-[11px] text-slate-500">
                 voz + texto + foto · sin IA · gratis

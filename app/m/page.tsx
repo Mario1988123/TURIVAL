@@ -1,7 +1,8 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent } from '@/components/ui/card'
-import { Users, ChevronRight } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
+import { TuriavalLogo } from '@/components/branding/turiaval-logo'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,10 +22,10 @@ export default async function MobileSelectorOperario() {
   return (
     <div className="p-4 space-y-4 max-w-md mx-auto">
       <header className="text-center py-6">
-        <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-cyan-500 text-white shadow-lg shadow-blue-500/30 mb-3">
-          <Users className="h-7 w-7" />
+        <div className="inline-flex mb-3">
+          <TuriavalLogo size={56} className="rounded-2xl" />
         </div>
-        <h1 className="text-2xl font-bold text-slate-900">TURIVAL Taller</h1>
+        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Turiaval Taller</h1>
         <p className="text-sm text-slate-500">Selecciona tu nombre</p>
       </header>
 

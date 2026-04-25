@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { ArrowRight, Calendar, FileText, Package } from 'lucide-react'
+import { TuriavalLogo } from '@/components/branding/turiaval-logo'
 
 export const dynamic = 'force-dynamic'
 
@@ -59,11 +60,9 @@ export default async function PortalClienteToken({
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b shadow-sm">
         <div className="max-w-3xl mx-auto px-4 py-4 flex items-center gap-3">
-          <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-blue-600 to-cyan-500 text-white flex items-center justify-center shadow">
-            <Package className="h-5 w-5" />
-          </div>
+          <TuriavalLogo size={40} className="rounded-lg" />
           <div>
-            <div className="font-bold text-slate-900">TURIVAL</div>
+            <div className="font-bold text-slate-900 tracking-tight">Turiaval</div>
             <div className="text-[10px] text-slate-500">Portal cliente · acceso seguro por enlace</div>
           </div>
         </div>
@@ -153,7 +152,7 @@ export default async function PortalClienteToken({
         </Card>
 
         <p className="text-center text-[10px] text-slate-400 pt-4">
-          Acceso seguro por enlace privado · TURIVAL Lacados Industriales
+          Acceso seguro por enlace privado · Turiaval Lacados Industriales
         </p>
       </main>
     </div>

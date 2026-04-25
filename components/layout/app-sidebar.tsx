@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { Profile } from '@/lib/types/erp'
 import {
-  Package,
   LogOut,
   Menu,
   X,
@@ -15,6 +14,7 @@ import {
   ChevronRight,
 } from 'lucide-react'
 import { MENU_ITEMS } from './menu-items'
+import { TuriavalLogo } from '@/components/branding/turiaval-logo'
 import AsistenteVoz from '@/components/asistente/asistente-voz'
 import CampanitaNotificaciones from './campanita-notificaciones'
 
@@ -115,12 +115,10 @@ export function AppLayout({ children, title }: AppLayoutProps) {
       >
         <div className={`border-b border-white/10 ${collapsed ? 'px-3 py-6' : 'px-6 py-8'}`}>
           <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'}`}>
-            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-400 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25 flex-shrink-0">
-              <Package className="w-6 h-6 text-white" />
-            </div>
+            <TuriavalLogo size={collapsed ? 36 : 44} className="flex-shrink-0 rounded-xl" />
             {!collapsed && (
               <div>
-                <h1 className="text-xl font-bold text-white">Turiaval</h1>
+                <h1 className="text-xl font-bold text-white tracking-tight">Turiaval</h1>
                 <p className="text-xs text-slate-400">ERP lacados</p>
               </div>
             )}

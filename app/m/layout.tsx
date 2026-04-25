@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'TURIVAL móvil',
+  title: 'Turiaval — Móvil taller',
   viewport: {
     width: 'device-width',
     initialScale: 1,
