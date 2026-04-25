@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  SelectGroup, SelectLabel,
 } from '@/components/ui/select'
 
 import {
@@ -24,6 +25,7 @@ export interface EtiquetaPieza extends DatosEtiqueta {}
 type TipoCodigo = 'qr' | 'code128' | 'ninguno'
 
 interface Config {
+  preset_id: string
   ancho_mm: number
   alto_mm: number
   columnas: number
@@ -33,7 +35,111 @@ interface Config {
   tipo_codigo: TipoCodigo
 }
 
+// =============================================================
+// Presets de impresora — Mario debe poder escoger su modelo
+// y que se rellenen las medidas estándar en un click.
+// =============================================================
+
+interface PresetImpresora {
+  id: string
+  nombre: string
+  marca: string
+  descripcion: string
+  ancho_mm: number
+  alto_mm: number
+  columnas: number
+  filas: number
+  margen_entre_mm: number
+  margen_pagina_mm: number
+}
+
+const PRESETS_IMPRESORA: PresetImpresora[] = [
+  {
+    id: 'zebra-zd230-100x150',
+    nombre: 'Zebra ZD230 — 100×150 mm',
+    marca: 'Zebra',
+    descripcion: 'Rollo industrial 100×150 mm (envío grande)',
+    ancho_mm: 100, alto_mm: 150, columnas: 1, filas: 1,
+    margen_entre_mm: 0, margen_pagina_mm: 0,
+  },
+  {
+    id: 'zebra-gk420-102x76',
+    nombre: 'Zebra GK420 — 102×76 mm',
+    marca: 'Zebra',
+    descripcion: 'Rollo logística 102×76 mm',
+    ancho_mm: 102, alto_mm: 76, columnas: 1, filas: 1,
+    margen_entre_mm: 0, margen_pagina_mm: 0,
+  },
+  {
+    id: 'zebra-rollo-70x40',
+    nombre: 'Zebra rollo — 70×40 mm',
+    marca: 'Zebra',
+    descripcion: 'Rollo continuo 70×40 mm (DEFAULT)',
+    ancho_mm: 70, alto_mm: 40, columnas: 1, filas: 10,
+    margen_entre_mm: 2, margen_pagina_mm: 4,
+  },
+  {
+    id: 'dymo-labelwriter-450',
+    nombre: 'Dymo LabelWriter 450 — 89×36 mm',
+    marca: 'Dymo',
+    descripcion: 'Etiqueta direcciones 89×36 mm',
+    ancho_mm: 89, alto_mm: 36, columnas: 1, filas: 1,
+    margen_entre_mm: 0, margen_pagina_mm: 0,
+  },
+  {
+    id: 'dymo-labelwriter-4xl',
+    nombre: 'Dymo LabelWriter 4XL — 102×59 mm',
+    marca: 'Dymo',
+    descripcion: 'Envíos 102×59 mm',
+    ancho_mm: 102, alto_mm: 59, columnas: 1, filas: 1,
+    margen_entre_mm: 0, margen_pagina_mm: 0,
+  },
+  {
+    id: 'brother-ql-700-62x29',
+    nombre: 'Brother QL-700 — 62×29 mm',
+    marca: 'Brother',
+    descripcion: 'Rollo continuo 62×29 mm',
+    ancho_mm: 62, alto_mm: 29, columnas: 1, filas: 1,
+    margen_entre_mm: 0, margen_pagina_mm: 0,
+  },
+  {
+    id: 'brother-ql-700-62x100',
+    nombre: 'Brother QL-700 — 62×100 mm',
+    marca: 'Brother',
+    descripcion: 'Etiqueta dirección 62×100 mm',
+    ancho_mm: 62, alto_mm: 100, columnas: 1, filas: 1,
+    margen_entre_mm: 0, margen_pagina_mm: 0,
+  },
+  {
+    id: 'avery-l7163',
+    nombre: 'Avery L7163 — A4 (14 etiq./hoja)',
+    marca: 'A4 Avery',
+    descripcion: '99,1×38,1 mm en hoja A4',
+    ancho_mm: 99.1, alto_mm: 38.1, columnas: 2, filas: 7,
+    margen_entre_mm: 2.5, margen_pagina_mm: 8.5,
+  },
+  {
+    id: 'avery-l7160',
+    nombre: 'Avery L7160 — A4 (21 etiq./hoja)',
+    marca: 'A4 Avery',
+    descripcion: '63,5×38,1 mm en hoja A4',
+    ancho_mm: 63.5, alto_mm: 38.1, columnas: 3, filas: 7,
+    margen_entre_mm: 2.5, margen_pagina_mm: 8.5,
+  },
+  {
+    id: 'avery-l7161',
+    nombre: 'Avery L7161 — A4 (18 etiq./hoja)',
+    marca: 'A4 Avery',
+    descripcion: '63,5×46,6 mm en hoja A4',
+    ancho_mm: 63.5, alto_mm: 46.6, columnas: 3, filas: 6,
+    margen_entre_mm: 2.5, margen_pagina_mm: 11,
+  },
+]
+
+const PRESET_PERSONALIZADA = 'personalizada'
+
 const CONFIG_DEFAULT: Config = {
+  preset_id: 'zebra-rollo-70x40',
   ancho_mm: 70,
   alto_mm: 40,
   columnas: 1,
@@ -43,7 +149,7 @@ const CONFIG_DEFAULT: Config = {
   tipo_codigo: 'qr',
 }
 
-const LS_KEY = 'turival:etiquetas:config_v1'
+const LS_KEY = 'turival:etiquetas:config_v2'
 
 function leerConfig(): Config {
   if (typeof window === 'undefined') return CONFIG_DEFAULT
@@ -52,6 +158,7 @@ function leerConfig(): Config {
     if (!raw) return CONFIG_DEFAULT
     const parsed = JSON.parse(raw)
     return {
+      preset_id: typeof parsed.preset_id === 'string' ? parsed.preset_id : CONFIG_DEFAULT.preset_id,
       ancho_mm: Number(parsed.ancho_mm) || CONFIG_DEFAULT.ancho_mm,
       alto_mm: Number(parsed.alto_mm) || CONFIG_DEFAULT.alto_mm,
       columnas: Number(parsed.columnas) || CONFIG_DEFAULT.columnas,
@@ -64,6 +171,24 @@ function leerConfig(): Config {
     }
   } catch {
     return CONFIG_DEFAULT
+  }
+}
+
+function aplicarPreset(cfg: Config, presetId: string): Config {
+  if (presetId === PRESET_PERSONALIZADA) {
+    return { ...cfg, preset_id: PRESET_PERSONALIZADA }
+  }
+  const p = PRESETS_IMPRESORA.find((x) => x.id === presetId)
+  if (!p) return cfg
+  return {
+    ...cfg,
+    preset_id: p.id,
+    ancho_mm: p.ancho_mm,
+    alto_mm: p.alto_mm,
+    columnas: p.columnas,
+    filas: p.filas,
+    margen_entre_mm: p.margen_entre_mm,
+    margen_pagina_mm: p.margen_pagina_mm,
   }
 }
 
@@ -295,71 +420,118 @@ export default function EtiquetasCliente({
             Configuración de impresión
           </CardTitle>
           <CardDescription>
-            La configuración se guarda en este navegador para la próxima vez.
+            Selecciona tu impresora arriba y se rellenarán los tamaños correctos.
+            Si necesitas un tamaño concreto cambia los campos a mano y se
+            marcará como <em>Personalizada</em>. La configuración se guarda en
+            este navegador.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-          <div>
-            <Label className="text-xs">Ancho etiqueta (mm)</Label>
-            <Input
-              type="number" min="10" max="300" step="1"
-              value={cfg.ancho_mm}
-              onChange={(e) => setCfg(c => ({ ...c, ancho_mm: Math.max(10, parseFloat(e.target.value) || 10) }))}
-            />
-          </div>
-          <div>
-            <Label className="text-xs">Alto etiqueta (mm)</Label>
-            <Input
-              type="number" min="10" max="300" step="1"
-              value={cfg.alto_mm}
-              onChange={(e) => setCfg(c => ({ ...c, alto_mm: Math.max(10, parseFloat(e.target.value) || 10) }))}
-            />
-          </div>
-          <div>
-            <Label className="text-xs">Columnas</Label>
-            <Input
-              type="number" min="1" max="12" step="1"
-              value={cfg.columnas}
-              onChange={(e) => setCfg(c => ({ ...c, columnas: Math.max(1, parseInt(e.target.value) || 1) }))}
-            />
-          </div>
-          <div>
-            <Label className="text-xs">Filas por hoja/tira</Label>
-            <Input
-              type="number" min="1" max="50" step="1"
-              value={cfg.filas}
-              onChange={(e) => setCfg(c => ({ ...c, filas: Math.max(1, parseInt(e.target.value) || 1) }))}
-            />
-          </div>
-          <div>
-            <Label className="text-xs">Separación (mm)</Label>
-            <Input
-              type="number" min="0" max="20" step="0.5"
-              value={cfg.margen_entre_mm}
-              onChange={(e) => setCfg(c => ({ ...c, margen_entre_mm: Math.max(0, parseFloat(e.target.value) || 0) }))}
-            />
-          </div>
-          <div>
-            <Label className="text-xs">Margen de página (mm)</Label>
-            <Input
-              type="number" min="0" max="20" step="0.5"
-              value={cfg.margen_pagina_mm}
-              onChange={(e) => setCfg(c => ({ ...c, margen_pagina_mm: Math.max(0, parseFloat(e.target.value) || 0) }))}
-            />
-          </div>
-          <div className="md:col-span-2">
-            <Label className="text-xs">Tipo de código visual</Label>
+        <CardContent className="space-y-4 text-sm">
+          {/* Selector de impresora — primer campo, el más visible */}
+          <div className="rounded-md border border-blue-200 bg-blue-50/60 p-3">
+            <Label className="text-xs font-semibold text-blue-900 flex items-center gap-1">
+              <Printer className="w-3.5 h-3.5" />
+              Impresora / Formato de etiqueta
+            </Label>
             <Select
-              value={cfg.tipo_codigo}
-              onValueChange={(v: TipoCodigo) => setCfg(c => ({ ...c, tipo_codigo: v }))}
+              value={cfg.preset_id}
+              onValueChange={(v) => setCfg((c) => aplicarPreset(c, v))}
             >
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger className="mt-1 bg-white">
+                <SelectValue placeholder="Selecciona modelo de impresora…" />
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="qr">QR (para móviles y clientes)</SelectItem>
-                <SelectItem value="code128">Code128 (para ordenador central)</SelectItem>
-                <SelectItem value="ninguno">Ninguno (solo texto)</SelectItem>
+                <SelectItem value={PRESET_PERSONALIZADA}>
+                  Personalizada (medidas a mano)
+                </SelectItem>
+                {(['Zebra', 'Dymo', 'Brother', 'A4 Avery'] as const).map((marca) => (
+                  <SelectGroup key={marca}>
+                    <SelectLabel className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      {marca}
+                    </SelectLabel>
+                    {PRESETS_IMPRESORA.filter((p) => p.marca === marca).map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.nombre}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ))}
               </SelectContent>
             </Select>
+            {cfg.preset_id !== PRESET_PERSONALIZADA && (
+              <p className="mt-2 text-[11px] text-blue-900">
+                {(() => {
+                  const p = PRESETS_IMPRESORA.find((x) => x.id === cfg.preset_id)
+                  if (!p) return null
+                  return `${p.descripcion} · ${p.columnas}×${p.filas} etiquetas por página`
+                })()}
+              </p>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div>
+              <Label className="text-xs">Ancho etiqueta (mm)</Label>
+              <Input
+                type="number" min="10" max="300" step="0.1"
+                value={cfg.ancho_mm}
+                onChange={(e) => setCfg(c => ({ ...c, preset_id: PRESET_PERSONALIZADA, ancho_mm: Math.max(10, parseFloat(e.target.value) || 10) }))}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Alto etiqueta (mm)</Label>
+              <Input
+                type="number" min="10" max="300" step="0.1"
+                value={cfg.alto_mm}
+                onChange={(e) => setCfg(c => ({ ...c, preset_id: PRESET_PERSONALIZADA, alto_mm: Math.max(10, parseFloat(e.target.value) || 10) }))}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Columnas</Label>
+              <Input
+                type="number" min="1" max="12" step="1"
+                value={cfg.columnas}
+                onChange={(e) => setCfg(c => ({ ...c, preset_id: PRESET_PERSONALIZADA, columnas: Math.max(1, parseInt(e.target.value) || 1) }))}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Filas por hoja/tira</Label>
+              <Input
+                type="number" min="1" max="50" step="1"
+                value={cfg.filas}
+                onChange={(e) => setCfg(c => ({ ...c, preset_id: PRESET_PERSONALIZADA, filas: Math.max(1, parseInt(e.target.value) || 1) }))}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Separación (mm)</Label>
+              <Input
+                type="number" min="0" max="20" step="0.5"
+                value={cfg.margen_entre_mm}
+                onChange={(e) => setCfg(c => ({ ...c, preset_id: PRESET_PERSONALIZADA, margen_entre_mm: Math.max(0, parseFloat(e.target.value) || 0) }))}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Margen de página (mm)</Label>
+              <Input
+                type="number" min="0" max="20" step="0.5"
+                value={cfg.margen_pagina_mm}
+                onChange={(e) => setCfg(c => ({ ...c, preset_id: PRESET_PERSONALIZADA, margen_pagina_mm: Math.max(0, parseFloat(e.target.value) || 0) }))}
+              />
+            </div>
+            <div className="md:col-span-2">
+              <Label className="text-xs">Tipo de código visual</Label>
+              <Select
+                value={cfg.tipo_codigo}
+                onValueChange={(v: TipoCodigo) => setCfg(c => ({ ...c, tipo_codigo: v }))}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="qr">QR (para móviles y clientes)</SelectItem>
+                  <SelectItem value="code128">Code128 (para ordenador central)</SelectItem>
+                  <SelectItem value="ninguno">Ninguno (solo texto)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </CardContent>
       </Card>
