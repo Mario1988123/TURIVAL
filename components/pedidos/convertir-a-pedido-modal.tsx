@@ -37,8 +37,12 @@ import {
 import {
   accionConvertirPresupuestoAPedido,
   accionObtenerDatosParaConversion,
+  accionConfirmarPedido,
+  accionArrancarProduccion,
+  accionListarUbicacionesActivas,
   type LineaParaConversion,
   type PresupuestoParaConversion,
+  type UbicacionOpcion,
 } from '@/lib/actions/pedidos'
 import type { PrioridadPedido } from '@/lib/services/pedidos'
 
@@ -111,6 +115,11 @@ export function ConvertirAPedidoModal({
   const [contactoEntrega, setContactoEntrega] = useState('')
   const [telefonoEntrega, setTelefonoEntrega] = useState('')
 
+  // Ubicación inicial de las piezas (al confirmar)
+  const [ubicaciones, setUbicaciones] = useState<UbicacionOpcion[]>([])
+  const [ubicacionId, setUbicacionId] = useState<string>('')
+  const [faseSubmit, setFaseSubmit] = useState<'idle' | 'pedido' | 'piezas' | 'arrancar'>('idle')
+
   // Submit
   const [isPending, startTransition] = useTransition()
   const [errorSubmit, setErrorSubmit] = useState<string | null>(null)
@@ -125,6 +134,15 @@ export function ConvertirAPedidoModal({
 
     setCargando(true)
     setErrorCarga(null)
+
+    // Cargar ubicaciones en paralelo
+    accionListarUbicacionesActivas().then((res) => {
+      if (cancelado) return
+      if (res.ok) {
+        setUbicaciones(res.ubicaciones)
+        if (res.ubicaciones.length > 0) setUbicacionId(res.ubicaciones[0].id)
+      }
+    })
 
     accionObtenerDatosParaConversion(presupuestoId)
       .then((res) => {
@@ -234,7 +252,14 @@ export function ConvertirAPedidoModal({
       }
     }
 
+    if (!ubicacionId) {
+      setErrorSubmit('Selecciona una ubicación inicial para las piezas')
+      return
+    }
+
     startTransition(async () => {
+      // FASE 1: crear pedido borrador desde el presupuesto
+      setFaseSubmit('pedido')
       const res = await accionConvertirPresupuestoAPedido({
         presupuestoId,
         lineas: lineasInput,
@@ -246,15 +271,48 @@ export function ConvertirAPedidoModal({
         contactoEntrega: contactoEntrega.trim() || null,
         telefonoEntrega: telefonoEntrega.trim() || null,
       })
+      if (!res.ok) {
+        setErrorSubmit(res.error ?? 'Error al crear el pedido')
+        setFaseSubmit('idle')
+        return
+      }
+      const pedidoId = res.pedido.id
 
-      if (res.ok) {
+      // FASE 2: confirmar (crea piezas + tareas)
+      setFaseSubmit('piezas')
+      const resConf = await accionConfirmarPedido({ pedidoId, ubicacionId })
+      if (!resConf.ok) {
+        setErrorSubmit(
+          `Pedido creado pero no se pudieron crear las piezas: ${resConf.error}. Abre el pedido y pulsa "Pasar a producción".`
+        )
+        setFaseSubmit('idle')
         setOpen(false)
         resetForm()
-        router.push(`/pedidos/${res.pedido.id}`)
+        router.push(`/pedidos/${pedidoId}`)
         router.refresh()
-      } else {
-        setErrorSubmit(res.error ?? 'Error al crear el pedido')
+        return
       }
+
+      // FASE 3: arrancar producción (tareas pendiente → en_cola)
+      setFaseSubmit('arrancar')
+      const resArr = await accionArrancarProduccion(pedidoId)
+      if (!resArr.ok) {
+        setErrorSubmit(
+          `Pedido con piezas creadas. No se pudo arrancar producción: ${resArr.error}. Abre el pedido y pulsa "Arrancar producción".`
+        )
+        setFaseSubmit('idle')
+        setOpen(false)
+        resetForm()
+        router.push(`/pedidos/${pedidoId}`)
+        router.refresh()
+        return
+      }
+
+      setFaseSubmit('idle')
+      setOpen(false)
+      resetForm()
+      router.push(`/pedidos/${pedidoId}`)
+      router.refresh()
     })
   }
 
@@ -470,6 +528,26 @@ export function ConvertirAPedidoModal({
               </div>
 
               <div className="space-y-1.5 md:col-span-2">
+                <Label htmlFor="ubicacionInicial">Ubicación inicial de las piezas *</Label>
+                <Select value={ubicacionId} onValueChange={setUbicacionId}>
+                  <SelectTrigger id="ubicacionInicial">
+                    <SelectValue placeholder={ubicaciones.length === 0 ? 'No hay ubicaciones activas' : 'Elige ubicación…'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ubicaciones.map((u) => (
+                      <SelectItem key={u.id} value={u.id}>
+                        <span className="font-mono">{u.codigo}</span> — {u.nombre}
+                        <span className="ml-2 text-xs text-muted-foreground">({u.tipo})</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Todas las piezas se crean en esta ubicación. Luego podrás moverlas desde el detalle del pedido.
+                </p>
+              </div>
+
+              <div className="space-y-1.5 md:col-span-2">
                 <Label htmlFor="direccionEntrega">
                   Dirección entrega
                 </Label>
@@ -551,12 +629,15 @@ export function ConvertirAPedidoModal({
             {isPending ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Creando pedido...
+                {faseSubmit === 'pedido' && 'Creando pedido…'}
+                {faseSubmit === 'piezas' && 'Creando piezas y tareas…'}
+                {faseSubmit === 'arrancar' && 'Arrancando producción…'}
+                {faseSubmit === 'idle' && 'Procesando…'}
               </>
             ) : (
               <>
                 <FilePlus2 className="mr-2 h-4 w-4" />
-                Crear pedido
+                Pasar a producción
               </>
             )}
           </Button>
