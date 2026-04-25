@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
   Play, Pause, Square, LogIn, LogOut, ArrowLeft, Loader2,
-  CheckCircle2, AlertTriangle, Clock,
+  CheckCircle2, AlertTriangle, Clock, X, Hourglass,
 } from 'lucide-react'
 
 type EstadoOperario = 'fuera' | 'dentro' | 'en_pausa'
@@ -44,7 +44,8 @@ export default function OperarioMovilCliente({
   const [estado, setEstado] = useState<EstadoOperario>(inferirEstado(ultimoFichaje))
   const [enviando, setEnviando] = useState(false)
   const [toast, setToast] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null)
-  const [tareas] = useState(tareasIniciales)
+  const [tareas, setTareas] = useState(tareasIniciales)
+  const [tareaDetalle, setTareaDetalle] = useState<any | null>(null)
 
   function avisar(texto: string, tipo: 'ok' | 'error' = 'ok') {
     setToast({ tipo, texto })
@@ -185,7 +186,7 @@ export default function OperarioMovilCliente({
           </Card>
         ) : (
           <div className="space-y-2">
-            {tareasHoy.map((t) => <TareaCard key={t.id} tarea={t} />)}
+            {tareasHoy.map((t) => <TareaCard key={t.id} tarea={t} onClick={() => setTareaDetalle(t)} />)}
           </div>
         )}
       </section>
@@ -198,9 +199,25 @@ export default function OperarioMovilCliente({
             <span className="text-xs text-slate-500 ml-auto">{tareasOtros.length}</span>
           </div>
           <div className="space-y-2">
-            {tareasOtros.map((t) => <TareaCard key={t.id} tarea={t} compact />)}
+            {tareasOtros.map((t) => <TareaCard key={t.id} tarea={t} compact onClick={() => setTareaDetalle(t)} />)}
           </div>
         </section>
+      )}
+
+      {/* Dialog detalle tarea con iniciar/completar */}
+      {tareaDetalle && (
+        <DialogTareaDetalle
+          tarea={tareaDetalle}
+          operarioId={operario.id}
+          enPausa={estado === 'en_pausa'}
+          dentro={estado === 'dentro'}
+          onClose={() => setTareaDetalle(null)}
+          onAccion={(msg, tipo) => {
+            avisar(msg, tipo)
+            setTareaDetalle(null)
+            startTransition(() => router.refresh())
+          }}
+        />
       )}
 
       {/* Toast */}
@@ -226,7 +243,7 @@ function etiquetaTipo(tipo: string): string {
   }
 }
 
-function TareaCard({ tarea, compact }: { tarea: any; compact?: boolean }) {
+function TareaCard({ tarea, compact, onClick }: { tarea: any; compact?: boolean; onClick?: () => void }) {
   const proceso = tarea.proceso
   const pieza = tarea.pieza
   const linea = pieza?.linea_pedido
@@ -240,7 +257,11 @@ function TareaCard({ tarea, compact }: { tarea: any; compact?: boolean }) {
   const tentativa = !!tarea.tentativa
 
   return (
-    <Card style={{ borderLeftWidth: 4, borderLeftColor: colorBorde, borderStyle: tentativa ? 'dashed' : 'solid' }}>
+    <Card
+      onClick={onClick}
+      className={onClick ? 'cursor-pointer active:scale-[0.99] transition-transform' : ''}
+      style={{ borderLeftWidth: 4, borderLeftColor: colorBorde, borderStyle: tentativa ? 'dashed' : 'solid' }}
+    >
       <CardContent className={compact ? 'p-3' : 'p-4'}>
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
@@ -263,5 +284,180 @@ function TareaCard({ tarea, compact }: { tarea: any; compact?: boolean }) {
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+// ============================================================
+// Dialog detalle tarea (movil) — iniciar / completar / reportar
+// ============================================================
+
+function DialogTareaDetalle({
+  tarea,
+  operarioId,
+  enPausa,
+  dentro,
+  onClose,
+  onAccion,
+}: {
+  tarea: any
+  operarioId: string
+  enPausa: boolean
+  dentro: boolean
+  onClose: () => void
+  onAccion: (msg: string, tipo?: 'ok' | 'error') => void
+}) {
+  const [enviando, setEnviando] = useState(false)
+
+  async function iniciar() {
+    setEnviando(true)
+    try {
+      const { accionIniciarTarea } = await import('@/lib/actions/produccion')
+      const res = await accionIniciarTarea({ tareaId: tarea.id, operarioId })
+      if (res.ok) onAccion(`✓ Tarea iniciada`)
+      else onAccion(`✗ ${res.error}`, 'error')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  async function completar() {
+    setEnviando(true)
+    try {
+      const { accionCompletarTarea } = await import('@/lib/actions/produccion')
+      const res = await accionCompletarTarea(tarea.id)
+      if (res.ok) {
+        if (res.estado === 'en_secado') onAccion(`✓ Tarea en secado`)
+        else onAccion(`✓ Tarea completada`)
+      } else onAccion(`✗ ${res.error}`, 'error')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  async function forzarSeco() {
+    setEnviando(true)
+    try {
+      const { accionForzarSeco } = await import('@/lib/actions/produccion')
+      const res = await accionForzarSeco(tarea.id)
+      if (res.ok) onAccion(`✓ Marcada como seca`)
+      else onAccion(`✗ ${res.error}`, 'error')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  const proceso = tarea.proceso
+  const pieza = tarea.pieza
+  const linea = pieza?.linea_pedido
+  const pedido = linea?.pedido
+  const tentativa = !!tarea.tentativa
+  const estado = String(tarea.estado ?? '')
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-xl shadow-2xl max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div
+          className="px-5 py-4 border-b"
+          style={{ borderLeft: `6px solid ${proceso?.color_gantt ?? '#64748b'}` }}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">
+                {proceso?.nombre ?? proceso?.codigo}
+                {tentativa && <Badge className="ml-2 bg-amber-100 text-amber-800">tentativa</Badge>}
+              </h2>
+              <p className="text-sm text-slate-600">
+                {pieza?.numero} · {pedido?.numero ?? '—'}
+              </p>
+              {linea?.descripcion && (
+                <p className="text-xs text-slate-500 mt-1">{linea.descripcion}</p>
+              )}
+              {pedido?.cliente?.nombre_comercial && (
+                <p className="text-xs text-slate-500">{pedido.cliente.nombre_comercial}</p>
+              )}
+            </div>
+            <button type="button" onClick={onClose} className="p-1 text-slate-400 hover:bg-slate-100 rounded">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Info */}
+        <div className="p-5 space-y-3 text-sm">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-md bg-slate-50 p-3">
+              <div className="text-[10px] uppercase tracking-wide text-slate-500">Estado</div>
+              <div className="font-semibold capitalize">{estado.replace('_', ' ')}</div>
+            </div>
+            <div className="rounded-md bg-slate-50 p-3">
+              <div className="text-[10px] uppercase tracking-wide text-slate-500">Tiempo estimado</div>
+              <div className="font-semibold">{tarea.tiempo_estimado_minutos ?? 0} min</div>
+            </div>
+          </div>
+
+          {tarea.fecha_inicio_planificada && (
+            <div className="rounded-md bg-blue-50 p-3 text-xs">
+              <Clock className="h-3 w-3 inline mr-1" />
+              Planificada: {new Date(tarea.fecha_inicio_planificada).toLocaleString('es-ES')}
+            </div>
+          )}
+
+          {!dentro && !enPausa && (
+            <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-xs text-amber-900">
+              <AlertTriangle className="h-3 w-3 inline mr-1" />
+              Tienes que fichar entrada antes de operar tareas.
+            </div>
+          )}
+        </div>
+
+        {/* Acciones */}
+        <div className="px-5 pb-5 space-y-2">
+          {estado === 'pendiente' || estado === 'en_cola' ? (
+            <Button
+              onClick={iniciar}
+              disabled={enviando || !dentro || tentativa}
+              className="w-full h-14 text-base bg-emerald-600 hover:bg-emerald-700"
+            >
+              {enviando ? <Loader2 className="h-5 w-5 animate-spin" /> : (
+                <span className="flex items-center gap-2"><Play className="h-5 w-5" /> Iniciar tarea</span>
+              )}
+            </Button>
+          ) : null}
+
+          {estado === 'en_progreso' && (
+            <Button
+              onClick={completar}
+              disabled={enviando}
+              className="w-full h-14 text-base bg-blue-600 hover:bg-blue-700"
+            >
+              {enviando ? <Loader2 className="h-5 w-5 animate-spin" /> : (
+                <span className="flex items-center gap-2"><CheckCircle2 className="h-5 w-5" /> Completar</span>
+              )}
+            </Button>
+          )}
+
+          {estado === 'en_secado' && (
+            <Button
+              onClick={forzarSeco}
+              disabled={enviando}
+              className="w-full h-14 text-base bg-amber-500 hover:bg-amber-600"
+            >
+              <span className="flex items-center gap-2"><Hourglass className="h-5 w-5" /> Forzar seco</span>
+            </Button>
+          )}
+
+          <Button onClick={onClose} variant="outline" className="w-full h-12">
+            Volver
+          </Button>
+        </div>
+      </div>
+    </div>
   )
 }
