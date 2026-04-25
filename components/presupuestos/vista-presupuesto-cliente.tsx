@@ -32,6 +32,7 @@ import {
 } from 'lucide-react'
 import VisualizacionPiezaSVG from './visualizacion-pieza-svg'
 import ConvertirAPedidoModal from '@/components/pedidos/convertir-a-pedido-modal'
+import BotonEnviarEmail from './boton-enviar-email'
 
 type Cliente = {
   id: string
@@ -307,9 +308,13 @@ Un saludo,`
             <MessageCircle className="w-4 h-4 mr-2" />
             WhatsApp
           </Button>
-          <Button variant="outline" onClick={enviarEmail}>
+          <BotonEnviarEmail
+            presupuesto_id={presupuesto.id}
+            email_cliente={presupuesto.cliente?.email ?? null}
+          />
+          <Button variant="outline" onClick={enviarEmail} size="sm">
             <Mail className="w-4 h-4 mr-2" />
-            Email
+            Email (mailto)
           </Button>
 
           {/* Botón Convertir a pedido — solo visible si el presupuesto está ACEPTADO */}
