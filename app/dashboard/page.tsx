@@ -16,7 +16,11 @@ import {
   CalendarRange,
   Euro,
   BarChart3,
+  Sparkles,
+  Mic,
+  Camera,
 } from 'lucide-react'
+import AsistenteVoz from '@/components/asistente/asistente-voz'
 
 export default function DashboardPage() {
   const [stats, setStats] = useState({
@@ -107,6 +111,9 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8">
+      {/* Presupuesto rapido — voz / texto / foto */}
+      <BotonPresupuestoRapido />
+
       {/* Accesos rápidos a módulos nuevos (G1–G8) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Link href="/planificador" className="group">
@@ -358,5 +365,42 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+function BotonPresupuestoRapido() {
+  const [abierto, setAbierto] = useState(false)
+  return (
+    <>
+      <Card className="border-2 border-blue-200 bg-gradient-to-r from-blue-50 to-cyan-50">
+        <CardContent className="p-5">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-start gap-3 flex-1 min-w-0">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 text-white shadow-md shadow-blue-500/30 flex-shrink-0">
+                <Sparkles className="h-6 w-6" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-lg font-bold text-slate-900">Presupuesto rápido</h3>
+                <p className="text-sm text-slate-600">
+                  Dictalo por voz, escribelo o sube una foto de la hoja del cliente.
+                  El asistente lo crea por ti.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2 flex-shrink-0">
+              <Button onClick={() => setAbierto(true)} className="bg-blue-600 hover:bg-blue-700">
+                <Mic className="h-4 w-4 mr-1" />
+                Voz
+              </Button>
+              <Button variant="outline" onClick={() => setAbierto(true)}>
+                <Camera className="h-4 w-4 mr-1" />
+                Foto / OCR
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      <AsistenteVoz abierto={abierto} onAbrirChange={setAbierto} ocultarFab />
+    </>
   )
 }
