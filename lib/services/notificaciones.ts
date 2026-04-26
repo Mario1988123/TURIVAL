@@ -26,7 +26,9 @@ export type TipoNotificacion =
   | 'fecha_sin_reservar'
   | 'solape_operario'
   | 'dia_holgado'
+  | 'dia_saturado'
   | 'retraso_planificado'
+  | 'albaran_recepcion_sin_pedido'
 
 export interface Notificacion {
   id: string                    // string unico (sin tabla)
@@ -266,6 +268,40 @@ export async function listarNotificaciones(): Promise<Notificacion[]> {
         fecha: clave,
       })
     }
+    // Saturado: > 100% de capacidad
+    if (capacidadDiaria > 0 && ratio > 1.0) {
+      notificaciones.push({
+        id: `saturado_${clave}`,
+        tipo: 'dia_saturado',
+        titulo: `${fecha.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'short' })} sobrecargado`,
+        detalle: `${Math.round(ratio * 100)}% ocupacion · ${Math.round((carga - capacidadDiaria) / 60)}h por encima de capacidad. Reorganiza o desplaza pedidos holgados.`,
+        href: '/planificador',
+        prioridad: 'alta',
+        fecha: clave,
+      })
+    }
+  }
+
+  // 8) Albaranes de recepcion sin pedido vinculado >7 dias
+  const limiteRecepcion = new Date(ahora)
+  limiteRecepcion.setDate(limiteRecepcion.getDate() - 7)
+  const { data: recepciones } = await supabase
+    .from('albaranes')
+    .select('id, numero, created_at, cliente:clientes(nombre_comercial)')
+    .eq('tipo', 'recepcion')
+    .is('pedido_id', null)
+    .lte('created_at', limiteRecepcion.toISOString())
+    .limit(20)
+  for (const a of (recepciones ?? []) as any[]) {
+    notificaciones.push({
+      id: `recepcion_${a.id}`,
+      tipo: 'albaran_recepcion_sin_pedido',
+      titulo: `Albarán recepción ${a.numero} sin presupuestar`,
+      detalle: `${a.cliente?.nombre_comercial ?? '—'} · entró hace +7d sin pedido vinculado`,
+      href: `/albaranes/${a.id}`,
+      prioridad: 'media',
+      fecha: a.created_at,
+    })
   }
 
   // Ordenar por prioridad y fecha
@@ -293,7 +329,8 @@ export async function obtenerResumenNotificaciones(): Promise<ResumenNotificacio
   const por_tipo = {
     pedido_urgente: [], pieza_lista_secado: [], tarea_demora: [],
     presupuesto_pendiente: [], fecha_sin_reservar: [], solape_operario: [],
-    dia_holgado: [], retraso_planificado: [],
+    dia_holgado: [], dia_saturado: [], retraso_planificado: [],
+    albaran_recepcion_sin_pedido: [],
   } as Record<TipoNotificacion, Notificacion[]>
   for (const n of items) por_tipo[n.tipo].push(n)
   return {

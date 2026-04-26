@@ -14,7 +14,9 @@ const ICON_TIPO: Record<TipoNotificacion, any> = {
   fecha_sin_reservar: Calendar,
   solape_operario: Users,
   dia_holgado: Sparkles,
+  dia_saturado: AlertTriangle,
   retraso_planificado: AlertTriangle,
+  albaran_recepcion_sin_pedido: FileText,
 }
 
 const COLOR_PRIORIDAD: Record<Notificacion['prioridad'], string> = {

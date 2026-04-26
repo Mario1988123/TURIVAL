@@ -64,6 +64,7 @@ import type { PresupuestoPendiente, PedidoConFechaSinReservar } from '@/lib/serv
 import { accionMoverTarea, accionAutogenerar } from '@/lib/actions/planificador'
 import { accionDescansoGlobal, accionDescansoGlobalActivo } from '@/lib/actions/fichajes'
 import PanelSugerencias from './panel-sugerencias'
+import PanelHistorico from './panel-historico'
 import DialogAutogenerar from './dialog-autogenerar'
 import DialogDetalleTarea from './dialog-detalle-tarea'
 import Link from 'next/link'
@@ -416,6 +417,7 @@ export default function PlanificadorCliente({ vista, desde, dias, modo, filtros:
             {fechaCorta(listaDias[0])} – {fechaCorta(listaDias[listaDias.length - 1])}
           </div>
           <div className="ml-auto flex items-center gap-2">
+            <PanelHistorico />
             <PanelSugerencias
               desde={vista.rango.desde}
               hasta={vista.rango.hasta}

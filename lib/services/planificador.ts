@@ -498,6 +498,27 @@ export async function moverTarea(params: {
     return { ok: false, cambios, solapes_generados: [], violaciones_plazo: [], error: primerError.error.message }
   }
 
+  // Histórico de movimientos (Mario punto 33: trazabilidad de cambios Gantt)
+  try {
+    const { data: { user } } = await supabase.auth.getUser()
+    const movsHist = cambios.map((c) => {
+      const tareaResultante = tareasResultantes.find((t) => t.id === c.tarea_id)
+      const tareaAnterior = universo.find((t) => t.id === c.tarea_id)
+      return {
+        tarea_id: c.tarea_id,
+        usuario_id: user?.id ?? null,
+        fecha_anterior: c.inicio_anterior?.toISOString() ?? null,
+        fecha_nueva: c.inicio_nuevo.toISOString(),
+        operario_anterior_id: tareaAnterior?.operario_id ?? null,
+        operario_nuevo_id: tareaResultante?.operario_id ?? null,
+        motivo: c.tarea_id === params.tarea_id ? 'manual' : 'ripple',
+      }
+    })
+    if (movsHist.length > 0) {
+      await supabase.from('gantt_movimientos').insert(movsHist)
+    }
+  } catch { /* silencio: histórico es best-effort */ }
+
   // Calcular solapes y plazo tras el movimiento
   const resultadosConInicio = tareasResultantes.filter((t) => t.inicio_planificado != null)
   const solapes_generados = detectarSolapesEnPlanificacion(resultadosConInicio)

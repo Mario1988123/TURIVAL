@@ -215,6 +215,7 @@ export async function crearAlbaranDesdePedido(params: {
   fecha_entrega?: string
   observaciones?: string
   piezas_ids?: string[]    // override manual de qué piezas incluir
+  tipo?: 'entrega' | 'recepcion'  // Mario punto 33: tipo de albaran
 }): Promise<ResultadoAlbaran> {
   const supabase = await createClient()
 
@@ -261,6 +262,7 @@ export async function crearAlbaranDesdePedido(params: {
       estado: 'borrador',
       fecha_entrega: fechaEntrega,
       observaciones: params.observaciones ?? null,
+      tipo: params.tipo ?? 'entrega',
     })
     .select('id')
     .single()
@@ -340,6 +342,38 @@ export async function cambiarEstadoAlbaran(params: {
   }
 
   return { ok: true, albaran_id: params.albaran_id }
+}
+
+/**
+ * Albarán de RECEPCIÓN (Mario punto 33): el cliente nos trae piezas
+ * (sin pedido aún o asociadas a uno). No tiene linea_albaran auto;
+ * Mario rellena luego la descripción + cantidad.
+ */
+export async function crearAlbaranRecepcion(params: {
+  cliente_id: string
+  pedido_id?: string
+  observaciones?: string
+}): Promise<ResultadoAlbaran> {
+  const supabase = await createClient()
+  const { data: numData, error: errNum } = await supabase
+    .rpc('generar_numero_secuencial', { p_tipo: 'albaran' })
+  if (errNum || !numData) return { ok: false, error: errNum?.message ?? 'no se pudo generar número' }
+
+  const { data: nuevo, error: errIns } = await supabase
+    .from('albaranes')
+    .insert({
+      numero: numData as string,
+      pedido_id: params.pedido_id ?? null,
+      cliente_id: params.cliente_id,
+      estado: 'borrador',
+      fecha_entrega: new Date().toISOString().slice(0, 10),
+      observaciones: params.observaciones ?? 'Albarán de recepción — piezas dejadas por el cliente',
+      tipo: 'recepcion',
+    })
+    .select('id')
+    .single()
+  if (errIns || !nuevo) return { ok: false, error: errIns?.message ?? 'no se pudo crear albarán' }
+  return { ok: true, albaran_id: nuevo.id }
 }
 
 export async function eliminarAlbaran(albaran_id: string): Promise<ResultadoAlbaran> {

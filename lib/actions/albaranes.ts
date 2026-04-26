@@ -81,3 +81,14 @@ export async function accionEliminarAlbaran(albaran_id: string) {
   if (res.ok) revalidatePath('/albaranes')
   return res
 }
+
+import { crearAlbaranRecepcion } from '@/lib/services/albaranes'
+export async function accionCrearAlbaranRecepcion(params: {
+  cliente_id: string
+  pedido_id?: string
+  observaciones?: string
+}) {
+  const res = await crearAlbaranRecepcion(params)
+  if (res.ok) revalidatePath('/albaranes')
+  return res
+}

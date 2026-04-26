@@ -68,6 +68,20 @@ const SECCIONES: Array<{
     icon: Sparkles,
     color: 'border-emerald-300 bg-emerald-50/40',
   },
+  {
+    tipo: 'dia_saturado',
+    titulo: 'Días sobrecargados',
+    descripcion: '>100% de capacidad — reorganiza o desplaza',
+    icon: AlertTriangle,
+    color: 'border-red-300 bg-red-50/40',
+  },
+  {
+    tipo: 'albaran_recepcion_sin_pedido',
+    titulo: 'Recepciones sin presupuestar',
+    descripcion: 'Cliente nos dejó piezas, falta crear presupuesto/pedido',
+    icon: FileText,
+    color: 'border-amber-300 bg-amber-50/40',
+  },
 ]
 
 export default function PanelNotificacionesCliente({

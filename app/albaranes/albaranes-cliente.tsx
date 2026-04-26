@@ -119,13 +119,18 @@ export default function AlbaranesCliente({ albaranes, pedidosElegibles }: Props)
             </SelectContent>
           </Select>
         </div>
-        <DialogNuevoAlbaran
-          pedidos={pedidosElegibles}
-          pedidoIdInicial={pedidoIdParam}
-          autoOpen={autoOpen}
-          onCierre={() => setAutoOpen(false)}
-          onCreado={() => startTransition(() => router.refresh())}
-        />
+        <div className="flex gap-2">
+          <DialogNuevoAlbaran
+            pedidos={pedidosElegibles}
+            pedidoIdInicial={pedidoIdParam}
+            autoOpen={autoOpen}
+            onCierre={() => setAutoOpen(false)}
+            onCreado={() => startTransition(() => router.refresh())}
+          />
+          <DialogAlbaranRecepcion
+            onCreado={() => startTransition(() => router.refresh())}
+          />
+        </div>
       </div>
 
       <Card>
@@ -315,6 +320,99 @@ function DialogNuevoAlbaran({
           <Button variant="outline" onClick={() => setAbierto(false)}>Cancelar</Button>
           <Button onClick={crear} disabled={!pedidoId || enviando}>
             {enviando ? 'Creando…' : 'Crear albarán'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ============================================================
+// DialogAlbaranRecepcion (Mario punto 33)
+// El cliente nos trae piezas. Solo cabecera, no piezas.
+// ============================================================
+
+function DialogAlbaranRecepcion({ onCreado }: { onCreado: () => void }) {
+  const [abierto, setAbierto] = useState(false)
+  const [clientes, setClientes] = useState<Array<{ id: string; nombre_comercial: string; razon_social: string | null }>>([])
+  const [clienteId, setClienteId] = useState('')
+  const [obs, setObs] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!abierto || clientes.length > 0) return
+    import('@/lib/services/clientes').then(async ({ listarClientes }) => {
+      const res = await listarClientes({ limite: 5000, pagina: 0 })
+      setClientes(res.clientes ?? [])
+    })
+  }, [abierto, clientes.length])
+
+  async function crear() {
+    if (!clienteId) return
+    setEnviando(true)
+    setError(null)
+    try {
+      const { accionCrearAlbaranRecepcion } = await import('@/lib/actions/albaranes')
+      const res = await accionCrearAlbaranRecepcion({ cliente_id: clienteId, observaciones: obs || undefined })
+      if (res.ok) {
+        setAbierto(false)
+        setClienteId('')
+        setObs('')
+        onCreado()
+      } else {
+        setError(res.error ?? 'Error')
+      }
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <Dialog open={abierto} onOpenChange={setAbierto}>
+      <DialogTrigger asChild>
+        <Button variant="outline" className="border-amber-300 text-amber-900 hover:bg-amber-50">
+          <Truck className="w-4 h-4 mr-2 rotate-180" />
+          Albarán de recepción
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Nuevo albarán de RECEPCIÓN</DialogTitle>
+          <DialogDescription>
+            El cliente nos trae piezas al taller. Las piezas reales se generan
+            cuando se confirme el pedido; aquí solo registramos la entrada.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div>
+            <label className="text-xs font-medium">Cliente *</label>
+            <Select value={clienteId} onValueChange={setClienteId}>
+              <SelectTrigger><SelectValue placeholder="Selecciona cliente…" /></SelectTrigger>
+              <SelectContent>
+                {clientes.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.nombre_comercial}{c.razon_social ? ` — ${c.razon_social}` : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="text-xs font-medium">Observaciones</label>
+            <Textarea
+              value={obs}
+              onChange={(e) => setObs(e.target.value)}
+              placeholder="Ej: 5 zócalos pino + 3 puertas a lacar RAL 9003"
+              rows={3}
+            />
+          </div>
+          {error && <div className="text-xs text-red-600">{error}</div>}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setAbierto(false)}>Cancelar</Button>
+          <Button onClick={crear} disabled={!clienteId || enviando}>
+            {enviando ? <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Creando…</> : 'Crear albarán'}
           </Button>
         </DialogFooter>
       </DialogContent>
