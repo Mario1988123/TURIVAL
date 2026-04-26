@@ -503,6 +503,8 @@ export async function convertirPresupuestoAPedido(
     // --- Secuencia de procesos del flujo v2 (G1-G8) ---
     // Sin esto, confirmarPedido no puede generar tareas para líneas sin producto_id.
     procesos_codigos: l.src.procesos_codigos ?? null,
+    // Tiempos personalizados copiados desde el presupuesto (Mario punto 5)
+    procesos_tiempos: (l.src as any).procesos_tiempos ?? null,
   }))
 
   const { error: errLP2 } = await supabase
@@ -536,7 +538,7 @@ export async function confirmarPedido(input: ConfirmarPedidoInput) {
         color_id, tratamiento_id, tipo_pieza,
         ancho, alto, grosor, longitud_ml, superficie_m2,
         material_disponible, fecha_llegada_material,
-        procesos_codigos, categoria_pieza_id,
+        procesos_codigos, procesos_tiempos, categoria_pieza_id,
         material_lacado_id, material_fondo_id,
         contabilizar_grosor,
         cara_frontal, cara_trasera,
@@ -719,8 +721,20 @@ export async function confirmarPedido(input: ConfirmarPedidoInput) {
   const mapaTiempos = new Map<string, ConfigTiempo>()
   for (const t of tiemposRows) mapaTiempos.set(tiempoClave(t.proceso_id, t.categoria_pieza_id), t)
 
-  function tiempoV2(procesoId: string, categoria: string | null, sup_m2: number, longitud_ml: number): number {
-    // Prioridad: por categoría → global
+  function tiempoV2(
+    procesoId: string,
+    categoria: string | null,
+    sup_m2: number,
+    longitud_ml: number,
+    override?: { tiempo_base_min: number; tiempo_por_m2_min: number } | null,
+  ): number {
+    // Prioridad: override de la linea > por categoría > global (Mario punto 5)
+    if (override && (override.tiempo_base_min > 0 || override.tiempo_por_m2_min > 0)) {
+      return Math.round(
+        Number(override.tiempo_base_min ?? 0)
+        + Number(override.tiempo_por_m2_min ?? 0) * (sup_m2 || 0)
+      )
+    }
     const porCat = categoria ? mapaTiempos.get(tiempoClave(procesoId, categoria)) : null
     const global = mapaTiempos.get(tiempoClave(procesoId, null))
     const elegido = porCat ?? global
@@ -793,18 +807,21 @@ export async function confirmarPedido(input: ConfirmarPedidoInput) {
     const codigos = Array.isArray(linea.procesos_codigos) ? linea.procesos_codigos : []
     if (codigos.length === 0) continue
 
+    // Tiempos personalizados desde el dialog Nueva pieza (Mario punto 5)
+    const tiemposLinea: Array<{ codigo: string; tiempo_base_min: number; tiempo_por_m2_min: number }>
+      = Array.isArray((linea as any).procesos_tiempos) ? (linea as any).procesos_tiempos : []
+
     const piezaRepresentante = piezasLinea[0]
     codigos.forEach((codigo: string, idx: number) => {
       const pc = procesosCatalogoPorCodigo.get(codigo)
       if (!pc || pc.activo === false) return
-      // El tiempo se calcula sobre la superficie/longitud TOTAL de la
-      // línea (ya lo está en Supabase: lineas_pedido.superficie_m2 y
-      // longitud_ml son el total de la línea, no por unidad).
+      const override = tiemposLinea.find((t) => t.codigo === codigo) ?? null
       const tiempoEst = tiempoV2(
         pc.id,
         linea.categoria_pieza_id ?? null,
         Number(linea.superficie_m2) || 0,
         Number(linea.longitud_ml) || 0,
+        override,
       )
       tareasPayload.push({
         pieza_id: piezaRepresentante.id,

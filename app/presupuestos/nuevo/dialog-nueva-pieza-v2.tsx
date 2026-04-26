@@ -73,6 +73,14 @@ export interface NuevaPiezaData {
   // Procesos aplicables (códigos seleccionados, orden auto)
   procesos_codigos: string[]
 
+  /**
+   * Tiempos personalizados por proceso (Mario punto 5). Si está vacio
+   * se usan los defaults de getProcesoDefault. Si hay overrides, se
+   * persisten en lineas_presupuesto.procesos_tiempos (script 036)
+   * y se respetan al confirmar pedido y crear tareas.
+   */
+  procesos_tiempos: Array<{ codigo: string; tiempo_base_min: number; tiempo_por_m2_min: number }>
+
   // Guardar como referencia (opcional)
   guardar_como_referencia: boolean
   nombre_referencia: string
@@ -383,6 +391,15 @@ export default function DialogNuevaPiezaV2({
       descuento_porcentaje: v.descN,
       precio_aproximado: precioAproximado,
       procesos_codigos: v.procesosOrdenados,
+      procesos_tiempos: v.procesosOrdenados.map((codigo) => {
+        const def = getProcesoDefault(codigo)
+        const t = tiemposPersonalizados.get(codigo)
+        return {
+          codigo,
+          tiempo_base_min: t?.base ?? def?.tiempo_base_min ?? 0,
+          tiempo_por_m2_min: t?.porM2 ?? def?.tiempo_por_m2_min ?? 0,
+        }
+      }),
       guardar_como_referencia: guardarComoRef,
       nombre_referencia: nombreRef.trim(),
       preview,

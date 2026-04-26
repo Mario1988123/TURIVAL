@@ -425,6 +425,15 @@ async function insertarLineaConMotor(
     tiempo_estimado: Math.round(tiempoMinTotal),
     desglose_coste_json: desglose as any,
     procesos_codigos: procesosCodigos,
+    // Tiempos personalizados por proceso si el usuario los edito en el dialog
+    // Nueva pieza (Mario punto 5). Persistido en script 036.
+    procesos_tiempos: ((d.procesos ?? []) as any[])
+      .filter((p) => p && (p.tiempo_base_min > 0 || p.tiempo_por_m2_min > 0))
+      .map((p) => ({
+        codigo: p.proceso_codigo,
+        tiempo_base_min: Number(p.tiempo_base_min ?? 0),
+        tiempo_por_m2_min: Number(p.tiempo_por_m2_min ?? 0),
+      })),
     orden: d.orden,
   })
   if (error) throw error

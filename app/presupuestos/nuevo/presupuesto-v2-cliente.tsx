@@ -59,6 +59,7 @@ interface DatosPersonalizados {
   descuento_porcentaje: number
   precio_aproximado: boolean
   procesos_codigos: string[]
+  procesos_tiempos: Array<{ codigo: string; tiempo_base_min: number; tiempo_por_m2_min: number }>
   guardar_como_referencia: boolean
   nombre_referencia: string
   // Preview calculado en el dialog con el botón "Calcular precio"
@@ -196,6 +197,7 @@ export default function PresupuestoV2Cliente() {
           descuento_porcentaje: datos.descuento_porcentaje,
           precio_aproximado: datos.precio_aproximado,
           procesos_codigos: datos.procesos_codigos,
+          procesos_tiempos: datos.procesos_tiempos,
           guardar_como_referencia: datos.guardar_como_referencia,
           nombre_referencia: datos.nombre_referencia,
           preview: datos.preview,
@@ -293,14 +295,18 @@ export default function PresupuestoV2Cliente() {
               descuento_porcentaje: l.datos.descuento_porcentaje,
               precio_aproximado: l.datos.precio_aproximado,
               // Procesos seleccionados por el usuario en el formulario
-              // Nueva pieza. El backend rellena tiempos desde
-              // PROCESOS_DEFAULTS si no los especificamos aquí.
-              procesos: l.datos.procesos_codigos.map((codigo, i) => ({
-                proceso_codigo: codigo,
-                orden: i + 1,
-                tiempo_base_min: 0,
-                tiempo_por_m2_min: 0,
-              })),
+              // Nueva pieza. Si Mario edito tiempos en el dialog, viajan
+              // aqui en datos.procesos_tiempos y se persisten en
+              // lineas_presupuesto.procesos_tiempos.
+              procesos: l.datos.procesos_codigos.map((codigo, i) => {
+                const t = l.datos.procesos_tiempos?.find((x) => x.codigo === codigo)
+                return {
+                  proceso_codigo: codigo,
+                  orden: i + 1,
+                  tiempo_base_min: t?.tiempo_base_min ?? 0,
+                  tiempo_por_m2_min: t?.tiempo_por_m2_min ?? 0,
+                }
+              }),
             },
           }
         }
