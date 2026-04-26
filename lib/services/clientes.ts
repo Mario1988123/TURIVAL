@@ -232,12 +232,15 @@ export async function obtenerEstadisticasCliente(cliente_id: string) {
     .neq('estado', 'entregado')
     .neq('estado', 'cancelado')
 
-  // Facturacion total (suma de pedidos entregados)
+  // Facturacion total: suma todos los pedidos en estados que ya son
+  // "trabajo realizado y vendido": completado, entregado, facturado.
+  // (Antes solo contaba 'entregado' y por eso pedidos completados sin
+  // entregar todavia no aparecian en la cuenta.)
   const { data: pedidos } = await supabase
     .from('pedidos')
     .select('total')
     .eq('cliente_id', cliente_id)
-    .eq('estado', 'entregado')
+    .in('estado', ['completado', 'entregado', 'facturado'])
 
   const facturacion_total = pedidos?.reduce((sum, p) => sum + Number(p.total || 0), 0) || 0
 

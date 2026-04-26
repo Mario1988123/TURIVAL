@@ -55,6 +55,7 @@ import {
   accionCancelarPedido,
   accionListarUbicacionesActivas,
   accionEliminarLineaPedido,
+  accionMarcarPedidoPagado,
   type UbicacionOpcion,
 } from '@/lib/actions/pedidos'
 import type { EstadoPedido, PrioridadPedido } from '@/lib/services/pedidos'
@@ -343,6 +344,20 @@ export default function PedidoDetalleCliente({
                 Ver producción
               </Button>
             </Link>
+          )}
+          {/* Mario: botón "Marcar pagado" para completado/entregado */}
+          {(pedido.estado === 'completado' || pedido.estado === 'entregado') && (
+            <BotonMarcarPagado
+              pedidoId={pedido.id}
+              total={Number(pedido.total ?? 0)}
+              onPagado={() => router.refresh()}
+            />
+          )}
+          {pedido.estado === 'facturado' && (
+            <Badge className="bg-green-200 text-green-900 border-green-400 px-3 py-1">
+              <CheckCircle className="w-3.5 h-3.5 mr-1" />
+              PAGADO · {Number(pedido.total ?? 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
+            </Badge>
           )}
         </div>
       </div>
@@ -1405,6 +1420,69 @@ function SelectorPrioridadInline({
               }}
             >
               Sí, replanificar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
+// ============================================================
+// BotonMarcarPagado: completado/entregado -> facturado (Mario)
+// ============================================================
+
+function BotonMarcarPagado({
+  pedidoId,
+  total,
+  onPagado,
+}: {
+  pedidoId: string
+  total: number
+  onPagado: () => void
+}) {
+  const [confirmando, setConfirmando] = useState(false)
+  const [enviando, setEnviando] = useState(false)
+  const totalEur = total.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })
+
+  async function marcar() {
+    setEnviando(true)
+    try {
+      const res = await accionMarcarPedidoPagado(pedidoId)
+      if (res.ok) {
+        setConfirmando(false)
+        onPagado()
+      } else {
+        alert('Error: ' + (res.error ?? 'desconocido'))
+      }
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        className="border-green-300 text-green-800 hover:bg-green-50"
+        onClick={() => setConfirmando(true)}
+      >
+        <CheckCircle className="w-4 h-4 mr-2" />
+        Marcar pagado
+      </Button>
+      <Dialog open={confirmando} onOpenChange={setConfirmando}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Marcar pedido como pagado</DialogTitle>
+            <DialogDescription>
+              Confirma que el cliente ha pagado <strong>{totalEur}</strong>. El pedido pasa a estado
+              <strong> facturado</strong> y aparecerá en la facturación total del cliente.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmando(false)} disabled={enviando}>Cancelar</Button>
+            <Button onClick={marcar} disabled={enviando} className="bg-green-600 hover:bg-green-700">
+              {enviando ? <Loader2 className="w-4 h-4 animate-spin" /> : <span className="flex items-center gap-1"><CheckCircle className="w-4 h-4" /> Sí, pagado</span>}
             </Button>
           </DialogFooter>
         </DialogContent>

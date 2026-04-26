@@ -689,3 +689,24 @@ export async function accionReanudarPedido(pedidoId: string) {
     return { ok: false as const, error: e?.message ?? 'Error al reanudar' }
   }
 }
+
+// =============================================================
+// Marcar pagado (Mario): pedido completado/entregado -> facturado
+// =============================================================
+export async function accionMarcarPedidoPagado(pedidoId: string) {
+  try {
+    const supabase = await createSupaServer()
+    const { error } = await supabase
+      .from('pedidos')
+      .update({ estado: 'facturado' })
+      .eq('id', pedidoId)
+      .in('estado', ['completado', 'entregado'])
+    if (error) throw error
+    revalidatePath(`/pedidos/${pedidoId}`)
+    revalidatePath('/pedidos')
+    revalidatePath('/dashboard')
+    return { ok: true as const }
+  } catch (e: any) {
+    return { ok: false as const, error: e?.message ?? 'Error marcando pagado' }
+  }
+}

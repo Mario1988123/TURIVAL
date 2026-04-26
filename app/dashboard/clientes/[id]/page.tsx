@@ -252,12 +252,12 @@ export default function ClienteDetailPage() {
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="timeline">
+      <Tabs defaultValue="info">
         <TabsList>
+          <TabsTrigger value="info">Información</TabsTrigger>
           <TabsTrigger value="timeline">
             <History className="h-3.5 w-3.5 mr-1" /> Timeline ({eventos.length})
           </TabsTrigger>
-          <TabsTrigger value="info">Información</TabsTrigger>
           <TabsTrigger value="presupuestos">Presupuestos ({presupuestos.length})</TabsTrigger>
           <TabsTrigger value="pedidos">Pedidos ({pedidos.length})</TabsTrigger>
           <TabsTrigger value="albaranes">Albaranes ({albaranes.length})</TabsTrigger>
