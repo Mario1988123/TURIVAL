@@ -259,7 +259,7 @@ export default function AsistenteVoz({
           await ejecutarAnadirLinea(intencion, pushLog, presupuestoActivo, vozRespuesta)
           break
         case 'simular_fecha':
-          pushLog({ tipo: 'asistente', texto: 'Usa el boton "Recomendar fecha" en /presupuestos/[id] o /pedidos/[id]. Lo conecto al asistente proximamente.' })
+          await ejecutarSimularFecha(intencion, presupuestoActivo, pushLog, vozRespuesta)
           break
         case 'listar_urgentes':
           await ejecutarListarUrgentes(pushLog, vozRespuesta)
@@ -867,4 +867,39 @@ async function ejecutarProponerReorganizacion(
     }],
   })
   if (vozRespuesta) leerEnVoz(`Puedo adelantar ${ref} ${adelantoH} horas. Confirma para aplicar.`)
+}
+
+async function ejecutarSimularFecha(
+  intencion: IntencionDetectada,
+  presupuestoActivo: { id: string; numero: string; cliente_id: string } | null,
+  pushLog: (m: Omit<MensajeLog, 'id'>) => void,
+  vozRespuesta: boolean,
+) {
+  if (!presupuestoActivo) {
+    pushLog({ tipo: 'error', texto: 'Primero crea o referencia un presupuesto. "Para cuando estaria" simula sobre el ultimo presupuesto activo de la sesion.' })
+    return
+  }
+  const { accionSimularEntrega } = await import('@/lib/actions/simulador-entrega')
+  try {
+    const res = await accionSimularEntrega(presupuestoActivo.id)
+    if (!res.ok) {
+      pushLog({ tipo: 'error', texto: 'No pude simular: ' + (res.recomendado_iso ?? 'sin datos') })
+      return
+    }
+    if (!res.recomendado_iso) {
+      pushLog({ tipo: 'asistente', texto: `${presupuestoActivo.numero}: el motor no encontró hueco en el rango previsto.` })
+      return
+    }
+    const fecha = new Date(res.recomendado_iso)
+    const txt = `${presupuestoActivo.numero} se podria entregar el ${fecha.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}`
+    pushLog({
+      tipo: 'asistente',
+      texto: txt,
+      detalle: `${res.tareas_simuladas} tareas, ${res.piezas_simuladas} piezas. ${res.sin_hueco_count > 0 ? `⚠ ${res.sin_hueco_count} tareas necesitaron rango extendido.` : ''}`,
+      href: `/presupuestos/${presupuestoActivo.id}`,
+    })
+    if (vozRespuesta) leerEnVoz(txt)
+  } catch (e: any) {
+    pushLog({ tipo: 'error', texto: e?.message ?? 'Error al simular' })
+  }
 }
