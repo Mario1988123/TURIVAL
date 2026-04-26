@@ -229,7 +229,11 @@ export default function ReservasPanel({ pedidoId }: { pedidoId: string }) {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm font-semibold">
-                        {KG(d.cantidad_reservada_kg)}
+                        <BotonAjustarReserva
+                          reservaId={(d as any).reserva_id ?? ''}
+                          kgActuales={d.cantidad_reservada_kg}
+                          onAjustada={cargar}
+                        />
                       </TableCell>
                       <TableCell className="text-right font-mono text-xs text-muted-foreground">
                         {d.precio_kg > 0 ? EURO(d.precio_kg) : '—'}
@@ -278,5 +282,81 @@ export default function ReservasPanel({ pedidoId }: { pedidoId: string }) {
         </div>
       )}
     </Card>
+  )
+}
+
+// ============================================================
+// Boton inline para ajustar kg reservados (Mario punto 16)
+// NO toca stock real. Solo el campo cantidad_reservada_kg.
+// ============================================================
+
+function BotonAjustarReserva({
+  reservaId,
+  kgActuales,
+  onAjustada,
+}: {
+  reservaId: string
+  kgActuales: number
+  onAjustada: () => void
+}) {
+  const [editando, setEditando] = useState(false)
+  const [valor, setValor] = useState(kgActuales)
+  const [enviando, setEnviando] = useState(false)
+
+  if (!editando) {
+    return (
+      <button
+        type="button"
+        onClick={() => { setValor(kgActuales); setEditando(true) }}
+        className="font-mono text-sm font-semibold hover:underline"
+        title="Click para ajustar (no toca stock)"
+        disabled={!reservaId}
+      >
+        {KG(kgActuales)}{reservaId ? ' ✎' : ''}
+      </button>
+    )
+  }
+
+  async function guardar() {
+    setEnviando(true)
+    try {
+      const { accionAjustarReservaKg } = await import('@/lib/actions/reservas')
+      const res = await accionAjustarReservaKg({ reserva_id: reservaId, kg_nuevos: Number(valor) || 0 })
+      if (res.ok) {
+        setEditando(false)
+        onAjustada()
+      }
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <div className="inline-flex items-center gap-1">
+      <input
+        type="number"
+        min="0"
+        step="0.01"
+        value={valor}
+        onChange={(e) => setValor(parseFloat(e.target.value) || 0)}
+        autoFocus
+        className="w-24 rounded border px-1 py-0.5 text-right font-mono text-xs"
+      />
+      <button
+        type="button"
+        onClick={guardar}
+        disabled={enviando}
+        className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+      >
+        ✓
+      </button>
+      <button
+        type="button"
+        onClick={() => setEditando(false)}
+        className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 hover:bg-slate-200"
+      >
+        ✕
+      </button>
+    </div>
   )
 }

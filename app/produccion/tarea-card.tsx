@@ -149,6 +149,8 @@ export default function TareaCard({
       ? ahora - new Date(tarea.fecha_inicio_real).getTime()
       : null
 
+  const [pedidoTerminado, setPedidoTerminado] = useState<{ id: string; numero: string; cliente: string | null } | null>(null)
+
   function completar() {
     startTransition(async () => {
       const res = await accionCompletarTarea(tarea.id)
@@ -166,6 +168,10 @@ export default function TareaCard({
           )
         } else {
           onNotificar('ok', 'Tarea completada')
+        }
+        // Mario punto 26: si el pedido se completó, modal grande
+        if ((res as any).pedidoTerminado) {
+          setPedidoTerminado((res as any).pedidoTerminado)
         }
         router.refresh()
       } else {
@@ -518,6 +524,52 @@ export default function TareaCard({
             <AlertDialogAction onClick={confirmarForzarSeco} className="bg-amber-600 hover:bg-amber-700">
               Sí, forzar seco
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* PEDIDO TERMINADO — modal grande tras completar ultima tarea (Mario punto 26) */}
+      <AlertDialog open={!!pedidoTerminado} onOpenChange={(v) => !v && setPedidoTerminado(null)}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <div className="flex items-center justify-center mb-2">
+              <div className="h-16 w-16 rounded-full bg-emerald-100 flex items-center justify-center">
+                <CheckCircle2 className="h-10 w-10 text-emerald-600" />
+              </div>
+            </div>
+            <AlertDialogTitle className="text-center text-2xl">¡PEDIDO TERMINADO!</AlertDialogTitle>
+            <AlertDialogDescription className="text-center text-base pt-2">
+              <strong className="text-slate-900 text-lg">{pedidoTerminado?.numero}</strong>
+              {pedidoTerminado?.cliente && (
+                <><br /><span className="text-slate-700">{pedidoTerminado.cliente}</span></>
+              )}
+              <br /><br />
+              Todas las tareas están completas. ¿Confirmar envío y entrega ahora?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col gap-2 sm:flex-col">
+            <AlertDialogAction
+              onClick={() => {
+                if (pedidoTerminado) router.push(`/albaranes?pedido_id=${pedidoTerminado.id}`)
+                setPedidoTerminado(null)
+              }}
+              className="w-full bg-emerald-600 hover:bg-emerald-700"
+            >
+              Generar albarán y entregar
+            </AlertDialogAction>
+            <AlertDialogAction
+              onClick={() => {
+                if (pedidoTerminado) router.push(`/pedidos/${pedidoTerminado.id}`)
+                setPedidoTerminado(null)
+              }}
+              className="w-full"
+              asChild
+            >
+              <button className="bg-slate-100 text-slate-700 hover:bg-slate-200">
+                Ir al pedido
+              </button>
+            </AlertDialogAction>
+            <AlertDialogCancel className="w-full">Más tarde</AlertDialogCancel>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

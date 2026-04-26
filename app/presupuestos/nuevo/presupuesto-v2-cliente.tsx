@@ -535,14 +535,6 @@ export default function PresupuestoV2Cliente() {
               <Plus className="w-4 h-4 mr-2" />
               + Nueva pieza
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => setDialogoManual(true)}
-              disabled={!clienteId}
-            >
-              <Edit3 className="w-4 h-4 mr-2" />
-              + Línea manual
-            </Button>
           </div>
         </CardHeader>
         <CardContent>
@@ -774,52 +766,6 @@ export default function PresupuestoV2Cliente() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogoRef(false)}>Cerrar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* DIALOG LÍNEA MANUAL */}
-      <Dialog open={dialogoManual} onOpenChange={setDialogoManual}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Nueva línea manual</DialogTitle>
-            <DialogDescription>
-              Para piezas irregulares, servicios extra, portes, etc.
-              Descripción libre y precio a mano.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3 py-2">
-            <div>
-              <Label>Descripción *</Label>
-              <Input
-                value={formManual.descripcion}
-                onChange={(e) => setFormManual({ ...formManual, descripcion: e.target.value })}
-                placeholder="Ej: Pieza irregular cliente (presupuesto aproximado)"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Cantidad</Label>
-                <Input type="number" min="1" value={formManual.cantidad}
-                  onChange={(e) => setFormManual({ ...formManual, cantidad: parseInt(e.target.value) || 1 })}
-                />
-              </div>
-              <div>
-                <Label>Precio unitario (€)</Label>
-                <Input type="number" step="0.01" min="0" value={formManual.precio}
-                  onChange={(e) => setFormManual({ ...formManual, precio: parseFloat(e.target.value) || 0 })}
-                />
-              </div>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogoManual(false)}>Cancelar</Button>
-            <Button onClick={añadirManual}>
-              <Plus className="w-4 h-4 mr-2" />
-              Añadir línea
-            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

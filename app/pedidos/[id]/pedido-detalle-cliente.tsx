@@ -62,6 +62,8 @@ import MoverPiezaModal from '@/components/pedidos/mover-pieza-modal'
 import AgregarLineasPedidoModal from '@/components/pedidos/agregar-lineas-pedido-modal'
 import BotonRecomendarFechaPedido from '@/components/pedidos/boton-recomendar-fecha-pedido'
 import BotonReorganizarGantt from '@/components/pedidos/boton-reorganizar-gantt'
+import ModalPlanificarTareas from '@/components/pedidos/modal-planificar-tareas'
+import { createClient } from '@/lib/supabase/client'
 import ReservasPanel from '@/components/pedidos/reservas-panel'
 
 // =============================================================
@@ -253,12 +255,15 @@ export default function PedidoDetalleCliente({
               <Badge className={`text-xs border ${ESTADOS_COLORS[estadoActual]}`}>
                 {ESTADOS_LABELS[estadoActual]}
               </Badge>
-              <Badge
-                className={`text-xs border ${PRIORIDADES_COLORS[prioridadActual]}`}
-                variant="outline"
-              >
-                Prioridad: {PRIORIDADES_LABELS[prioridadActual]}
-              </Badge>
+              <SelectorPrioridadInline
+                pedidoId={pedido.id}
+                pedidoNumero={pedido.numero}
+                prioridadActual={prioridadActual}
+                onCambiada={(nueva) => {
+                  // local refresh — el motor lo aplica al recargar
+                  router.refresh()
+                }}
+              />
             </h1>
             <p className="text-muted-foreground mt-1">
               Creado {fechaES(pedido.fecha_creacion)}
@@ -306,6 +311,13 @@ export default function PedidoDetalleCliente({
             <BotonRecomendarFechaPedido pedido_id={pedido.id} />
           )}
           <BotonReorganizarGantt pedidoId={pedido.id} pedidoNumero={pedido.numero} />
+          {pedido.estado === 'en_produccion' && (
+            <ModalPlanificarTareas
+              pedidoId={pedido.id}
+              pedidoNumero={pedido.numero}
+              clienteNombre={pedido.cliente?.nombre_comercial ?? null}
+            />
+          )}
           {totalPiezasReales > 0 && (
             <Link href={`/etiquetas/pedido/${pedido.id}`}>
               <Button variant="outline" size="default" title="Imprimir etiquetas/QR de las piezas">
@@ -1297,5 +1309,106 @@ function DialogCancelarPedido({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+// ============================================================
+// Selector de prioridad inline (Mario punto 11)
+// Si sube a 'urgente', ofrece reorganizar Gantt automáticamente.
+// ============================================================
+type PrioridadAux = 'baja' | 'normal' | 'alta' | 'urgente'
+
+function SelectorPrioridadInline({
+  pedidoId,
+  pedidoNumero,
+  prioridadActual,
+  onCambiada,
+}: {
+  pedidoId: string
+  pedidoNumero: string
+  prioridadActual: PrioridadAux
+  onCambiada: (n: PrioridadAux) => void
+}) {
+  const [abierto, setAbierto] = useState(false)
+  const [proponiendo, setProponiendo] = useState(false)
+
+  const opciones: Array<{ key: PrioridadAux; label: string; clase: string }> = [
+    { key: 'baja',    label: 'Baja',    clase: 'bg-slate-100 text-slate-700 border-slate-300' },
+    { key: 'normal',  label: 'Normal',  clase: 'bg-blue-100 text-blue-800 border-blue-300' },
+    { key: 'alta',    label: 'Alta',    clase: 'bg-orange-100 text-orange-800 border-orange-300' },
+    { key: 'urgente', label: 'Urgente', clase: 'bg-red-100 text-red-800 border-red-300' },
+  ]
+  const actual = opciones.find((o) => o.key === prioridadActual) ?? opciones[1]
+
+  async function cambiar(nueva: PrioridadAux) {
+    setAbierto(false)
+    if (nueva === prioridadActual) return
+    const supabase = createClient()
+    const { error } = await supabase.from('pedidos').update({ prioridad: nueva }).eq('id', pedidoId)
+    if (error) return
+    onCambiada(nueva)
+
+    // Si subimos prioridad, ofrecer replanificar
+    const orden = { baja: 0, normal: 1, alta: 2, urgente: 3 }
+    if (orden[nueva] > orden[prioridadActual]) {
+      setProponiendo(true)
+    }
+  }
+
+  return (
+    <>
+      <div className="relative inline-block">
+        <button
+          type="button"
+          onClick={() => setAbierto((v) => !v)}
+          className={`text-xs px-2 py-1 rounded-md border hover:brightness-95 ${actual.clase}`}
+        >
+          Prioridad: {actual.label} ▾
+        </button>
+        {abierto && (
+          <>
+            <div className="fixed inset-0 z-30" onClick={() => setAbierto(false)} />
+            <div className="absolute z-40 top-full mt-1 left-0 min-w-[140px] rounded-md border bg-white shadow-lg overflow-hidden">
+              {opciones.map((o) => (
+                <button
+                  key={o.key}
+                  type="button"
+                  onClick={() => cambiar(o.key)}
+                  className={`block w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50 ${o.key === prioridadActual ? 'bg-blue-50 font-semibold' : ''}`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      <Dialog open={proponiendo} onOpenChange={setProponiendo}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Has subido la prioridad de {pedidoNumero}</DialogTitle>
+            <DialogDescription>
+              ¿Quieres replanificar el Gantt para adelantar este pedido
+              desplazando otros con holgura? El motor respeta secuencia y rol
+              de operario.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setProponiendo(false)}>Más tarde</Button>
+            <Button
+              className="bg-blue-600 hover:bg-blue-700"
+              onClick={() => {
+                setProponiendo(false)
+                // Disparar evento que abre el modal de Reorganizar Gantt
+                document.querySelector<HTMLButtonElement>('[data-trigger-reorganizar]')?.click()
+              }}
+            >
+              Sí, replanificar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }

@@ -111,12 +111,36 @@ export async function accionCompletarTarea(
     const res = await completarTarea(tareaId, mezcla)
     revalidatePath('/produccion')
     revalidatePath('/pedidos')
+
+    // Mario punto 26: detectar si el pedido pasa a 'completado' tras
+    // esta accion para que la UI muestre modal "PEDIDO TERMINADO".
+    let pedidoTerminado: { id: string; numero: string; cliente: string | null } | null = null
+    try {
+      const { createClient } = await import('@/lib/supabase/server')
+      const supabase = await createClient()
+      const { data: tareaInfo } = await supabase
+        .from('tareas_produccion')
+        .select('pieza:piezas(linea_pedido:lineas_pedido(pedido:pedidos(id, numero, estado, cliente:clientes(nombre_comercial))))')
+        .eq('id', tareaId)
+        .maybeSingle()
+      const ped = (tareaInfo as any)?.pieza?.linea_pedido?.pedido
+      if (ped?.estado === 'completado') {
+        pedidoTerminado = {
+          id: ped.id,
+          numero: ped.numero,
+          cliente: ped.cliente?.nombre_comercial ?? null,
+        }
+      }
+    } catch { /* silencio */ }
+
     return {
       ok: true as const,
       tarea: res.tarea,
       estado: res.estado,
       finSecado: 'finSecado' in res ? res.finSecado : null,
       consumo: 'consumo' in res ? res.consumo : null,
+      albaran: 'albaran' in res ? (res as any).albaran : null,
+      pedidoTerminado,
     }
   } catch (e: any) {
     return {

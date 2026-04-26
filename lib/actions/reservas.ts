@@ -46,3 +46,32 @@ export async function accionLiberarReservasPedido(pedidoId: string) {
   if (!pedidoId) throw new Error('pedidoId es obligatorio')
   return await liberarReservasPedido(pedidoId)
 }
+
+// =============================================================
+// Ajustar cantidad de una reserva manualmente (Mario punto 16)
+// NO toca stock físico, solo el campo `kg_reservados` de la reserva.
+// =============================================================
+export async function accionAjustarReservaKg(input: {
+  reserva_id: string
+  kg_nuevos: number
+}) {
+  try {
+    const { createClient } = await import('@/lib/supabase/server')
+    const supabase = await createClient()
+    if (!isFinite(input.kg_nuevos) || input.kg_nuevos < 0) {
+      return { ok: false as const, error: 'Cantidad inválida' }
+    }
+    const { error } = await supabase
+      .from('reservas_stock')
+      .update({
+        cantidad_reservada_kg: input.kg_nuevos,
+        observaciones: 'Ajustada manualmente',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', input.reserva_id)
+    if (error) throw error
+    return { ok: true as const }
+  } catch (e: any) {
+    return { ok: false as const, error: e?.message ?? 'Error ajustando reserva' }
+  }
+}
