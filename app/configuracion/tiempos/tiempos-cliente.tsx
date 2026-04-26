@@ -138,6 +138,7 @@ export default function TiemposCliente({
         <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
           <Clock className="w-8 h-8" />
           Tiempos de proceso
+          <BotonInfoTiempos />
         </h1>
         <p className="text-muted-foreground">
           Tiempos base (preparación fija) y tiempos por m² o ml para cada uno
@@ -145,16 +146,6 @@ export default function TiemposCliente({
           pedido para calcular la duración estimada de cada tarea.
         </p>
       </div>
-
-      <Alert className="bg-blue-50 border-blue-300 text-blue-900">
-        <Info className="w-4 h-4" />
-        <AlertDescription className="text-sm">
-          Estos son los tiempos <strong>globales</strong> que se aplican cuando
-          una pieza no tiene tiempos específicos para su categoría. Los valores
-          iniciales son un punto de partida; ajusta cada proceso según los
-          tiempos reales de tu taller y pulsa <strong>Guardar</strong> en esa fila.
-        </AlertDescription>
-      </Alert>
 
       <Card>
         <CardHeader>
@@ -174,7 +165,6 @@ export default function TiemposCliente({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-36">Código</TableHead>
                   <TableHead>Nombre</TableHead>
                   <TableHead className="text-right w-40">Base (min)</TableHead>
                   <TableHead className="text-right w-40">Por m² (min)</TableHead>
@@ -188,10 +178,7 @@ export default function TiemposCliente({
                   const estaGuardando = guardando === f.proceso_id
                   return (
                     <TableRow key={f.proceso_id}>
-                      <TableCell className="font-mono text-xs font-semibold">
-                        {f.codigo}
-                      </TableCell>
-                      <TableCell>{f.nombre}</TableCell>
+                      <TableCell className="font-medium">{f.nombre}</TableCell>
                       <TableCell className="text-right">
                         <Input
                           type="number"
@@ -274,5 +261,35 @@ export default function TiemposCliente({
         </div>
       )}
     </div>
+  )
+}
+
+// ============================================================
+// Boton info (i) que sustituye al banner anterior (Mario)
+// ============================================================
+
+function BotonInfoTiempos() {
+  const [abierto, setAbierto] = useState(false)
+  return (
+    <span className="relative inline-flex">
+      <button
+        type="button"
+        aria-label="Información"
+        onClick={() => setAbierto((v) => !v)}
+        className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
+      >
+        <Info className="h-3.5 w-3.5" />
+      </button>
+      {abierto && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setAbierto(false)} />
+          <div className="absolute z-40 top-full mt-1 left-0 w-80 rounded-md border bg-blue-50 border-blue-300 text-blue-900 shadow-lg p-3 text-xs">
+            Tiempos <strong>globales</strong> que se aplican cuando una pieza no tiene
+            tiempos específicos para su categoría. Ajusta cada proceso según el
+            ritmo real del taller y pulsa <strong>Guardar</strong> en esa fila.
+          </div>
+        </>
+      )}
+    </span>
   )
 }
