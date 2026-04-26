@@ -328,30 +328,46 @@ export default function ClienteDetailPage() {
         <TabsContent value="info" className="space-y-6">
           <div className="grid gap-6 md:grid-cols-2">
             <Card>
-              <CardHeader><CardTitle>Datos de contacto</CardTitle></CardHeader>
-              <CardContent className="space-y-4">
-                {cliente.persona_contacto && (
-                  <div className="flex items-center gap-3"><Building className="h-4 w-4 text-muted-foreground" /><span>{cliente.persona_contacto}</span></div>
-                )}
-                {cliente.email && (
-                  <div className="flex items-center gap-3"><Mail className="h-4 w-4 text-muted-foreground" /><a href={`mailto:${cliente.email}`} className="text-blue-600 hover:underline">{cliente.email}</a></div>
-                )}
-                {cliente.telefono && (
-                  <div className="flex items-center gap-3"><Phone className="h-4 w-4 text-muted-foreground" /><a href={`tel:${cliente.telefono}`} className="text-blue-600 hover:underline">{cliente.telefono}</a></div>
-                )}
-                {cliente.direccion && (
-                  <div className="flex items-start gap-3">
-                    <MapPin className="h-4 w-4 text-muted-foreground mt-1" />
-                    <div>
-                      <p>{cliente.direccion}</p>
-                      <p>{cliente.codigo_postal} {cliente.ciudad}</p>
-                      {cliente.provincia && <p>{cliente.provincia}</p>}
-                    </div>
-                  </div>
-                )}
-                {!cliente.persona_contacto && !cliente.email && !cliente.telefono && !cliente.direccion && (
-                  <p className="text-sm text-muted-foreground">Sin datos de contacto.</p>
-                )}
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Datos de contacto</CardTitle>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => router.push(`/dashboard/clientes/${clienteId}/editar`)}
+                  >
+                    <Edit className="h-3.5 w-3.5 mr-1" /> Editar
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <CampoContacto
+                  icon={Building}
+                  label="Persona de contacto"
+                  valor={cliente.persona_contacto}
+                />
+                <CampoContacto
+                  icon={Mail}
+                  label="Email"
+                  valor={cliente.email}
+                  href={cliente.email ? `mailto:${cliente.email}` : undefined}
+                />
+                <CampoContacto
+                  icon={Phone}
+                  label="Teléfono"
+                  valor={cliente.telefono}
+                  href={cliente.telefono ? `tel:${cliente.telefono}` : undefined}
+                />
+                <CampoContacto
+                  icon={MapPin}
+                  label="Dirección"
+                  valor={cliente.direccion}
+                  extra={
+                    cliente.codigo_postal || cliente.ciudad || cliente.provincia
+                      ? `${cliente.codigo_postal ?? ''} ${cliente.ciudad ?? ''}${cliente.provincia ? ', ' + cliente.provincia : ''}`.trim()
+                      : null
+                  }
+                />
               </CardContent>
             </Card>
 
@@ -479,6 +495,44 @@ export default function ClienteDetailPage() {
           <PiezasRecurrentesSeccion clienteId={clienteId} />
         </TabsContent>
       </Tabs>
+    </div>
+  )
+}
+
+// ============================================================
+// Campo de contacto: muestra label + icono SIEMPRE, valor o "—"
+// ============================================================
+
+function CampoContacto({
+  icon: Icon,
+  label,
+  valor,
+  href,
+  extra,
+}: {
+  icon: any
+  label: string
+  valor: string | null | undefined
+  href?: string
+  extra?: string | null
+}) {
+  const tieneValor = valor && String(valor).trim().length > 0
+  return (
+    <div className="flex items-start gap-3">
+      <Icon className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+      <div className="flex-1 min-w-0">
+        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
+        {tieneValor ? (
+          href ? (
+            <a href={href} className="text-blue-600 hover:underline break-all">{valor}</a>
+          ) : (
+            <div className="text-slate-900 break-words">{valor}</div>
+          )
+        ) : (
+          <div className="text-slate-400 italic text-sm">— sin definir</div>
+        )}
+        {extra && tieneValor && <div className="text-xs text-slate-600">{extra}</div>}
+      </div>
     </div>
   )
 }
