@@ -23,8 +23,15 @@ import { Badge } from '@/components/ui/badge'
 import { Loader2, CalendarRange, Save, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { accionMoverTarea } from '@/lib/actions/planificador'
-import type { Operario } from '@/lib/services/operarios'
-import { listarOperarios } from '@/lib/services/operarios'
+// Shape mínimo de operario que usamos aquí (evita arrastrar
+// lib/services/operarios.ts que importa supabase/server)
+interface Operario {
+  id: string
+  nombre: string
+  rol: string | null
+  color?: string | null
+  activo?: boolean
+}
 
 interface Tarea {
   id: string
@@ -77,8 +84,12 @@ export default function ModalPlanificarTareas({
 
       setTareas((tareasData ?? []) as any[])
 
-      const ops = await listarOperarios(false)
-      setOperarios(ops)
+      const { data: opsData } = await supabase
+        .from('operarios')
+        .select('*')
+        .eq('activo', true)
+        .order('nombre', { ascending: true })
+      setOperarios((opsData ?? []) as Operario[])
     } finally {
       setCargando(false)
     }
