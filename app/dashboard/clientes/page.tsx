@@ -16,13 +16,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { MoreHorizontal, Plus, Search, Filter } from 'lucide-react'
+import { Plus, Search, Filter, Eye, Edit, FileText, Trash2 } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
 import type { Cliente } from '@/lib/types/erp'
 
 export default function ClientesPage() {
@@ -53,6 +48,31 @@ export default function ClientesPage() {
 
     cargarClientes()
   }, [busqueda, filtroTipo, pagina])
+
+  async function eliminarCliente(cliente: Cliente) {
+    const supabase = createClient()
+    // Comprobar si tiene presupuestos o pedidos asociados
+    const [{ count: presCount }, { count: pedCount }] = await Promise.all([
+      supabase.from('presupuestos').select('*', { count: 'exact', head: true }).eq('cliente_id', cliente.id),
+      supabase.from('pedidos').select('*', { count: 'exact', head: true }).eq('cliente_id', cliente.id),
+    ])
+    const total = (presCount ?? 0) + (pedCount ?? 0)
+    if (total > 0) {
+      alert(
+        `No se puede eliminar a "${cliente.nombre_comercial}" porque tiene ${presCount ?? 0} presupuesto(s) y ${pedCount ?? 0} pedido(s) asociados.\n\n` +
+        'Elimina o reasigna esos antes.',
+      )
+      return
+    }
+    if (!confirm(`¿Eliminar al cliente "${cliente.nombre_comercial}"? Esta acción no se puede deshacer.`)) return
+    const { error } = await supabase.from('clientes').delete().eq('id', cliente.id)
+    if (error) {
+      alert('Error al eliminar: ' + error.message)
+      return
+    }
+    setClientes((prev) => prev.filter((c) => c.id !== cliente.id))
+    setTotal((t) => Math.max(0, t - 1))
+  }
 
   const getTipoBadge = (tipo: string) => {
     const variants: Record<string, 'default' | 'secondary' | 'destructive'> = {
@@ -169,35 +189,44 @@ export default function ClientesPage() {
                       </TableCell>
                       <TableCell>{cliente.ciudad || '-'}</TableCell>
                       <TableCell className="text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              onClick={() => router.push(`/dashboard/clientes/${cliente.id}`)}
-                            >
-                              Ver detalles
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => router.push(`/dashboard/clientes/${cliente.id}/editar`)}
-                            >
-                              Editar
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => router.push(`/presupuestos/nuevo?cliente=${cliente.id}`)}
-                            >
-                              Crear presupuesto
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => router.push(`/pedidos/nuevo?cliente=${cliente.id}`)}
-                            >
-                              Crear pedido
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                        <div className="inline-flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            title="Ver detalle"
+                            onClick={() => router.push(`/dashboard/clientes/${cliente.id}`)}
+                          >
+                            <Eye className="h-4 w-4 text-slate-600" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            title="Editar cliente"
+                            onClick={() => router.push(`/dashboard/clientes/${cliente.id}/editar`)}
+                          >
+                            <Edit className="h-4 w-4 text-blue-600" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            title="Nuevo presupuesto"
+                            onClick={() => router.push(`/presupuestos/nuevo?cliente=${cliente.id}`)}
+                          >
+                            <FileText className="h-4 w-4 text-emerald-600" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            title="Eliminar cliente"
+                            onClick={() => eliminarCliente(cliente)}
+                          >
+                            <Trash2 className="h-4 w-4 text-red-600" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
