@@ -48,6 +48,9 @@ function getTransporter(): nodemailer.Transporter {
     host: process.env.SMTP_HOST!,
     port,
     secure,
+    pool: true,            // mantener conexión abierta para envíos seguidos
+    maxConnections: 3,
+    maxMessages: 50,
     auth: {
       user: process.env.SMTP_USER!,
       pass: process.env.SMTP_PASS!,
@@ -56,27 +59,53 @@ function getTransporter(): nodemailer.Transporter {
   return transporterCache
 }
 
+/**
+ * Envia un email con reintentos automáticos en caso de error transitorio
+ * (ECONNRESET, EAI_AGAIN, ETIMEDOUT). Hasta 3 intentos con backoff 2s/4s.
+ */
 export async function enviarEmail(payload: EmailPayload): Promise<EmailEnviado> {
   if (!tieneConfig()) {
     console.warn('[email] SMTP no configurado. Stub:', payload.to, '·', payload.subject)
     return { ok: true, stub: true }
   }
+  const from = process.env.SMTP_FROM ?? process.env.SMTP_USER!
+  let ultimoError = ''
+  for (let intento = 1; intento <= 3; intento++) {
+    try {
+      const info = await getTransporter().sendMail({
+        from,
+        to: payload.to,
+        subject: payload.subject,
+        html: payload.html,
+        text: payload.text,
+        attachments: payload.attachments,
+        replyTo: payload.replyTo,
+      })
+      return { ok: true, messageId: info.messageId }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Error desconocido SMTP'
+      ultimoError = msg
+      const transient = /ECONNRESET|EAI_AGAIN|ETIMEDOUT|ENOTFOUND/.test(msg)
+      console.warn(`[email] intento ${intento}/3 falló:`, msg)
+      if (!transient || intento === 3) break
+      await new Promise((r) => setTimeout(r, 2000 * intento))
+    }
+  }
+  console.error('[email] Error envío tras 3 intentos:', ultimoError)
+  return { ok: false, error: ultimoError }
+}
+
+/**
+ * Verifica conectividad SMTP sin enviar email real. Útil para
+ * diagnostico desde /configuracion.
+ */
+export async function verificarSmtp(): Promise<{ ok: boolean; error?: string }> {
+  if (!tieneConfig()) return { ok: false, error: 'Variables SMTP no configuradas' }
   try {
-    const from = process.env.SMTP_FROM ?? process.env.SMTP_USER!
-    const info = await getTransporter().sendMail({
-      from,
-      to: payload.to,
-      subject: payload.subject,
-      html: payload.html,
-      text: payload.text,
-      attachments: payload.attachments,
-      replyTo: payload.replyTo,
-    })
-    return { ok: true, messageId: info.messageId }
+    await getTransporter().verify()
+    return { ok: true }
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'Error desconocido SMTP'
-    console.error('[email] Error envío:', msg)
-    return { ok: false, error: msg }
+    return { ok: false, error: e instanceof Error ? e.message : 'Error desconocido' }
   }
 }
 

@@ -75,11 +75,19 @@ import { FileWarning } from 'lucide-react'
 // =============================================================
 
 const ANCHO_LABEL_PX = 200
-const ANCHO_DIA_PX = 160
+const ANCHO_DIA_BASE_PX = 160
 const ALTO_FILA_PX = 64
 const ALTO_HEADER_PX = 48
 const MIN_JORNADA = 540 // 08:00–17:00
 const SNAP_MINUTOS = 15
+// Niveles de zoom para Gantt minutado (Mario: pixel proporcional)
+const ZOOM_LEVELS = [
+  { label: 'Día',    anchoPx: 160 },   // 17.7s/px aprox — vista resumen
+  { label: 'Hora',   anchoPx: 480 },   // 1 hora ≈ 53px
+  { label: '15min',  anchoPx: 1080 },  // 15min ≈ 30px
+  { label: '5min',   anchoPx: 2400 },  // 5min ≈ 22px — micro detalle
+] as const
+type IndiceZoom = 0 | 1 | 2 | 3
 
 // =============================================================
 // TIPOS
@@ -245,6 +253,8 @@ export default function PlanificadorCliente({ vista, desde, dias, modo, filtros:
   const [descansoActivo, setDescansoActivo] = useState<boolean>(false)
   const [operariosEnPausa, setOperariosEnPausa] = useState<Set<string>>(new Set())
   const [diaAmpliado, setDiaAmpliado] = useState<Date | null>(null)
+  const [indiceZoom, setIndiceZoom] = useState<IndiceZoom>(0)
+  const ANCHO_DIA_PX = ZOOM_LEVELS[indiceZoom].anchoPx
 
   // Cargar estado del descanso global y operarios en pausa al montar
   useEffect(() => {
@@ -547,7 +557,19 @@ export default function PlanificadorCliente({ vista, desde, dias, modo, filtros:
           <span className="flex items-center gap-1"><span className="h-3 w-3 rounded-sm border border-orange-400 bg-orange-100" />alta</span>
           <span className="flex items-center gap-1"><span className="h-3 w-3 rounded-sm border border-blue-300 bg-blue-50" />normal</span>
           <span className="flex items-center gap-1"><span className="h-3 w-3 rounded-sm border border-slate-300 bg-slate-100" />baja</span>
-          <span className="ml-auto text-slate-500">Jornada 08:00–17:00 · {tareasPlanificadas.length} planificadas · {tareasSinPlanificar.length} sin planificar · snap {snapProporcional(ANCHO_DIA_PX)} min (proporcional al zoom)</span>
+          <span className="ml-auto text-slate-500">Jornada 08:00–17:00 · {tareasPlanificadas.length} planificadas · {tareasSinPlanificar.length} sin planificar · snap {snapProporcional(ANCHO_DIA_PX)} min</span>
+          <div className="inline-flex rounded border bg-white p-0.5">
+            {ZOOM_LEVELS.map((z, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => setIndiceZoom(i as IndiceZoom)}
+                className={`px-1.5 py-0.5 text-[10px] rounded ${i === indiceZoom ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+              >
+                {z.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Gantt */}
@@ -562,17 +584,32 @@ export default function PlanificadorCliente({ vista, desde, dias, modo, filtros:
               </div>
               {listaDias.map((d, i) => {
                 const finSemana = d.getDay() === 0 || d.getDay() === 6
+                // Marcas horarias visibles cuando hay zoom (>=480px de ancho)
+                const mostrarHoras = ANCHO_DIA_PX >= 480
                 return (
-                  <button
+                  <div
                     key={i}
-                    type="button"
-                    onClick={() => setDiaAmpliado(d)}
-                    className={`flex flex-col items-center justify-center border-r text-xs hover:bg-blue-50 transition-colors ${finSemana ? 'bg-slate-100 text-slate-500' : 'text-slate-700'}`}
-                    title="Click para ver el día ampliado"
+                    className={`relative flex flex-col items-stretch border-r text-xs ${finSemana ? 'bg-slate-100 text-slate-500' : 'text-slate-700'}`}
                   >
-                    <div className="font-medium underline-offset-2 hover:underline">{fechaCorta(d)}</div>
-                    <div className="text-[10px] text-slate-500">08:00–17:00 · ampliar</div>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => setDiaAmpliado(d)}
+                      className="flex flex-col items-center justify-center hover:bg-blue-50 transition-colors py-1"
+                      title="Click para ver el día ampliado"
+                    >
+                      <div className="font-medium underline-offset-2 hover:underline">{fechaCorta(d)}</div>
+                      {!mostrarHoras && <div className="text-[10px] text-slate-500">08:00–17:00 · ampliar</div>}
+                    </button>
+                    {mostrarHoras && (
+                      <div className="grid border-t" style={{ gridTemplateColumns: `repeat(9, 1fr)` }}>
+                        {Array.from({ length: 9 }).map((_, h) => (
+                          <div key={h} className="text-center text-[9px] text-slate-500 border-r last:border-r-0">
+                            {String(8 + h).padStart(2, '0')}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )
               })}
             </div>
@@ -591,6 +628,7 @@ export default function PlanificadorCliente({ vista, desde, dias, modo, filtros:
                   alternado={idx % 2 === 1}
                   modo={modo}
                   dragActivado={dragActivado}
+                  anchoDiaPx={ANCHO_DIA_PX}
                   onVerDetalles={setDetalleTarea}
                   operarioEnPausa={modo === 'operario' && operariosEnPausa.has(c.id)}
                   onToggleOperarioPausa={modo === 'operario' ? async (operario_id, pausar) => {
@@ -680,6 +718,7 @@ function FilaCarril({
   onVerDetalles,
   operarioEnPausa,
   onToggleOperarioPausa,
+  anchoDiaPx,
 }: {
   carril: Carril
   dias: Date[]
@@ -690,11 +729,12 @@ function FilaCarril({
   onVerDetalles: (t: FilaPlanificador) => void
   operarioEnPausa?: boolean
   onToggleOperarioPausa?: (operario_id: string, pausar: boolean) => void
+  anchoDiaPx: number
 }) {
   return (
     <div
       className={`grid border-b ${alternado ? 'bg-slate-50/50' : 'bg-white'} ${operarioEnPausa ? 'bg-amber-50/60' : ''}`}
-      style={{ gridTemplateColumns: `${ANCHO_LABEL_PX}px repeat(${dias.length}, ${ANCHO_DIA_PX}px)`, minHeight: ALTO_FILA_PX }}
+      style={{ gridTemplateColumns: `${ANCHO_LABEL_PX}px repeat(${dias.length}, ${anchoDiaPx}px)`, minHeight: ALTO_FILA_PX }}
     >
       <div className="flex items-center gap-2 border-r px-3 text-sm">
         {carril.color && <span className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: carril.color }} />}

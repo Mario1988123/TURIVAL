@@ -62,6 +62,21 @@ export default async function MobileSelectorOperario() {
         ))}
       </div>
 
+      <Link href="/m/planificador" className="block">
+        <Card className="active:scale-95 transition-transform border-blue-200 bg-blue-50/50">
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="h-12 w-12 rounded-full flex items-center justify-center text-white font-bold text-lg shadow bg-gradient-to-br from-blue-600 to-cyan-500">
+              📅
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-slate-900">Ver planificador</div>
+              <div className="text-xs text-slate-500">Próximos 7 días por día con todas las tareas</div>
+            </div>
+            <ChevronRight className="h-5 w-5 text-slate-400" />
+          </CardContent>
+        </Card>
+      </Link>
+
       <p className="text-center text-[11px] text-slate-400 mt-8">
         Modo móvil para taller · sin sidebar · sin distracciones
       </p>
