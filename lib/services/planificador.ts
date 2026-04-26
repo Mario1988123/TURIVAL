@@ -328,13 +328,33 @@ export async function obtenerVistaPlanificador(
     pieza_numero: labelPorPieza.get(v.pieza_id)?.pieza_numero,
   }))
 
+  // Enriquecer solapes y violaciones de secuencia con etiquetas legibles
+  const labelPorTarea = new Map<string, { pedido_numero: string; cliente_nombre: string | null; pieza_numero: string; operario_nombre: string | null }>()
+  for (const f of filas) {
+    labelPorTarea.set(f.id, {
+      pedido_numero: f.pedido_numero,
+      cliente_nombre: f.cliente_nombre,
+      pieza_numero: f.pieza_numero,
+      operario_nombre: f.operario_nombre,
+    })
+  }
+  const solapes_enr = solapes.map((s: any) => ({
+    ...s,
+    tarea_a_label: labelPorTarea.get(s.tarea_a_id),
+    tarea_b_label: labelPorTarea.get(s.tarea_b_id),
+  }))
+  const viol_sec_enr = violaciones_secuencia.map((v: any) => ({
+    ...v,
+    tarea_label: labelPorTarea.get(v.tarea_id),
+  }))
+
   const operarios = await obtenerOperariosDisponibles()
 
   return {
     tareas: filas,
     operarios,
-    solapes,
-    violaciones_secuencia,
+    solapes: solapes_enr as any,
+    violaciones_secuencia: viol_sec_enr as any,
     violaciones_plazo: violaciones_plazo_enriquecidas as any,
     rango: { desde: toISO(desde), hasta: toISO(hasta) },
     jornada,

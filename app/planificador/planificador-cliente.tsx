@@ -928,18 +928,39 @@ function BannersViolaciones({ vista }: { vista: VistaPlanificador }) {
       {solapes.length > 0 && (
         <div className="flex items-start gap-2 rounded-md border border-orange-300 bg-orange-50 px-3 py-2 text-sm text-orange-900">
           <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
-          <div>
+          <div className="min-w-0 flex-1">
             <div className="font-medium">{solapes.length} solape(s) de operario</div>
-            <div className="text-xs">dos tareas asignadas al mismo operario en la misma franja</div>
+            <div className="text-[11px] text-slate-600 mb-1">un mismo operario tiene dos tareas a la vez</div>
+            <div className="flex flex-wrap gap-1">
+              {solapes.slice(0, 6).map((s: any, i) => (
+                <span key={i} className="inline-flex items-center gap-1 rounded border border-orange-300 bg-white px-2 py-0.5 text-[11px]">
+                  {s.tarea_a_label?.operario_nombre && <span className="font-semibold">{s.tarea_a_label.operario_nombre}:</span>}
+                  <span>{s.tarea_a_label?.pedido_numero}/{s.tarea_a_label?.pieza_numero}</span>
+                  <span className="text-slate-400">↔</span>
+                  <span>{s.tarea_b_label?.pedido_numero}/{s.tarea_b_label?.pieza_numero}</span>
+                </span>
+              ))}
+              {solapes.length > 6 && <span className="text-xs text-orange-700">+{solapes.length - 6} más</span>}
+            </div>
           </div>
         </div>
       )}
       {violaciones_secuencia.length > 0 && (
         <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           <Clock className="mt-0.5 h-4 w-4 flex-shrink-0" />
-          <div>
+          <div className="min-w-0 flex-1">
             <div className="font-medium">{violaciones_secuencia.length} tarea(s) violan secuencia</div>
-            <div className="text-xs">empiezan antes de terminar su predecesora</div>
+            <div className="text-[11px] text-slate-600 mb-1">empiezan antes de terminar su predecesora — el motor las bloquea al guardar</div>
+            <div className="flex flex-wrap gap-1">
+              {violaciones_secuencia.slice(0, 6).map((v: any, i) => (
+                <span key={i} className="inline-flex items-center gap-1 rounded border border-amber-300 bg-white px-2 py-0.5 text-[11px]">
+                  <span className="font-semibold">{v.tarea_label?.pedido_numero ?? '?'}</span>
+                  {v.tarea_label?.cliente_nombre && <span className="text-slate-600">· {v.tarea_label.cliente_nombre}</span>}
+                  {v.tarea_label?.pieza_numero && <span className="text-slate-500">· {v.tarea_label.pieza_numero}</span>}
+                </span>
+              ))}
+              {violaciones_secuencia.length > 6 && <span className="text-xs text-amber-700">+{violaciones_secuencia.length - 6} más</span>}
+            </div>
           </div>
         </div>
       )}

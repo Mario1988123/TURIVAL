@@ -10,8 +10,8 @@
  *   - Acciones por fila: marcar impreso, marcar entregado, eliminar (solo borrador).
  */
 
-import { useState, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useTransition, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -69,9 +69,14 @@ function formatearFecha(iso: string): string {
 
 export default function AlbaranesCliente({ albaranes, pedidosElegibles }: Props) {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const pedidoIdParam = searchParams.get('pedido_id') ?? ''
   const [, startTransition] = useTransition()
   const [filtroEstado, setFiltroEstado] = useState<'todos' | EstadoAlbaran>('todos')
   const [enviandoId, setEnviandoId] = useState<string | null>(null)
+  const [autoOpen, setAutoOpen] = useState<boolean>(!!pedidoIdParam)
+  // si llegamos con ?pedido_id, abrimos el dialog auto y pre-rellenamos.
+  // Mario punto 28+26: tras "PEDIDO TERMINADO" se va aqui directo
 
   const lista = filtroEstado === 'todos'
     ? albaranes
@@ -116,6 +121,9 @@ export default function AlbaranesCliente({ albaranes, pedidosElegibles }: Props)
         </div>
         <DialogNuevoAlbaran
           pedidos={pedidosElegibles}
+          pedidoIdInicial={pedidoIdParam}
+          autoOpen={autoOpen}
+          onCierre={() => setAutoOpen(false)}
           onCreado={() => startTransition(() => router.refresh())}
         />
       </div>
@@ -211,16 +219,31 @@ export default function AlbaranesCliente({ albaranes, pedidosElegibles }: Props)
 
 function DialogNuevoAlbaran({
   pedidos,
+  pedidoIdInicial,
+  autoOpen,
+  onCierre,
   onCreado,
 }: {
   pedidos: PedidoElegible[]
+  pedidoIdInicial?: string
+  autoOpen?: boolean
+  onCierre?: () => void
   onCreado: () => void
 }) {
   const [abierto, setAbierto] = useState(false)
-  const [pedidoId, setPedidoId] = useState<string>('')
+  const [pedidoId, setPedidoId] = useState<string>(pedidoIdInicial ?? '')
   const [fecha, setFecha] = useState<string>(new Date().toISOString().slice(0, 10))
   const [obs, setObs] = useState<string>('')
   const [enviando, setEnviando] = useState(false)
+
+  // Auto-abrir dialog si el padre nos lo pide (Mario llegando con ?pedido_id=X)
+  useEffect(() => {
+    if (autoOpen) {
+      setAbierto(true)
+      if (pedidoIdInicial) setPedidoId(pedidoIdInicial)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpen, pedidoIdInicial])
 
   const elegibles = pedidos.filter(p => p.piezas_completadas > 0)
 
@@ -246,7 +269,7 @@ function DialogNuevoAlbaran({
   }
 
   return (
-    <Dialog open={abierto} onOpenChange={setAbierto}>
+    <Dialog open={abierto} onOpenChange={(v) => { setAbierto(v); if (!v) onCierre?.() }}>
       <DialogTrigger asChild>
         <Button variant="default" size="sm" className="gap-1.5">
           <Plus className="h-4 w-4" /> Nuevo albarán
