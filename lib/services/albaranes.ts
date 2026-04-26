@@ -108,21 +108,29 @@ export async function listarAlbaranes(filtros?: {
 
 export async function obtenerAlbaran(id: string): Promise<AlbaranDetalle | null> {
   const supabase = await createClient()
+  // Query base sin embed de lineas — el embed puede fallar si PostgREST
+  // no detecta la FK (vimos eso con piezas/colores antes). Cargamos
+  // lineas aparte para que el detalle abra siempre.
   const { data, error } = await supabase
     .from('albaranes')
     .select(`
-      id, numero, pedido_id, estado, fecha_entrega, observaciones, firma_cliente, created_at,
-      cliente:clientes(nombre_comercial, direccion, ciudad, cif_nif),
-      lineas:lineas_albaran(
-        id, pieza_id, descripcion, cantidad, observaciones,
-        pieza:piezas(numero)
-      )
+      id, numero, pedido_id, cliente_id, estado, fecha_entrega, observaciones, firma_cliente, created_at, tipo,
+      cliente:clientes(nombre_comercial, direccion, ciudad, cif_nif)
     `)
     .eq('id', id)
-    .single()
-  if (error) return null
+    .maybeSingle()
+  if (error || !data) {
+    console.error('[obtenerAlbaran]', error?.message ?? 'no encontrado')
+    return null
+  }
 
-  const a = data as any
+  // Lineas (puede no haber: recepcion recién creada)
+  const { data: lineasData } = await supabase
+    .from('lineas_albaran')
+    .select(`id, pieza_id, descripcion, cantidad, observaciones, pieza:piezas(numero)`)
+    .eq('albaran_id', id)
+
+  const a = { ...(data as any), lineas: lineasData ?? [] }
 
   // Cargar número de pedido en query separada (FK ausente, ver listarAlbaranes)
   let pedido_numero = ''
