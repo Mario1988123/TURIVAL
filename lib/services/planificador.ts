@@ -115,6 +115,46 @@ function hoyInicio(): Date {
   return d
 }
 
+/**
+ * Próximo momento laborable disponible para empezar a planificar.
+ * Si AHORA está dentro de jornada (08:00-17:00 lun-vie), devuelve NOW.
+ * Si no, salta al siguiente arranque laborable.
+ *
+ * Mario bug 27-abr: autogenerar a las 22:06 colocaba tareas a las
+ * 08:00 del mismo día → en el PASADO. Ahora si es noche o finde,
+ * el motor empieza mañana / lunes 08:00.
+ */
+function proximoArranqueLaborable(jornadaIni = '08:00', jornadaFin = '17:00'): Date {
+  const ahora = new Date()
+  const [hIni, mIni] = jornadaIni.split(':').map(Number)
+  const [hFin] = jornadaFin.split(':').map(Number)
+  const dow = ahora.getDay()
+  const enLaborableSemana = dow >= 1 && dow <= 5
+  const horaActual = ahora.getHours() + ahora.getMinutes() / 60
+
+  // Estamos en jornada activa: usar NOW redondeado al minuto siguiente
+  if (enLaborableSemana && horaActual >= hIni && horaActual < hFin) {
+    const d = new Date(ahora)
+    d.setSeconds(0, 0)
+    // Redondear al siguiente cuarto de hora para que cuadre con el snap
+    const m = d.getMinutes()
+    const off = (15 - (m % 15)) % 15
+    if (off > 0) d.setMinutes(m + off)
+    return d
+  }
+
+  // Fuera de jornada: avanzar día a día hasta encontrar laborable + 08:00
+  const d = new Date(ahora)
+  d.setSeconds(0, 0)
+  // Si ya pasó la hora de fin O el día no es laborable, saltar al siguiente día
+  d.setDate(d.getDate() + 1)
+  d.setHours(hIni, mIni, 0, 0)
+  while (d.getDay() === 0 || d.getDay() === 6) {
+    d.setDate(d.getDate() + 1)
+  }
+  return d
+}
+
 function toISO(d: Date): string {
   return d.toISOString()
 }
@@ -752,7 +792,11 @@ export async function autogenerar(params: {
 }): Promise<ResultadoAutogenerarServicio> {
   const supabase = await createClient()
   const jornada = params.jornada ?? JORNADA_DEFAULT
-  const desde = params.rango?.desde ? new Date(params.rango.desde) : hoyInicio()
+  // Mario bug: autogenerar a las 22:06 colocaba tareas en el pasado.
+  // Usamos proximoArranqueLaborable que respeta jornada y findes.
+  const desde = params.rango?.desde
+    ? new Date(params.rango.desde)
+    : proximoArranqueLaborable(jornada.hora_inicio, jornada.hora_fin)
   const hastaUsuario = params.rango?.hasta
     ? new Date(params.rango.hasta)
     : new Date(desde.getTime() + 14 * MS_DIA)

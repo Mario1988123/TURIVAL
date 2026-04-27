@@ -694,7 +694,7 @@ Un saludo,`
 // ============================================================
 
 function BotonReservarHoras({ presupuestoId }: { presupuestoId: string }) {
-  const [estado, setEstado] = useState<'idle' | 'reservando' | 'liberando'>('idle')
+  const [estado, setEstado] = useState<'idle' | 'reservando' | 'liberando' | 'validando'>('idle')
   const [mensajeLocal, setMensajeLocal] = useState<string | null>(null)
 
   async function reservar() {
@@ -703,7 +703,20 @@ function BotonReservarHoras({ presupuestoId }: { presupuestoId: string }) {
     try {
       const { accionReservarHoras } = await import('@/lib/actions/reservas-presupuesto')
       const res = await accionReservarHoras(presupuestoId)
-      if (res.ok) setMensajeLocal(`✓ ${res.tareas_creadas} tareas tentativas en el Gantt`)
+      if (res.ok) setMensajeLocal(`✓ ${res.tareas_creadas} tareas tentativas colocadas en el Gantt`)
+      else setMensajeLocal(`✗ ${res.error ?? 'Error'}`)
+    } finally {
+      setEstado('idle')
+    }
+  }
+
+  async function validar() {
+    setEstado('validando')
+    setMensajeLocal(null)
+    try {
+      const { accionValidarReservasTentativas } = await import('@/lib/actions/reservas-presupuesto')
+      const res = await accionValidarReservasTentativas(presupuestoId)
+      if (res.ok) setMensajeLocal(`✓ ${res.validadas} tareas validadas (ya no son tentativas)`)
       else setMensajeLocal(`✗ ${res.error ?? 'Error'}`)
     } finally {
       setEstado('idle')
@@ -725,9 +738,12 @@ function BotonReservarHoras({ presupuestoId }: { presupuestoId: string }) {
 
   return (
     <div className="flex flex-col items-end gap-1">
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap justify-end">
         <Button size="sm" variant="outline" onClick={reservar} disabled={estado !== 'idle'}>
           {estado === 'reservando' ? 'Reservando…' : 'Reservar horas (Gantt)'}
+        </Button>
+        <Button size="sm" variant="default" onClick={validar} disabled={estado !== 'idle'} className="bg-emerald-600 hover:bg-emerald-700">
+          {estado === 'validando' ? 'Validando…' : 'Validar'}
         </Button>
         <Button size="sm" variant="ghost" onClick={liberar} disabled={estado !== 'idle'} className="text-slate-500">
           {estado === 'liberando' ? 'Liberando…' : 'Liberar'}

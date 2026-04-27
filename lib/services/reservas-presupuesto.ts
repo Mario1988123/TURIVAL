@@ -170,7 +170,58 @@ export async function reservarHorasDesdePresupuesto(
     }
   }
 
+  // Mario punto: las tareas tentativas deben caer SOLAS en huecos, no
+  // quedar como aviso "X tareas sin asignar". Disparamos autogenerar
+  // restringido al pedido fantasma para que el motor las coloque.
+  if (tareasCreadas > 0) {
+    try {
+      const { autogenerar } = await import('./planificador')
+      await autogenerar({ pedido_id: pedido.id, dry_run: false })
+    } catch (e) {
+      console.warn('[reservar tentativas] autogenerar falló:', e)
+    }
+  }
+
   return { ok: true, tareas_creadas: tareasCreadas, pedido_borrador_id: pedido.id }
+}
+
+/**
+ * Valida las reservas tentativas de un presupuesto: pone tentativa=false
+ * a todas las tareas del pedido fantasma para que pasen a "firmes" en
+ * el Gantt sin esperar a convertir el presupuesto en pedido real.
+ *
+ * Mario: "si le damos a validar, que se queden".
+ */
+export async function validarReservasTentativas(
+  presupuestoId: string,
+): Promise<{ ok: boolean; validadas: number; error?: string }> {
+  const supabase = await createClient()
+  const { data: pedido } = await supabase
+    .from('pedidos')
+    .select('id')
+    .ilike('observaciones_internas', `[RESERVA-TENTATIVA ${presupuestoId}]%`)
+    .maybeSingle()
+  if (!pedido) return { ok: true, validadas: 0 }
+
+  // Buscar tareas del pedido fantasma vía piezas
+  const { data: lineasPed } = await supabase
+    .from('lineas_pedido')
+    .select('id, piezas:piezas(id)')
+    .eq('pedido_id', (pedido as any).id)
+  const piezasIds: string[] = []
+  for (const lp of (lineasPed ?? []) as any[]) {
+    for (const p of lp.piezas ?? []) piezasIds.push(p.id)
+  }
+  if (piezasIds.length === 0) return { ok: true, validadas: 0 }
+
+  const { data: actualizadas, error } = await supabase
+    .from('tareas_produccion')
+    .update({ tentativa: false, updated_at: new Date().toISOString() })
+    .in('pieza_id', piezasIds)
+    .eq('tentativa', true)
+    .select('id')
+  if (error) return { ok: false, validadas: 0, error: error.message }
+  return { ok: true, validadas: (actualizadas ?? []).length }
 }
 
 /**
