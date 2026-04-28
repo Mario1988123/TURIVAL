@@ -53,10 +53,10 @@ export default function UsuariosCliente({ perfilesIniciales }: Props) {
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Users className="h-6 w-6" />
-            Gestion de usuarios y roles
+            Gestión de usuarios y roles
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Crea operarios y asigna a cada uno los modulos que puede ver. Los admins
+            Crea operarios y asigna a cada uno los módulos que puede ver. Los admins
             ven todo.
           </p>
         </div>
@@ -69,21 +69,23 @@ export default function UsuariosCliente({ perfilesIniciales }: Props) {
       <Alert>
         <ShieldCheck className="h-4 w-4" />
         <AlertDescription>
-          <strong>Como crear un usuario:</strong> ve a Supabase Dashboard -&gt; Authentication -&gt; Add user,
-          crea el email y password. Vuelve aqui, copia el user_id que ves en Supabase, y pulsa
-          <em> Asignar rol</em>. El usuario podra entrar con su email/password y vera solo los modulos que marques.
+          <strong>Cómo crear un usuario:</strong> ve a Supabase Dashboard → Authentication → Add user,
+          crea el email y la contraseña (marca <em>Auto Confirm User</em>). Vuelve aquí, copia el user_id
+          que ves en Supabase, y pulsa <em>Asignar rol</em>. El usuario podrá entrar con su email/contraseña
+          y verá solo los módulos que marques.
         </AlertDescription>
       </Alert>
 
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Usuarios registrados ({perfiles.length})</CardTitle>
-          <CardDescription>Pulsa un usuario para editar su rol y modulos.</CardDescription>
+          <CardDescription>Pulsa un usuario para editar su rol y módulos.</CardDescription>
         </CardHeader>
         <CardContent>
           {perfiles.length === 0 ? (
             <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
-              No hay usuarios todavia. Anade el primer admin desde Supabase Auth y luego asigname el rol aqui.
+              No hay usuarios todavía. Pulsa <strong>Asignar rol a usuario</strong> arriba para crear
+              el primer admin (rellena tu user_id de Supabase Auth, rol = admin).
             </div>
           ) : (
             <ul className="divide-y">
@@ -100,11 +102,11 @@ export default function UsuariosCliente({ perfilesIniciales }: Props) {
                   </Badge>
                   {p.modulos_permitidos.includes('*') ? (
                     <Badge variant="outline" className="font-mono text-[10px]">
-                      todos los modulos
+                      todos los módulos
                     </Badge>
                   ) : (
                     <Badge variant="outline" className="font-mono text-[10px]">
-                      {p.modulos_permitidos.length} modulo{p.modulos_permitidos.length === 1 ? '' : 's'}
+                      {p.modulos_permitidos.length} módulo{p.modulos_permitidos.length === 1 ? '' : 's'}
                     </Badge>
                   )}
                   {!p.activo && <Badge variant="destructive">inactivo</Badge>}
@@ -193,7 +195,7 @@ function DialogAsignar({
         <DialogHeader>
           <DialogTitle>{modoNuevo ? 'Asignar rol a usuario nuevo' : 'Editar usuario'}</DialogTitle>
           <DialogDescription>
-            El usuario debe existir ya en Supabase Auth. Pega aqui su user_id (UUID).
+            El usuario debe existir ya en Supabase Auth. Pega aquí su user_id (UUID).
           </DialogDescription>
         </DialogHeader>
 
@@ -226,8 +228,8 @@ function DialogAsignar({
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="admin">Admin (todo)</SelectItem>
-                <SelectItem value="operario">Operario (modulos seleccionados)</SelectItem>
-                <SelectItem value="cliente">Cliente (solo via token publico)</SelectItem>
+                <SelectItem value="operario">Operario (módulos seleccionados)</SelectItem>
+                <SelectItem value="cliente">Cliente (solo vía token público)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -235,7 +237,7 @@ function DialogAsignar({
           {rol === 'operario' && (
             <div>
               <Label className="text-xs flex items-center justify-between">
-                <span>Modulos permitidos</span>
+                <span>Módulos permitidos</span>
                 <button
                   type="button"
                   onClick={() => setModulos(new Set(MODULOS_DISPONIBLES.map((m) => m.slug)))}
@@ -265,7 +267,7 @@ function DialogAsignar({
             <Alert>
               <ShieldCheck className="h-4 w-4" />
               <AlertDescription>
-                El admin tiene acceso a todos los modulos automaticamente.
+                El admin tiene acceso a todos los módulos automáticamente.
               </AlertDescription>
             </Alert>
           )}
@@ -274,8 +276,8 @@ function DialogAsignar({
             <Alert>
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>
-                Los clientes acceden por token (URL /p/[token]) y no necesitan modulos. Este perfil
-                es solo para registrar el cliente como usuario.
+                Los clientes acceden por token (URL /p/[token]) y no necesitan módulos. Este perfil
+                es solo para registrar al cliente como usuario.
               </AlertDescription>
             </Alert>
           )}

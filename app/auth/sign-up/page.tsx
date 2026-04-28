@@ -30,7 +30,7 @@ export default function Page() {
     setError(null)
 
     if (password !== repeatPassword) {
-      setError('Las contrasenas no coinciden')
+      setError('Las contraseñas no coinciden')
       setIsLoading(false)
       return
     }
@@ -60,7 +60,7 @@ export default function Page() {
         <div className="flex flex-col gap-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-2xl">FinePath ERP</CardTitle>
+              <CardTitle className="text-2xl">Turiaval ERP</CardTitle>
               <CardDescription>Crear una nueva cuenta</CardDescription>
             </CardHeader>
             <CardContent>
@@ -79,7 +79,7 @@ export default function Page() {
                   </div>
                   <div className="grid gap-2">
                     <div className="flex items-center">
-                      <Label htmlFor="password">Contrasena</Label>
+                      <Label htmlFor="password">Contraseña</Label>
                     </div>
                     <Input
                       id="password"
@@ -91,7 +91,7 @@ export default function Page() {
                   </div>
                   <div className="grid gap-2">
                     <div className="flex items-center">
-                      <Label htmlFor="repeat-password">Repetir Contrasena</Label>
+                      <Label htmlFor="repeat-password">Repetir contraseña</Label>
                     </div>
                     <Input
                       id="repeat-password"
@@ -107,12 +107,12 @@ export default function Page() {
                   </Button>
                 </div>
                 <div className="mt-4 text-center text-sm">
-                  Ya tienes cuenta?{' '}
+                  ¿Ya tienes cuenta?{' '}
                   <Link
                     href="/auth/login"
                     className="underline underline-offset-4"
                   >
-                    Iniciar sesion
+                    Iniciar sesión
                   </Link>
                 </div>
               </form>

@@ -31,7 +31,7 @@ export default function LoginPage() {
       if (error) throw error
       router.push('/dashboard')
     } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : 'Error al iniciar sesion')
+      setError(error instanceof Error ? error.message : 'Error al iniciar sesión')
     } finally {
       setIsLoading(false)
     }
@@ -59,11 +59,11 @@ export default function LoginPage() {
           </div>
           
           <h2 className="text-3xl font-semibold mb-4 leading-tight">
-            Gestiona tu produccion<br />de forma inteligente
+            Gestiona tu producción<br />de forma inteligente
           </h2>
-          
+
           <p className="text-slate-300 text-lg max-w-md leading-relaxed">
-            Control total de presupuestos, pedidos, produccion y trazabilidad 
+            Control total de presupuestos, pedidos, producción y trazabilidad
             en una sola plataforma diseñada para la industria del lacado.
           </p>
           
@@ -119,14 +119,14 @@ export default function LoginPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="password" className="text-slate-700 font-medium">
-                  Contrasena
+                  Contraseña
                 </Label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                   <Input
                     id="password"
                     type="password"
-                    placeholder="Tu contrasena"
+                    placeholder="Tu contraseña"
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -149,11 +149,11 @@ export default function LoginPage() {
                 {isLoading ? (
                   <div className="flex items-center gap-2">
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Iniciando sesion...
+                    Iniciando sesión...
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
-                    Iniciar Sesion
+                    Iniciar sesión
                     <ArrowRight className="w-5 h-5" />
                   </div>
                 )}
@@ -162,19 +162,19 @@ export default function LoginPage() {
 
             <div className="mt-6 text-center">
               <p className="text-slate-500 text-sm">
-                No tienes cuenta?{' '}
+                ¿No tienes cuenta?{' '}
                 <Link
                   href="/auth/sign-up"
                   className="text-blue-600 font-semibold hover:text-blue-700 transition-colors"
                 >
-                  Registrate aqui
+                  Regístrate aquí
                 </Link>
               </p>
             </div>
           </div>
 
           <p className="text-center text-slate-400 text-xs mt-6">
-            © 2026 Turiaval ERP · Lacados industriales
+            © 2026 Turiaval ERP · Lacados industriales · Pintura sobre madera
           </p>
         </div>
       </div>

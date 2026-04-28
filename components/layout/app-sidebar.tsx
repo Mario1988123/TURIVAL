@@ -94,20 +94,41 @@ export function AppLayout({ children, title }: AppLayoutProps) {
         router.push('/auth/login')
         return
       }
+      // 1) Tabla profiles (legacy, puede no existir o no tener fila)
       const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single()
-      if (profile) setUser(profile as Profile)
-      // Cargar perfil de roles si la tabla existe (script 035)
+
+      // 2) Tabla usuario_perfiles (script 035) — fuente principal de rol+nombre
+      let perfilRolNombre: { rol: string; modulos_permitidos: string[]; nombre?: string | null } | null = null
       try {
         const { data: perfilRol } = await supabase
           .from('usuario_perfiles')
-          .select('rol, modulos_permitidos')
+          .select('rol, modulos_permitidos, nombre')
           .eq('user_id', session.user.id)
           .eq('activo', true)
           .maybeSingle()
-        if (perfilRol) setPerfil(perfilRol as any)
+        if (perfilRol) {
+          perfilRolNombre = perfilRol as any
+          setPerfil({ rol: (perfilRol as any).rol, modulos_permitidos: (perfilRol as any).modulos_permitidos })
+        }
       } catch {
         // Tabla no existe, modo legado
       }
+
+      // 3) Construir el "user" del header con el mejor nombre disponible.
+      //    Antes solo miraba profiles → si no habia fila, salia "Usuario".
+      //    Ahora cae en cascada: profiles.nombre → usuario_perfiles.nombre → email split.
+      const emailLocal = session.user.email?.split('@')[0] ?? 'Usuario'
+      const nombreFinal = (profile as any)?.nombre || perfilRolNombre?.nombre || emailLocal
+      const rolFinal = (profile as any)?.rol || perfilRolNombre?.rol || 'admin'
+      const userMerge: Profile = {
+        ...(profile as any || {}),
+        id: session.user.id,
+        nombre: nombreFinal,
+        rol: rolFinal,
+        email: session.user.email ?? (profile as any)?.email,
+      } as Profile
+      setUser(userMerge)
+
       setLoading(false)
     }
     checkUser()
