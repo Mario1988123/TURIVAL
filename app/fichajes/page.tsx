@@ -2,20 +2,21 @@ import {
   accionEstadoOperariosHoy,
   accionDescansoGlobalActivo,
 } from '@/lib/actions/fichajes'
-import FichajesCliente from './fichajes-cliente'
+import { createClient } from '@/lib/supabase/server'
+import FichajesShell from './fichajes-shell'
 
 export const dynamic = 'force-dynamic'
 
 /**
- * Ruta /fichajes — Panel de fichajes.
- *
- * Requiere la tabla `fichajes` (scripts/031_tabla_fichajes.sql).
- * Si la tabla no existe, la UI muestra un aviso con el hint.
+ * /fichajes — Modulo completo Sesame-like.
+ * Tabs: Hoy | Histórico | Calendario | Ausencias | Horarios | Documentos | Admin
  */
 export default async function FichajesPage() {
-  const [estadoRes, descansoRes] = await Promise.all([
+  const supabase = await createClient()
+  const [estadoRes, descansoRes, operariosData] = await Promise.all([
     accionEstadoOperariosHoy(),
     accionDescansoGlobalActivo(),
+    supabase.from('operarios').select('id, nombre, rol, color, activo').eq('activo', true).order('nombre'),
   ])
 
   const necesita031 = estadoRes.hint === 'instalar_031' || descansoRes.hint === 'instalar_031'
@@ -24,17 +25,17 @@ export default async function FichajesPage() {
       <div className="rounded-lg border border-amber-300 bg-amber-50 p-6 text-amber-900">
         <div className="font-semibold">Falta ejecutar scripts/031_tabla_fichajes.sql</div>
         <div className="mt-1 text-sm">
-          La tabla <code>fichajes</code> aún no existe en Supabase. Abre Supabase SQL Editor y ejecuta el contenido de <code>scripts/031_tabla_fichajes.sql</code>. Después recarga esta página.
+          La tabla <code>fichajes</code> aún no existe en Supabase. Ejecuta el script y recarga.
         </div>
       </div>
     )
   }
 
   return (
-    <FichajesCliente
-      operariosIniciales={estadoRes.ok ? (estadoRes.data ?? []) : []}
+    <FichajesShell
+      operarios={(operariosData.data ?? []) as any[]}
+      operariosEstado={estadoRes.ok ? (estadoRes.data ?? []) : []}
       descansoInicial={descansoRes.ok ? (descansoRes.data ?? { activo: false, inicio: null, minutos_transcurridos: 0 }) : { activo: false, inicio: null, minutos_transcurridos: 0 }}
-      errorInicial={estadoRes.ok ? null : (estadoRes.error ?? 'Error')}
     />
   )
 }
