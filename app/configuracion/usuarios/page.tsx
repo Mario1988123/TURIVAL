@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
-import { obtenerPerfilActual, listarPerfiles } from '@/lib/services/auth-roles'
+import { obtenerSesion, esAdmin } from '@/lib/auth/permisos'
+import { listarPerfiles } from '@/lib/services/auth-roles'
 import UsuariosCliente from './usuarios-cliente'
 
 export const dynamic = 'force-dynamic'
@@ -7,12 +8,20 @@ export const dynamic = 'force-dynamic'
 /**
  * /configuracion/usuarios — Gestion de roles y permisos por modulo.
  *
- * Solo admin. Si no es admin, redirige a /dashboard.
+ * Solo admin. Antes la pagina llamaba `obtenerPerfilActual()` directamente
+ * sobre la tabla `usuario_perfiles`. Si no habia fila para el user (caso de
+ * Mario antes de que se ejecute el script 035 / INSERT manual), retornaba
+ * null → redirect('/auth/login') → "se sale del CRM".
+ *
+ * Ahora usamos `obtenerSesion()` del helper de permisos, que tiene fallback
+ * admin para mono-empresa: si estas logueado y no hay perfil ni operario,
+ * te trata como admin (es Mario o gente de confianza). Asi entras al panel
+ * sin necesidad del INSERT manual.
  */
 export default async function UsuariosPage() {
-  const perfil = await obtenerPerfilActual()
-  if (!perfil) redirect('/auth/login')
-  if (perfil.rol !== 'admin') redirect('/dashboard')
+  const sesion = await obtenerSesion()
+  if (!sesion) redirect('/auth/login')
+  if (!esAdmin(sesion)) redirect('/dashboard')
 
   let perfiles: any[] = []
   try {
