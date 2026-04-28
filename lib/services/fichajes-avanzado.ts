@@ -1,9 +1,26 @@
 /**
  * Servicios del modulo fichajes avanzado (Sesame-like).
- * Requiere script 039 ejecutado.
+ * Requiere scripts 039 y 040 ejecutados.
+ *
+ * Permisos: las funciones reservadas a admin (ajustarFichaje,
+ * crearFestivo/eliminarFestivo, aprobarAusencia, eliminarAusencia)
+ * lanzan ErrorAcceso si el usuario no es admin.
  */
 
 import { createClient } from '@/lib/supabase/server'
+import { obtenerSesion, esAdmin } from '@/lib/auth/permisos'
+
+export class ErrorAcceso extends Error {
+  constructor(msg = 'Acción reservada al administrador') {
+    super(msg)
+    this.name = 'ErrorAcceso'
+  }
+}
+
+async function exigirAdmin() {
+  const s = await obtenerSesion()
+  if (!esAdmin(s)) throw new ErrorAcceso()
+}
 
 // =============================================================
 // TIPOS
@@ -97,6 +114,7 @@ export async function guardarHorarioDia(input: {
   pausa_inicio?: string | null
   pausa_fin?: string | null
 }): Promise<HorarioDia> {
+  await exigirAdmin()
   const supabase = await createClient()
   const horas_teoricas = calcularHorasTeoricas(input)
   const { data, error } = await supabase
@@ -144,6 +162,7 @@ export async function listarFestivos(anio?: number): Promise<Festivo[]> {
 }
 
 export async function crearFestivo(f: Omit<Festivo, 'id'>): Promise<Festivo> {
+  await exigirAdmin()
   const supabase = await createClient()
   const { data, error } = await supabase
     .from('festivos')
@@ -155,6 +174,7 @@ export async function crearFestivo(f: Omit<Festivo, 'id'>): Promise<Festivo> {
 }
 
 export async function eliminarFestivo(id: string): Promise<void> {
+  await exigirAdmin()
   const supabase = await createClient()
   const { error } = await supabase.from('festivos').delete().eq('id', id)
   if (error) throw new Error(error.message)
@@ -204,6 +224,7 @@ export async function crearAusencia(input: {
 }
 
 export async function aprobarAusencia(id: string): Promise<void> {
+  await exigirAdmin()
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   const { error } = await supabase
@@ -214,6 +235,7 @@ export async function aprobarAusencia(id: string): Promise<void> {
 }
 
 export async function eliminarAusencia(id: string): Promise<void> {
+  await exigirAdmin()
   const supabase = await createClient()
   const { error } = await supabase.from('ausencias').delete().eq('id', id)
   if (error) throw new Error(error.message)
@@ -308,6 +330,7 @@ export async function ajustarFichaje(input: {
   nueva_fecha_hora: string
   motivo: string
 }): Promise<void> {
+  await exigirAdmin()
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   const { error } = await supabase

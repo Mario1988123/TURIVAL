@@ -3,6 +3,7 @@ import {
   accionDescansoGlobalActivo,
 } from '@/lib/actions/fichajes'
 import { createClient } from '@/lib/supabase/server'
+import { obtenerSesion, esAdmin } from '@/lib/auth/permisos'
 import FichajesShell from './fichajes-shell'
 
 export const dynamic = 'force-dynamic'
@@ -31,11 +32,16 @@ export default async function FichajesPage() {
     )
   }
 
+  const sesion = await obtenerSesion()
+  const admin = esAdmin(sesion)
+
   return (
     <FichajesShell
       operarios={(operariosData.data ?? []) as any[]}
       operariosEstado={estadoRes.ok ? (estadoRes.data ?? []) : []}
       descansoInicial={descansoRes.ok ? (descansoRes.data ?? { activo: false, inicio: null, minutos_transcurridos: 0 }) : { activo: false, inicio: null, minutos_transcurridos: 0 }}
+      esAdmin={admin}
+      operarioPropioId={sesion?.operario_id ?? null}
     />
   )
 }

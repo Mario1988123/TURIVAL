@@ -28,7 +28,13 @@ const CATEGORIAS: Array<{ v: CategoriaDoc; l: string; color: string }> = [
   { v: 'otros', l: 'Otros', color: 'bg-slate-100 text-slate-700' },
 ]
 
-export default function DocumentosPanel({ operarios }: { operarios: { id: string; nombre: string }[] }) {
+export default function DocumentosPanel({
+  operarios,
+  esAdmin = true,
+}: {
+  operarios: { id: string; nombre: string }[]
+  esAdmin?: boolean
+}) {
   const [opId, setOpId] = useState(operarios[0]?.id ?? '')
   const [docs, setDocs] = useState<DocumentoOperario[]>([])
   const [categoria, setCategoria] = useState<CategoriaDoc>('nomina')
@@ -171,9 +177,11 @@ export default function DocumentosPanel({ operarios }: { operarios: { id: string
                         <Button size="icon" variant="ghost" onClick={() => descargar(d)} title="Descargar">
                           <Download className="h-4 w-4 text-blue-600" />
                         </Button>
-                        <Button size="icon" variant="ghost" onClick={() => quitar(d.id)} title="Eliminar">
-                          <Trash2 className="h-4 w-4 text-red-600" />
-                        </Button>
+                        {esAdmin && (
+                          <Button size="icon" variant="ghost" onClick={() => quitar(d.id)} title="Eliminar">
+                            <Trash2 className="h-4 w-4 text-red-600" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

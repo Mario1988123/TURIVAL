@@ -17,7 +17,7 @@ import type { Festivo } from '@/lib/services/fichajes-avanzado'
 
 const ANIO_ACTUAL = new Date().getFullYear()
 
-export default function CalendarioPanel() {
+export default function CalendarioPanel({ soloLectura = false }: { soloLectura?: boolean } = {}) {
   const [anio, setAnio] = useState(ANIO_ACTUAL)
   const [festivos, setFestivos] = useState<Festivo[]>([])
   const [nuevoFecha, setNuevoFecha] = useState('')
@@ -60,34 +60,38 @@ export default function CalendarioPanel() {
           <CardDescription>Festivos nacionales, autonómicos, locales o de empresa.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-2 items-end">
+          <div className={`grid grid-cols-1 ${soloLectura ? 'md:grid-cols-1' : 'md:grid-cols-5'} gap-2 items-end`}>
             <div>
               <Label>Año</Label>
               <Input type="number" value={anio} onChange={e => setAnio(parseInt(e.target.value) || ANIO_ACTUAL)} />
             </div>
-            <div>
-              <Label>Fecha festivo</Label>
-              <Input type="date" value={nuevoFecha} onChange={e => setNuevoFecha(e.target.value)} />
-            </div>
-            <div className="md:col-span-2">
-              <Label>Nombre</Label>
-              <Input value={nuevoNombre} onChange={e => setNuevoNombre(e.target.value)} placeholder="Ej: 9 d'Octubre" />
-            </div>
-            <div>
-              <Label>Ámbito</Label>
-              <div className="flex gap-2">
-                <Select value={nuevoAmbito} onValueChange={v => setNuevoAmbito(v as Festivo['ambito'])}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="nacional">Nacional</SelectItem>
-                    <SelectItem value="autonomico">Autonómico</SelectItem>
-                    <SelectItem value="local">Local</SelectItem>
-                    <SelectItem value="empresa">Empresa</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button onClick={crear} size="icon"><Plus className="h-4 w-4" /></Button>
-              </div>
-            </div>
+            {!soloLectura && (
+              <>
+                <div>
+                  <Label>Fecha festivo</Label>
+                  <Input type="date" value={nuevoFecha} onChange={e => setNuevoFecha(e.target.value)} />
+                </div>
+                <div className="md:col-span-2">
+                  <Label>Nombre</Label>
+                  <Input value={nuevoNombre} onChange={e => setNuevoNombre(e.target.value)} placeholder="Ej: 9 d'Octubre" />
+                </div>
+                <div>
+                  <Label>Ámbito</Label>
+                  <div className="flex gap-2">
+                    <Select value={nuevoAmbito} onValueChange={v => setNuevoAmbito(v as Festivo['ambito'])}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="nacional">Nacional</SelectItem>
+                        <SelectItem value="autonomico">Autonómico</SelectItem>
+                        <SelectItem value="local">Local</SelectItem>
+                        <SelectItem value="empresa">Empresa</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button onClick={crear} size="icon"><Plus className="h-4 w-4" /></Button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -108,9 +112,11 @@ export default function CalendarioPanel() {
                         <div className="truncate">{f.nombre}</div>
                         <Badge variant="outline" className="text-[9px] mt-0.5">{f.ambito}</Badge>
                       </div>
-                      <button onClick={() => quitar(f.id)} className="text-red-500 hover:text-red-700">
-                        <Trash2 className="h-3 w-3" />
-                      </button>
+                      {!soloLectura && (
+                        <button onClick={() => quitar(f.id)} className="text-red-500 hover:text-red-700">
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      )}
                     </li>
                   ))}
                 </ul>

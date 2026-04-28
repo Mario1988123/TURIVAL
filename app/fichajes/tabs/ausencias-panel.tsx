@@ -30,7 +30,13 @@ const TIPOS: Array<{ valor: TipoAusencia; label: string; color: string }> = [
   { valor: 'otros', label: 'Otros', color: 'bg-slate-100 text-slate-700' },
 ]
 
-export default function AusenciasPanel({ operarios }: { operarios: { id: string; nombre: string }[] }) {
+export default function AusenciasPanel({
+  operarios,
+  esAdmin = true,
+}: {
+  operarios: { id: string; nombre: string }[]
+  esAdmin?: boolean
+}) {
   const [filtroOp, setFiltroOp] = useState<string>('')
   const [ausencias, setAusencias] = useState<Ausencia[]>([])
 
@@ -167,16 +173,20 @@ export default function AusenciasPanel({ operarios }: { operarios: { id: string;
                     </TableCell>
                     <TableCell className="text-xs max-w-[200px] truncate" title={a.notas ?? ''}>{a.notas ?? '—'}</TableCell>
                     <TableCell>
-                      <div className="flex gap-1">
-                        {!a.aprobada && (
-                          <Button size="icon" variant="ghost" onClick={() => aprobar(a.id)} title="Aprobar">
-                            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                      {esAdmin ? (
+                        <div className="flex gap-1">
+                          {!a.aprobada && (
+                            <Button size="icon" variant="ghost" onClick={() => aprobar(a.id)} title="Aprobar">
+                              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                            </Button>
+                          )}
+                          <Button size="icon" variant="ghost" onClick={() => quitar(a.id)} title="Eliminar">
+                            <Trash2 className="h-4 w-4 text-red-600" />
                           </Button>
-                        )}
-                        <Button size="icon" variant="ghost" onClick={() => quitar(a.id)} title="Eliminar">
-                          <Trash2 className="h-4 w-4 text-red-600" />
-                        </Button>
-                      </div>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-slate-400">solo admin</span>
+                      )}
                     </TableCell>
                   </TableRow>
                 )
