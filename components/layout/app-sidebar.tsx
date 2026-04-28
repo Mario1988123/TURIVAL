@@ -229,6 +229,8 @@ export function AppLayout({ children, title }: AppLayoutProps) {
               <div className="text-slate-700 [&_button]:text-slate-700 [&_button]:hover:bg-slate-100">
                 <CampanitaNotificaciones />
               </div>
+              {/* Menu usuario con logout + acceso a Usuarios y roles */}
+              <MenuUsuario user={user} onLogout={handleLogout} />
             </div>
           </div>
         </header>
@@ -242,6 +244,60 @@ export function AppLayout({ children, title }: AppLayoutProps) {
 
       {/* Asistente por voz flotante (Capa 9 sin LLM, gratis) */}
       <AsistenteVoz />
+    </div>
+  )
+}
+
+// ============================================================
+// Menú de usuario en header (avatar + dropdown con logout)
+// ============================================================
+
+function MenuUsuario({ user, onLogout }: { user: Profile | null; onLogout: () => void }) {
+  const [abierto, setAbierto] = useState(false)
+  const inicial = (user?.nombre ?? 'U').charAt(0).toUpperCase()
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setAbierto(v => !v)}
+        className="flex items-center gap-2 rounded-md hover:bg-slate-100 px-2 py-1"
+        aria-label="Menú de usuario"
+      >
+        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-400 text-white flex items-center justify-center text-sm font-semibold">
+          {inicial}
+        </div>
+        <div className="hidden md:flex flex-col items-start">
+          <span className="text-xs font-medium text-slate-700 leading-tight max-w-[120px] truncate">{user?.nombre ?? 'Usuario'}</span>
+          {user?.rol && (
+            <span className="text-[10px] uppercase tracking-wide text-slate-500">{user.rol}</span>
+          )}
+        </div>
+      </button>
+      {abierto && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setAbierto(false)} />
+          <div className="absolute right-0 top-full mt-1 z-50 w-56 rounded-md border bg-white shadow-lg py-1 text-sm">
+            <div className="px-3 py-2 border-b">
+              <div className="font-medium truncate">{user?.nombre ?? 'Usuario'}</div>
+              <div className="text-xs text-slate-500 capitalize">{user?.rol ?? 'admin'}</div>
+            </div>
+            <Link href="/configuracion/usuarios" onClick={() => setAbierto(false)} className="block px-3 py-2 hover:bg-blue-50">
+              👥 Usuarios y roles
+            </Link>
+            <Link href="/configuracion" onClick={() => setAbierto(false)} className="block px-3 py-2 hover:bg-blue-50">
+              ⚙️ Configuración
+            </Link>
+            <Link href="/configuracion/operarios" onClick={() => setAbierto(false)} className="block px-3 py-2 hover:bg-blue-50">
+              🧑‍🏭 Operarios
+            </Link>
+            <button
+              onClick={() => { setAbierto(false); onLogout() }}
+              className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-700 border-t"
+            >
+              ⏏ Cerrar sesión
+            </button>
+          </div>
+        </>
+      )}
     </div>
   )
 }

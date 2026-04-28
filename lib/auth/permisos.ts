@@ -37,9 +37,14 @@ export async function obtenerSesion(): Promise<SesionUsuario | null> {
   const perfil = (perfilRes.data ?? null) as any
   const op = (opRes.data ?? null) as any
 
+  // Mono-empresa: si está logueado pero no tiene perfil ni operario
+  // asociado, lo tratamos como admin (es Mario o gente de confianza).
+  const rolResuelto: SesionUsuario['rol'] = perfil?.rol
+    ?? (op ? 'operario' : 'admin')
+
   return {
     user_id: user.id,
-    rol: perfil?.rol ?? (op ? 'operario' : null),
+    rol: rolResuelto,
     operario_id: op?.id ?? null,
     nombre: perfil?.nombre ?? op?.nombre ?? user.email ?? null,
   }
