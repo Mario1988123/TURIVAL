@@ -18,7 +18,6 @@ import { enviarEmail } from '@/lib/email/transport'
 let webpushMod: any = null
 async function getWebpush() {
   if (webpushMod) return webpushMod
-  // @ts-expect-error - tipos cargados a través de @types/web-push (devDep)
   const m = await import('web-push')
   webpushMod = m.default ?? m
   return webpushMod
