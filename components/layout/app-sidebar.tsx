@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import type { Profile } from '@/lib/types/erp'
 import {
@@ -17,15 +17,50 @@ import { MENU_ITEMS } from './menu-items'
 import { TuriavalLogo } from '@/components/branding/turiaval-logo'
 import AsistenteVoz from '@/components/asistente/asistente-voz'
 import CampanitaNotificaciones from './campanita-notificaciones'
+import MenuUsuario from './menu-usuario'
 
 const LS_KEY = 'turival:sidebar_collapsed'
 
 interface AppLayoutProps {
   children: React.ReactNode
-  title: string
+  title?: string
+}
+
+// Mapa de rutas → título mostrado en la barra superior. Usado cuando un
+// layout no pasa `title` explícito (por ejemplo todas las /dashboard/*).
+const TITULO_POR_RUTA: Array<{ test: (p: string) => boolean; titulo: string }> = [
+  { test: (p) => p.startsWith('/dashboard/admin'), titulo: 'Panel Admin' },
+  { test: (p) => p.startsWith('/dashboard/clientes'), titulo: 'Clientes' },
+  { test: (p) => p === '/dashboard' || p.startsWith('/dashboard/'), titulo: 'Panel de Control' },
+  { test: (p) => p.startsWith('/configuracion/usuarios'), titulo: 'Usuarios y roles' },
+  { test: (p) => p.startsWith('/configuracion/operarios'), titulo: 'Operarios' },
+  { test: (p) => p.startsWith('/configuracion/proveedores'), titulo: 'Proveedores' },
+  { test: (p) => p.startsWith('/configuracion'), titulo: 'Configuración' },
+  { test: (p) => p.startsWith('/fichajes'), titulo: 'Fichajes' },
+  { test: (p) => p.startsWith('/agenda'), titulo: 'Agenda' },
+  { test: (p) => p.startsWith('/planificador'), titulo: 'Planificador' },
+  { test: (p) => p.startsWith('/presupuestos'), titulo: 'Presupuestos' },
+  { test: (p) => p.startsWith('/pedidos'), titulo: 'Pedidos' },
+  { test: (p) => p.startsWith('/produccion'), titulo: 'Producción' },
+  { test: (p) => p.startsWith('/albaranes'), titulo: 'Albaranes' },
+  { test: (p) => p.startsWith('/productos'), titulo: 'Productos' },
+  { test: (p) => p.startsWith('/materiales'), titulo: 'Materiales' },
+  { test: (p) => p.startsWith('/tratamientos'), titulo: 'Tratamientos' },
+  { test: (p) => p.startsWith('/tarifas'), titulo: 'Tarifas' },
+  { test: (p) => p.startsWith('/trazabilidad'), titulo: 'Trazabilidad' },
+  { test: (p) => p.startsWith('/notificaciones'), titulo: 'Notificaciones' },
+  { test: (p) => p.startsWith('/informes'), titulo: 'Informes' },
+  { test: (p) => p.startsWith('/etiquetas'), titulo: 'Etiquetas' },
+]
+
+function tituloDesdeRuta(pathname: string): string {
+  const m = TITULO_POR_RUTA.find(r => r.test(pathname))
+  return m?.titulo ?? 'Turiaval'
 }
 
 export function AppLayout({ children, title }: AppLayoutProps) {
+  const pathname = usePathname() ?? ''
+  const tituloEfectivo = title ?? tituloDesdeRuta(pathname)
   const [isOpen, setIsOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   const [user, setUser] = useState<Profile | null>(null)
@@ -216,7 +251,7 @@ export function AppLayout({ children, title }: AppLayoutProps) {
         <header className="bg-white border-b border-slate-200 px-8 py-5 shadow-sm">
           <div className="flex items-center justify-between">
             <div className="md:hidden w-10" />
-            <h2 className="text-xl font-semibold text-slate-800">{title}</h2>
+            <h2 className="text-xl font-semibold text-slate-800">{tituloEfectivo}</h2>
             <div className="flex items-center gap-4">
               <span className="text-sm text-slate-500 hidden sm:block">
                 {new Date().toLocaleDateString('es-ES', {
@@ -229,8 +264,8 @@ export function AppLayout({ children, title }: AppLayoutProps) {
               <div className="text-slate-700 [&_button]:text-slate-700 [&_button]:hover:bg-slate-100">
                 <CampanitaNotificaciones />
               </div>
-              {/* Menu usuario con logout + acceso a Usuarios y roles */}
-              <MenuUsuario user={user} onLogout={handleLogout} />
+              {/* Menu usuario con logout + acceso a Usuarios y roles (solo admin) */}
+              <MenuUsuario user={user} onLogout={handleLogout} esAdmin={user?.rol === 'admin'} />
             </div>
           </div>
         </header>
@@ -248,56 +283,3 @@ export function AppLayout({ children, title }: AppLayoutProps) {
   )
 }
 
-// ============================================================
-// Menú de usuario en header (avatar + dropdown con logout)
-// ============================================================
-
-function MenuUsuario({ user, onLogout }: { user: Profile | null; onLogout: () => void }) {
-  const [abierto, setAbierto] = useState(false)
-  const inicial = (user?.nombre ?? 'U').charAt(0).toUpperCase()
-  return (
-    <div className="relative">
-      <button
-        onClick={() => setAbierto(v => !v)}
-        className="flex items-center gap-2 rounded-md hover:bg-slate-100 px-2 py-1"
-        aria-label="Menú de usuario"
-      >
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-400 text-white flex items-center justify-center text-sm font-semibold">
-          {inicial}
-        </div>
-        <div className="hidden md:flex flex-col items-start">
-          <span className="text-xs font-medium text-slate-700 leading-tight max-w-[120px] truncate">{user?.nombre ?? 'Usuario'}</span>
-          {user?.rol && (
-            <span className="text-[10px] uppercase tracking-wide text-slate-500">{user.rol}</span>
-          )}
-        </div>
-      </button>
-      {abierto && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setAbierto(false)} />
-          <div className="absolute right-0 top-full mt-1 z-50 w-56 rounded-md border bg-white shadow-lg py-1 text-sm">
-            <div className="px-3 py-2 border-b">
-              <div className="font-medium truncate">{user?.nombre ?? 'Usuario'}</div>
-              <div className="text-xs text-slate-500 capitalize">{user?.rol ?? 'admin'}</div>
-            </div>
-            <Link href="/configuracion/usuarios" onClick={() => setAbierto(false)} className="block px-3 py-2 hover:bg-blue-50">
-              👥 Usuarios y roles
-            </Link>
-            <Link href="/configuracion" onClick={() => setAbierto(false)} className="block px-3 py-2 hover:bg-blue-50">
-              ⚙️ Configuración
-            </Link>
-            <Link href="/configuracion/operarios" onClick={() => setAbierto(false)} className="block px-3 py-2 hover:bg-blue-50">
-              🧑‍🏭 Operarios
-            </Link>
-            <button
-              onClick={() => { setAbierto(false); onLogout() }}
-              className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-700 border-t"
-            >
-              ⏏ Cerrar sesión
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
