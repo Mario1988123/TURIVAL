@@ -116,9 +116,12 @@ export function AppLayout({ children, title }: AppLayoutProps) {
 
       // 3) Construir el "user" del header con el mejor nombre disponible.
       //    Antes solo miraba profiles → si no habia fila, salia "Usuario".
-      //    Ahora cae en cascada: profiles.nombre → usuario_perfiles.nombre → email split.
+      //    Ahora cae en cascada: profiles.nombre → usuario_perfiles.nombre → email
+      //    capitalizado (mario.ortigueira@me.com → "Mario", no "mario.ortigueira").
       const emailLocal = session.user.email?.split('@')[0] ?? 'Usuario'
-      const nombreFinal = (profile as any)?.nombre || perfilRolNombre?.nombre || emailLocal
+      const primerSeg = emailLocal.split(/[._-]/)[0]
+      const emailCapitalizado = primerSeg.charAt(0).toUpperCase() + primerSeg.slice(1)
+      const nombreFinal = (profile as any)?.nombre || perfilRolNombre?.nombre || emailCapitalizado
       const rolFinal = (profile as any)?.rol || perfilRolNombre?.rol || 'admin'
       const userMerge: Profile = {
         ...(profile as any || {}),
