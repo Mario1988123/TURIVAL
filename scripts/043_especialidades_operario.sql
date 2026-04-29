@@ -17,6 +17,34 @@
 
 BEGIN;
 
+-- ---------- 0) Asegurar que public.operarios existe ----------
+-- En algun reset de la BD se perdio. La recreamos con la definicion
+-- del script 015 + el campo user_id del script 040. Idempotente.
+CREATE TABLE IF NOT EXISTS public.operarios (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  nombre      text NOT NULL,
+  rol         text,
+  color       text NOT NULL DEFAULT '#64748b',
+  activo      boolean NOT NULL DEFAULT true,
+  notas       text,
+  user_id     uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_operarios_activo  ON public.operarios(activo);
+CREATE INDEX IF NOT EXISTS idx_operarios_rol     ON public.operarios(rol);
+CREATE INDEX IF NOT EXISTS idx_operarios_user_id ON public.operarios(user_id);
+
+-- Si ya existia pero le falta user_id (script 040 no aplicado), añadirla
+ALTER TABLE public.operarios ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL;
+
+-- RLS basica (mismo patron que el resto del 041/042)
+ALTER TABLE public.operarios ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS operarios_select_all  ON public.operarios;
+DROP POLICY IF EXISTS operarios_modify_auth ON public.operarios;
+CREATE POLICY operarios_select_all  ON public.operarios FOR SELECT TO authenticated USING (true);
+CREATE POLICY operarios_modify_auth ON public.operarios FOR ALL    TO authenticated USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
+
 -- ---------- 1) Tabla catalogo de especialidades ----------
 CREATE TABLE IF NOT EXISTS public.especialidades (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
