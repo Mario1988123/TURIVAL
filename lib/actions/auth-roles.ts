@@ -84,7 +84,12 @@ export async function accionCrearUsuario(params: {
       return { ok: false, error: 'Email obligatorio y contraseña mínima de 6 caracteres.' }
     }
 
-    const admin = createAdminClient()
+    let admin
+    try {
+      admin = createAdminClient()
+    } catch (e: any) {
+      return { ok: false, error: e?.message ?? 'No se pudo inicializar el cliente admin.' }
+    }
 
     // 1) Crear en auth.users con email ya confirmado
     const { data: created, error: authErr } = await admin.auth.admin.createUser({
@@ -94,6 +99,13 @@ export async function accionCrearUsuario(params: {
       user_metadata: { nombre },
     })
     if (authErr || !created?.user) {
+      const m = (authErr?.message ?? '').toLowerCase()
+      if (m.includes('invalid api key') || m.includes('invalid jwt')) {
+        return {
+          ok: false,
+          error: 'Invalid API key: la SUPABASE_SERVICE_ROLE_KEY no es válida. Verifica que has copiado la "service_role" (no la "anon") en Supabase Dashboard > Settings > API, la has pegado en Vercel > Settings > Environment Variables como SUPABASE_SERVICE_ROLE_KEY, y has hecho Redeploy.',
+        }
+      }
       return { ok: false, error: authErr?.message ?? 'No se pudo crear el usuario en Auth.' }
     }
     const newUserId = created.user.id
