@@ -19,9 +19,11 @@ import {
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog'
-import { Users, ShieldCheck, UserPlus, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { Users, ShieldCheck, UserPlus, AlertTriangle, CheckCircle2, Trash2 } from 'lucide-react'
 import {
   accionAsignarRol,
+  accionCrearUsuario,
+  accionEliminarUsuario,
 } from '@/lib/actions/auth-roles'
 import {
   MODULOS_DISPONIBLES,
@@ -60,21 +62,8 @@ export default function UsuariosCliente({ perfilesIniciales }: Props) {
             ven todo.
           </p>
         </div>
-        <DialogAsignar
-          onSaved={actualizarPerfil}
-          modoNuevo
-        />
+        <DialogCrearUsuario onCreado={actualizarPerfil} />
       </div>
-
-      <Alert>
-        <ShieldCheck className="h-4 w-4" />
-        <AlertDescription>
-          <strong>Cómo crear un usuario:</strong> ve a Supabase Dashboard → Authentication → Add user,
-          crea el email y la contraseña (marca <em>Auto Confirm User</em>). Vuelve aquí, copia el user_id
-          que ves en Supabase, y pulsa <em>Asignar rol</em>. El usuario podrá entrar con su email/contraseña
-          y verá solo los módulos que marques.
-        </AlertDescription>
-      </Alert>
 
       <Card>
         <CardHeader>
@@ -84,8 +73,7 @@ export default function UsuariosCliente({ perfilesIniciales }: Props) {
         <CardContent>
           {perfiles.length === 0 ? (
             <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
-              No hay usuarios todavía. Pulsa <strong>Asignar rol a usuario</strong> arriba para crear
-              el primer admin (rellena tu user_id de Supabase Auth, rol = admin).
+              No hay usuarios todavía. Pulsa <strong>Crear usuario</strong> arriba para empezar.
             </div>
           ) : (
             <ul className="divide-y">
@@ -114,6 +102,7 @@ export default function UsuariosCliente({ perfilesIniciales }: Props) {
                     onSaved={actualizarPerfil}
                     perfilExistente={p}
                   />
+                  <BotonEliminar perfil={p} onEliminado={() => setPerfiles(prev => prev.filter(x => x.user_id !== p.user_id))} />
                 </li>
               ))}
             </ul>
@@ -125,26 +114,16 @@ export default function UsuariosCliente({ perfilesIniciales }: Props) {
 }
 
 // =============================================================
-// Dialog para crear / editar perfil
+// Dialog para CREAR un usuario nuevo end-to-end (auth + perfil)
 // =============================================================
 
-function DialogAsignar({
-  onSaved,
-  modoNuevo,
-  perfilExistente,
-}: {
-  onSaved: (p: PerfilUsuario) => void
-  modoNuevo?: boolean
-  perfilExistente?: PerfilUsuario
-}) {
+function DialogCrearUsuario({ onCreado }: { onCreado: (p: PerfilUsuario) => void }) {
   const [abierto, setAbierto] = useState(false)
-  const [userId, setUserId] = useState(perfilExistente?.user_id ?? '')
-  const [nombre, setNombre] = useState(perfilExistente?.nombre ?? '')
-  const [email, setEmail] = useState(perfilExistente?.email ?? '')
-  const [rol, setRol] = useState<RolUsuario>(perfilExistente?.rol ?? 'operario')
-  const [modulos, setModulos] = useState<Set<string>>(
-    new Set(perfilExistente?.modulos_permitidos ?? []),
-  )
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [nombre, setNombre] = useState('')
+  const [rol, setRol] = useState<RolUsuario>('operario')
+  const [modulos, setModulos] = useState<Set<string>>(new Set())
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -156,23 +135,28 @@ function DialogAsignar({
     })
   }
 
+  function reset() {
+    setEmail(''); setPassword(''); setNombre(''); setRol('operario')
+    setModulos(new Set()); setError(null)
+  }
+
   async function guardar() {
     setEnviando(true)
     setError(null)
     try {
-      const modulosFinal = rol === 'admin' ? ['*'] : Array.from(modulos)
-      const res = await accionAsignarRol({
-        user_id: userId.trim(),
-        rol,
-        nombre: nombre.trim(),
+      const res = await accionCrearUsuario({
         email: email.trim(),
-        modulos: modulosFinal,
+        password,
+        nombre: nombre.trim(),
+        rol,
+        modulos: rol === 'admin' ? ['*'] : Array.from(modulos),
       })
       if (!res.ok) {
         setError(res.error)
         return
       }
-      onSaved(res.perfil)
+      onCreado(res.perfil)
+      reset()
       setAbierto(false)
     } finally {
       setEnviando(false)
@@ -180,46 +164,40 @@ function DialogAsignar({
   }
 
   return (
-    <Dialog open={abierto} onOpenChange={setAbierto}>
+    <Dialog open={abierto} onOpenChange={(v) => { setAbierto(v); if (!v) reset() }}>
       <DialogTrigger asChild>
-        {modoNuevo ? (
-          <Button size="sm" className="gap-1.5">
-            <UserPlus className="h-4 w-4" />
-            Asignar rol a usuario
-          </Button>
-        ) : (
-          <Button size="sm" variant="outline">Editar</Button>
-        )}
+        <Button size="sm" className="gap-1.5">
+          <UserPlus className="h-4 w-4" />
+          Crear usuario
+        </Button>
       </DialogTrigger>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{modoNuevo ? 'Asignar rol a usuario nuevo' : 'Editar usuario'}</DialogTitle>
+          <DialogTitle>Crear usuario nuevo</DialogTitle>
           <DialogDescription>
-            El usuario debe existir ya en Supabase Auth. Pega aquí su user_id (UUID).
+            Se crea la cuenta en Supabase Auth y se le asigna el rol y los módulos en una sola operación.
+            El usuario podrá entrar inmediatamente con su email y contraseña.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
-          <div>
-            <Label className="text-xs">user_id (UUID de auth.users)</Label>
-            <Input
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-              disabled={!modoNuevo}
-              placeholder="00000000-0000-0000-0000-000000000000"
-              className="font-mono text-xs"
-            />
-          </div>
-
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-xs">Nombre</Label>
-              <Input value={nombre} onChange={(e) => setNombre(e.target.value)} />
+              <Input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Pepe" />
             </div>
             <div>
               <Label className="text-xs">Email</Label>
-              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="pepe@empresa.es" />
             </div>
+          </div>
+
+          <div>
+            <Label className="text-xs">Contraseña inicial</Label>
+            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Mínimo 6 caracteres" />
+            <p className="text-[11px] text-slate-500 mt-1">
+              Comunícasela al usuario; podrá cambiarla después en su perfil.
+            </p>
           </div>
 
           <div>
@@ -229,7 +207,7 @@ function DialogAsignar({
               <SelectContent>
                 <SelectItem value="admin">Admin (todo)</SelectItem>
                 <SelectItem value="operario">Operario (módulos seleccionados)</SelectItem>
-                <SelectItem value="cliente">Cliente (solo vía token público)</SelectItem>
+                <SelectItem value="cliente">Cliente (portal externo)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -252,10 +230,7 @@ function DialogAsignar({
                     key={m.slug}
                     className="flex items-center gap-2 px-2 py-1 rounded hover:bg-white cursor-pointer text-xs"
                   >
-                    <Checkbox
-                      checked={modulos.has(m.slug)}
-                      onCheckedChange={() => toggleModulo(m.slug)}
-                    />
+                    <Checkbox checked={modulos.has(m.slug)} onCheckedChange={() => toggleModulo(m.slug)} />
                     <span>{m.nombre}</span>
                   </label>
                 ))}
@@ -266,9 +241,7 @@ function DialogAsignar({
           {rol === 'admin' && (
             <Alert>
               <ShieldCheck className="h-4 w-4" />
-              <AlertDescription>
-                El admin tiene acceso a todos los módulos automáticamente.
-              </AlertDescription>
+              <AlertDescription>El admin tiene acceso a todos los módulos automáticamente.</AlertDescription>
             </Alert>
           )}
 
@@ -276,8 +249,7 @@ function DialogAsignar({
             <Alert>
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>
-                Los clientes acceden por token (URL /p/[token]) y no necesitan módulos. Este perfil
-                es solo para registrar al cliente como usuario.
+                Los clientes acceden al portal externo (/cliente). No necesitan módulos del CRM interno.
               </AlertDescription>
             </Alert>
           )}
@@ -291,19 +263,157 @@ function DialogAsignar({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => setAbierto(false)} disabled={enviando}>
-            Cancelar
-          </Button>
-          <Button onClick={guardar} disabled={enviando || !userId.trim() || !email.trim()}>
-            {enviando ? 'Guardando…' : (
-              <span className="flex items-center gap-1">
-                <CheckCircle2 className="h-4 w-4" />
-                Guardar
-              </span>
-            )}
+          <Button variant="outline" onClick={() => setAbierto(false)} disabled={enviando}>Cancelar</Button>
+          <Button onClick={guardar} disabled={enviando || !email.trim() || password.length < 6 || !nombre.trim()}>
+            {enviando ? 'Creando…' : (<span className="flex items-center gap-1"><CheckCircle2 className="h-4 w-4" />Crear usuario</span>)}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+// =============================================================
+// Dialog para EDITAR rol y módulos de un usuario existente
+// =============================================================
+
+function DialogAsignar({
+  onSaved,
+  perfilExistente,
+}: {
+  onSaved: (p: PerfilUsuario) => void
+  perfilExistente: PerfilUsuario
+}) {
+  const [abierto, setAbierto] = useState(false)
+  const [nombre, setNombre] = useState(perfilExistente.nombre ?? '')
+  const [rol, setRol] = useState<RolUsuario>(perfilExistente.rol)
+  const [modulos, setModulos] = useState<Set<string>>(new Set(perfilExistente.modulos_permitidos ?? []))
+  const [enviando, setEnviando] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  function toggleModulo(slug: string) {
+    setModulos((prev) => {
+      const next = new Set(prev)
+      if (next.has(slug)) next.delete(slug); else next.add(slug)
+      return next
+    })
+  }
+
+  async function guardar() {
+    setEnviando(true)
+    setError(null)
+    try {
+      const res = await accionAsignarRol({
+        user_id: perfilExistente.user_id,
+        rol,
+        nombre: nombre.trim(),
+        email: perfilExistente.email,
+        modulos: rol === 'admin' ? ['*'] : Array.from(modulos),
+      })
+      if (!res.ok) { setError(res.error); return }
+      onSaved(res.perfil)
+      setAbierto(false)
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <Dialog open={abierto} onOpenChange={setAbierto}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline">Editar</Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Editar usuario</DialogTitle>
+          <DialogDescription>
+            {perfilExistente.email}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div>
+            <Label className="text-xs">Nombre</Label>
+            <Input value={nombre} onChange={(e) => setNombre(e.target.value)} />
+          </div>
+
+          <div>
+            <Label className="text-xs">Rol</Label>
+            <Select value={rol} onValueChange={(v: RolUsuario) => setRol(v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="admin">Admin (todo)</SelectItem>
+                <SelectItem value="operario">Operario (módulos seleccionados)</SelectItem>
+                <SelectItem value="cliente">Cliente (portal externo)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {rol === 'operario' && (
+            <div>
+              <Label className="text-xs flex items-center justify-between">
+                <span>Módulos permitidos</span>
+                <button
+                  type="button"
+                  onClick={() => setModulos(new Set(MODULOS_DISPONIBLES.map((m) => m.slug)))}
+                  className="text-blue-600 hover:underline text-[11px]"
+                >
+                  marcar todos
+                </button>
+              </Label>
+              <div className="rounded-md border bg-slate-50 p-2 grid grid-cols-2 gap-1 mt-1">
+                {MODULOS_DISPONIBLES.map((m) => (
+                  <label
+                    key={m.slug}
+                    className="flex items-center gap-2 px-2 py-1 rounded hover:bg-white cursor-pointer text-xs"
+                  >
+                    <Checkbox checked={modulos.has(m.slug)} onCheckedChange={() => toggleModulo(m.slug)} />
+                    <span>{m.nombre}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setAbierto(false)} disabled={enviando}>Cancelar</Button>
+          <Button onClick={guardar} disabled={enviando}>
+            {enviando ? 'Guardando…' : (<span className="flex items-center gap-1"><CheckCircle2 className="h-4 w-4" />Guardar</span>)}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// =============================================================
+// Botón eliminar usuario (auth.users + usuario_perfiles)
+// =============================================================
+
+function BotonEliminar({ perfil, onEliminado }: { perfil: PerfilUsuario; onEliminado: () => void }) {
+  const [enviando, setEnviando] = useState(false)
+  async function eliminar() {
+    if (!confirm(`¿Eliminar a ${perfil.nombre || perfil.email}? Se borrará la cuenta de Auth y su perfil.`)) return
+    setEnviando(true)
+    try {
+      const res = await accionEliminarUsuario(perfil.user_id)
+      if (!res.ok) { alert(res.error); return }
+      onEliminado()
+    } finally {
+      setEnviando(false)
+    }
+  }
+  return (
+    <Button size="icon" variant="ghost" onClick={eliminar} disabled={enviando} title="Eliminar usuario">
+      <Trash2 className="h-4 w-4 text-red-600" />
+    </Button>
   )
 }
