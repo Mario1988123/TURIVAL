@@ -14,6 +14,10 @@ import {
 } from '@/lib/services/auth-roles'
 import { obtenerSesion, esAdmin } from '@/lib/auth/permisos'
 import { createAdminClient } from '@/lib/supabase/admin'
+import {
+  listarEspecialidades,
+  type Especialidad,
+} from '@/lib/services/especialidades'
 
 export async function accionListarPerfiles(): Promise<{
   ok: true
@@ -65,12 +69,27 @@ export async function accionObtenerPerfilActual(): Promise<{
  * falla después de crear el user, se intenta borrar el user para no
  * dejar cuentas huérfanas.
  */
+export async function accionListarEspecialidades(): Promise<
+  { ok: true; especialidades: Especialidad[] } | { ok: false; error: string }
+> {
+  try {
+    const e = await listarEspecialidades()
+    return { ok: true, especialidades: e }
+  } catch (err: unknown) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Error' }
+  }
+}
+
 export async function accionCrearUsuario(params: {
   email: string
   password: string
   nombre: string
   rol: RolUsuario
   modulos: string[]
+  /** Solo aplica si rol='operario': IDs de especialidades del catalogo. */
+  especialidadIds?: string[]
+  /** Solo aplica si rol='operario': color del operario para el planificador. */
+  colorOperario?: string
 }): Promise<{ ok: true; perfil: PerfilUsuario } | { ok: false; error: string }> {
   try {
     const sesion = await obtenerSesion()
@@ -111,17 +130,16 @@ export async function accionCrearUsuario(params: {
     const newUserId = created.user.id
 
     // 2) Asignar rol + módulos
+    let perfil: PerfilUsuario
     try {
       const modulosFinal = params.rol === 'admin' ? ['*'] : params.modulos
-      const perfil = await asignarRol({
+      perfil = await asignarRol({
         user_id: newUserId,
         rol: params.rol,
         nombre,
         email,
         modulos: modulosFinal,
       })
-      revalidatePath('/configuracion/usuarios')
-      return { ok: true, perfil }
     } catch (e: unknown) {
       // Rollback: borrar el user de auth para no dejar huérfanos
       try { await admin.auth.admin.deleteUser(newUserId) } catch {}
@@ -131,6 +149,36 @@ export async function accionCrearUsuario(params: {
           (e instanceof Error ? e.message : 'Error desconocido'),
       }
     }
+
+    // 3) Si es operario, dar de alta tambien en la tabla `operarios` y
+    //    asignar especialidades. Si esto falla, el user/perfil ya creados
+    //    se mantienen (no es critico — Mario puede completar despues).
+    if (params.rol === 'operario') {
+      try {
+        const colores = ['#2563eb','#0d9488','#dc2626','#a855f7','#f59e0b','#10b981']
+        const color = params.colorOperario || colores[Math.floor(Math.random()*colores.length)]
+        const { data: opRow, error: opErr } = await admin
+          .from('operarios')
+          .insert({ nombre, color, activo: true, user_id: newUserId })
+          .select('id')
+          .single()
+        if (opErr) {
+          console.warn('[crearUsuario] no se pudo crear operario:', opErr.message)
+        } else if (params.especialidadIds && params.especialidadIds.length > 0) {
+          const filas = params.especialidadIds.map((eid) => ({
+            operario_id: (opRow as any).id,
+            especialidad_id: eid,
+          }))
+          const { error: espErr } = await admin.from('operario_especialidades').insert(filas)
+          if (espErr) console.warn('[crearUsuario] no se pudieron asignar especialidades:', espErr.message)
+        }
+      } catch (e) {
+        console.warn('[crearUsuario] error montando operario:', (e as Error).message)
+      }
+    }
+
+    revalidatePath('/configuracion/usuarios')
+    return { ok: true, perfil }
   } catch (e: unknown) {
     return { ok: false, error: e instanceof Error ? e.message : 'Error inesperado' }
   }

@@ -114,15 +114,16 @@ export function AppLayout({ children, title }: AppLayoutProps) {
         // Tabla no existe, modo legado
       }
 
-      // 3) Construir el "user" del header con el mejor nombre disponible.
-      //    Antes solo miraba profiles → si no habia fila, salia "Usuario".
-      //    Ahora cae en cascada: profiles.nombre → usuario_perfiles.nombre → email
-      //    capitalizado (mario.ortigueira@me.com → "Mario", no "mario.ortigueira").
+      // 3) Construir el "user" del header con cascada CORRECTA:
+      //    usuario_perfiles (fuente de verdad de roles) → profiles (legacy) → email.
+      //    Antes daba prioridad a profiles → si profiles tenia rol='admin' por defecto
+      //    (trigger handle_new_user), TODO el mundo aparecia como admin aunque
+      //    su usuario_perfiles dijera 'operario'. Ahora gana usuario_perfiles.
       const emailLocal = session.user.email?.split('@')[0] ?? 'Usuario'
       const primerSeg = emailLocal.split(/[._-]/)[0]
       const emailCapitalizado = primerSeg.charAt(0).toUpperCase() + primerSeg.slice(1)
-      const nombreFinal = (profile as any)?.nombre || perfilRolNombre?.nombre || emailCapitalizado
-      const rolFinal = (profile as any)?.rol || perfilRolNombre?.rol || 'admin'
+      const nombreFinal = perfilRolNombre?.nombre || (profile as any)?.nombre || emailCapitalizado
+      const rolFinal = perfilRolNombre?.rol || (profile as any)?.rol || 'operario'
       const userMerge: Profile = {
         ...(profile as any || {}),
         id: session.user.id,
@@ -137,9 +138,12 @@ export function AppLayout({ children, title }: AppLayoutProps) {
     checkUser()
   }, [router, supabase])
 
-  // Filtrar items del menu segun el perfil. Si no hay perfil registrado
-  // (modo legado), se muestran todos.
+  // Filtrar items del menu segun el perfil:
+  //  - Si el item es soloAdmin → solo se muestra si el rol del usuario es 'admin'.
+  //  - Si no hay perfil registrado (modo legado) → mostrar todos los no-soloAdmin.
+  //  - Resto: filtrar por modulos_permitidos del perfil.
   const itemsVisibles = MENU_ITEMS.filter((item) => {
+    if (item.soloAdmin && perfil?.rol !== 'admin') return false
     if (!perfil) return true
     if (perfil.rol === 'admin') return true
     if (perfil.modulos_permitidos.includes('*')) return true

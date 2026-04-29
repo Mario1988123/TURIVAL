@@ -39,6 +39,8 @@ export interface MenuItem {
   icon: LucideIcon
   /** Slug del modulo para el sistema de permisos. Si falta se considera publico. */
   moduloSlug?: string
+  /** Si es true, el item solo se muestra a roles 'admin'. Operarios/clientes nunca lo ven. */
+  soloAdmin?: boolean
 }
 
 export const MENU_ITEMS: MenuItem[] = [
@@ -61,8 +63,8 @@ export const MENU_ITEMS: MenuItem[] = [
   { label: 'Informes',          href: '/informes',                   icon: BarChart3,       moduloSlug: 'informes' },
   { label: 'Coste por pieza',   href: '/informes/coste-pieza',       icon: Euro,            moduloSlug: 'informes' },
   { label: 'Margen real',       href: '/informes/margen-real',       icon: TrendingUp,      moduloSlug: 'informes' },
-  { label: 'Operarios',         href: '/configuracion/operarios',    icon: Users,           moduloSlug: 'configuracion' },
-  { label: 'Usuarios y roles',  href: '/configuracion/usuarios',     icon: ShieldCheck,     moduloSlug: 'configuracion' },
+  { label: 'Operarios',         href: '/configuracion/operarios',    icon: Users,           moduloSlug: 'configuracion', soloAdmin: true },
+  { label: 'Usuarios y roles',  href: '/configuracion/usuarios',     icon: ShieldCheck,     moduloSlug: 'configuracion', soloAdmin: true },
   { label: 'Ubicaciones',       href: '/configuracion/ubicaciones',  icon: MapPin,          moduloSlug: 'configuracion' },
   { label: 'Tiempos de proceso',href: '/configuracion/tiempos',      icon: Clock,           moduloSlug: 'configuracion' },
   { label: 'Configuración',     href: '/configuracion',              icon: Settings,        moduloSlug: 'configuracion' },

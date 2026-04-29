@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -24,6 +24,7 @@ import {
   accionAsignarRol,
   accionCrearUsuario,
   accionEliminarUsuario,
+  accionListarEspecialidades,
 } from '@/lib/actions/auth-roles'
 import {
   MODULOS_DISPONIBLES,
@@ -124,8 +125,19 @@ function DialogCrearUsuario({ onCreado }: { onCreado: (p: PerfilUsuario) => void
   const [nombre, setNombre] = useState('')
   const [rol, setRol] = useState<RolUsuario>('operario')
   const [modulos, setModulos] = useState<Set<string>>(new Set())
+  const [especialidades, setEspecialidades] = useState<{ id: string; nombre: string; color: string }[]>([])
+  const [especialidadesSel, setEspecialidadesSel] = useState<Set<string>>(new Set())
+  const [colorOperario, setColorOperario] = useState<string>('#2563eb')
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Cargar catalogo de especialidades una vez al abrir el dialog
+  useEffect(() => {
+    if (!abierto || especialidades.length > 0) return
+    accionListarEspecialidades().then((res) => {
+      if (res.ok) setEspecialidades(res.especialidades)
+    })
+  }, [abierto, especialidades.length])
 
   function toggleModulo(slug: string) {
     setModulos((prev) => {
@@ -134,10 +146,18 @@ function DialogCrearUsuario({ onCreado }: { onCreado: (p: PerfilUsuario) => void
       return next
     })
   }
+  function toggleEspecialidad(id: string) {
+    setEspecialidadesSel((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
 
   function reset() {
     setEmail(''); setPassword(''); setNombre(''); setRol('operario')
-    setModulos(new Set()); setError(null)
+    setModulos(new Set()); setEspecialidadesSel(new Set()); setColorOperario('#2563eb')
+    setError(null)
   }
 
   async function guardar() {
@@ -150,6 +170,8 @@ function DialogCrearUsuario({ onCreado }: { onCreado: (p: PerfilUsuario) => void
         nombre: nombre.trim(),
         rol,
         modulos: rol === 'admin' ? ['*'] : Array.from(modulos),
+        especialidadIds: rol === 'operario' ? Array.from(especialidadesSel) : undefined,
+        colorOperario: rol === 'operario' ? colorOperario : undefined,
       })
       if (!res.ok) {
         setError(res.error)
@@ -213,29 +235,64 @@ function DialogCrearUsuario({ onCreado }: { onCreado: (p: PerfilUsuario) => void
           </div>
 
           {rol === 'operario' && (
-            <div>
-              <Label className="text-xs flex items-center justify-between">
-                <span>Módulos permitidos</span>
-                <button
-                  type="button"
-                  onClick={() => setModulos(new Set(MODULOS_DISPONIBLES.map((m) => m.slug)))}
-                  className="text-blue-600 hover:underline text-[11px]"
-                >
-                  marcar todos
-                </button>
-              </Label>
-              <div className="rounded-md border bg-slate-50 p-2 grid grid-cols-2 gap-1 mt-1">
-                {MODULOS_DISPONIBLES.map((m) => (
-                  <label
-                    key={m.slug}
-                    className="flex items-center gap-2 px-2 py-1 rounded hover:bg-white cursor-pointer text-xs"
+            <>
+              <div>
+                <Label className="text-xs flex items-center justify-between">
+                  <span>Módulos permitidos</span>
+                  <button
+                    type="button"
+                    onClick={() => setModulos(new Set(MODULOS_DISPONIBLES.map((m) => m.slug)))}
+                    className="text-blue-600 hover:underline text-[11px]"
                   >
-                    <Checkbox checked={modulos.has(m.slug)} onCheckedChange={() => toggleModulo(m.slug)} />
-                    <span>{m.nombre}</span>
-                  </label>
-                ))}
+                    marcar todos
+                  </button>
+                </Label>
+                <div className="rounded-md border bg-slate-50 p-2 grid grid-cols-2 gap-1 mt-1">
+                  {MODULOS_DISPONIBLES.map((m) => (
+                    <label
+                      key={m.slug}
+                      className="flex items-center gap-2 px-2 py-1 rounded hover:bg-white cursor-pointer text-xs"
+                    >
+                      <Checkbox checked={modulos.has(m.slug)} onCheckedChange={() => toggleModulo(m.slug)} />
+                      <span>{m.nombre}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
-            </div>
+
+              {especialidades.length > 0 && (
+                <div>
+                  <Label className="text-xs">Especialidades del operario (taller)</Label>
+                  <div className="rounded-md border bg-slate-50 p-2 grid grid-cols-2 gap-1 mt-1">
+                    {especialidades.map((e) => (
+                      <label
+                        key={e.id}
+                        className="flex items-center gap-2 px-2 py-1 rounded hover:bg-white cursor-pointer text-xs"
+                      >
+                        <Checkbox checked={especialidadesSel.has(e.id)} onCheckedChange={() => toggleEspecialidad(e.id)} />
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="inline-block w-3 h-3 rounded-sm" style={{ background: e.color }} />
+                          {e.nombre}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Marca todas las que sepa hacer. Se usan para sugerirlo en tareas del planificador.
+                  </p>
+                </div>
+              )}
+
+              <div>
+                <Label className="text-xs">Color en el planificador</Label>
+                <input
+                  type="color"
+                  value={colorOperario}
+                  onChange={(e) => setColorOperario(e.target.value)}
+                  className="h-9 w-16 rounded border cursor-pointer"
+                />
+              </div>
+            </>
           )}
 
           {rol === 'admin' && (
