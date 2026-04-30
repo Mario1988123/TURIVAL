@@ -58,14 +58,16 @@ CREATE TABLE IF NOT EXISTS public.especialidades (
 
 CREATE INDEX IF NOT EXISTS idx_especialidades_activo ON public.especialidades(activo);
 
--- Seeds basicos para Turiaval (Mario podra editar / añadir mas)
+-- Seeds del taller Turiaval (lijador, fondeador, lacador, masillador,
+-- finalizado, auxiliar = picking, encargado = recepcion + todos procesos).
 INSERT INTO public.especialidades (slug, nombre, color, orden) VALUES
-  ('lijador',     'Lijador',     '#2563eb', 10),
-  ('masillador',  'Masillador',  '#0d9488', 20),
-  ('fondeador',   'Fondeador',   '#dc2626', 30),
-  ('pintor',      'Pintor / Lacador', '#a855f7', 40),
-  ('montador',    'Montador',    '#f59e0b', 50),
-  ('embalador',   'Embalador',   '#64748b', 60)
+  ('lijador',     'Lijador',           '#2563eb', 10),
+  ('masillador',  'Masillador',        '#0d9488', 20),
+  ('fondeador',   'Fondeador',         '#dc2626', 30),
+  ('lacador',     'Lacador',           '#a855f7', 40),
+  ('finalizado',  'Finalizado',        '#f59e0b', 50),
+  ('auxiliar',    'Auxiliar (picking)','#64748b', 60),
+  ('encargado',   'Encargado',         '#059669', 70)
 ON CONFLICT (slug) DO NOTHING;
 
 -- ---------- 2) Tabla pivote operario_especialidades ----------
