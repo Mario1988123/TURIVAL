@@ -19,12 +19,14 @@ import {
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog'
-import { Users, ShieldCheck, UserPlus, AlertTriangle, CheckCircle2, Trash2 } from 'lucide-react'
+import { Users, ShieldCheck, UserPlus, AlertTriangle, CheckCircle2, Trash2, KeyRound, Sparkles } from 'lucide-react'
 import {
   accionAsignarRol,
   accionCrearUsuario,
   accionEliminarUsuario,
   accionListarEspecialidades,
+  accionResetearPassword,
+  accionCrearOperariosFicticios,
 } from '@/lib/actions/auth-roles'
 import {
   MODULOS_DISPONIBLES,
@@ -63,7 +65,10 @@ export default function UsuariosCliente({ perfilesIniciales }: Props) {
             ven todo.
           </p>
         </div>
-        <DialogCrearUsuario onCreado={actualizarPerfil} />
+        <div className="flex flex-wrap gap-2">
+          <BotonSeedFicticios onCreados={() => router.refresh()} />
+          <DialogCrearUsuario onCreado={actualizarPerfil} />
+        </div>
       </div>
 
       <Card>
@@ -103,6 +108,7 @@ export default function UsuariosCliente({ perfilesIniciales }: Props) {
                     onSaved={actualizarPerfil}
                     perfilExistente={p}
                   />
+                  <BotonResetPassword userId={p.user_id} email={p.email} />
                   <BotonEliminar perfil={p} onEliminado={() => setPerfiles(prev => prev.filter(x => x.user_id !== p.user_id))} />
                 </li>
               ))}
@@ -454,6 +460,55 @@ function DialogAsignar({
 // =============================================================
 // Botón eliminar usuario (auth.users + usuario_perfiles)
 // =============================================================
+
+function BotonResetPassword({ userId, email }: { userId: string; email: string }) {
+  const [enviando, setEnviando] = useState(false)
+  async function reset() {
+    const nueva = prompt(`Nueva contraseña para ${email}\n\n(El usuario tendrá que cambiarla en el siguiente login.)`, '1234')
+    if (!nueva) return
+    if (nueva.length < 4) { alert('Mínimo 4 caracteres.'); return }
+    setEnviando(true)
+    try {
+      const res = await accionResetearPassword({ user_id: userId, nueva_password: nueva })
+      if (!res.ok) alert(res.error)
+      else alert(`Contraseña reseteada a "${nueva}". El usuario tendrá que cambiarla al loguearse.`)
+    } finally {
+      setEnviando(false)
+    }
+  }
+  return (
+    <Button size="icon" variant="ghost" onClick={reset} disabled={enviando} title="Resetear contraseña">
+      <KeyRound className="h-4 w-4 text-amber-600" />
+    </Button>
+  )
+}
+
+function BotonSeedFicticios({ onCreados }: { onCreados: () => void }) {
+  const [enviando, setEnviando] = useState(false)
+  async function seed() {
+    if (!confirm(
+      'Crear 7 operarios ficticios de prueba (Juan, Pedro, Luis, Mario, Pepe, Jose, Antonio).\n\n' +
+      'Email: <nombre>@turiaval.es\n' +
+      'Contraseña: 1234 (les pedirá cambiarla al primer login)\n\n' +
+      '¿Continuar?'
+    )) return
+    setEnviando(true)
+    try {
+      const res = await accionCrearOperariosFicticios()
+      if (!res.ok) { alert(res.error); return }
+      alert(`Creados: ${res.creados}\nOmitidos (ya existían): ${res.omitidos}`)
+      onCreados()
+    } finally {
+      setEnviando(false)
+    }
+  }
+  return (
+    <Button size="sm" variant="outline" onClick={seed} disabled={enviando} className="gap-1.5">
+      <Sparkles className="h-4 w-4" />
+      {enviando ? 'Creando…' : 'Crear operarios de prueba'}
+    </Button>
+  )
+}
 
 function BotonEliminar({ perfil, onEliminado }: { perfil: PerfilUsuario; onEliminado: () => void }) {
   const [enviando, setEnviando] = useState(false)

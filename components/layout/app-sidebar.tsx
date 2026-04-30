@@ -102,13 +102,18 @@ export function AppLayout({ children, title }: AppLayoutProps) {
       try {
         const { data: perfilRol } = await supabase
           .from('usuario_perfiles')
-          .select('rol, modulos_permitidos, nombre')
+          .select('rol, modulos_permitidos, nombre, password_temporal')
           .eq('user_id', session.user.id)
           .eq('activo', true)
           .maybeSingle()
         if (perfilRol) {
           perfilRolNombre = perfilRol as any
           setPerfil({ rol: (perfilRol as any).rol, modulos_permitidos: (perfilRol as any).modulos_permitidos })
+          // Si password_temporal, forzar cambio antes de entrar al CRM
+          if ((perfilRol as any).password_temporal === true) {
+            router.replace('/auth/cambiar-password')
+            return
+          }
         }
       } catch {
         // Tabla no existe, modo legado
