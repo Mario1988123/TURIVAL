@@ -38,6 +38,12 @@ export default function FichajesShell({
     ? operarios
     : operarios.filter((o) => o.id === operarioPropioId)
 
+  // Idem para el panel "Hoy": un operario solo ve SU tarjeta de
+  // entrada/salida/pausa, no el resto del taller.
+  const operariosEstadoFiltrados = esAdmin
+    ? operariosEstado
+    : (operariosEstado ?? []).filter((o: any) => o.operario_id === operarioPropioId || o.id === operarioPropioId)
+
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -78,7 +84,7 @@ export default function FichajesShell({
 
         <TabsContent value="hoy">
           <FichajesHoyPanel
-            operariosEstado={operariosEstado}
+            operariosEstado={operariosEstadoFiltrados}
             descansoInicial={descansoInicial}
           />
         </TabsContent>
