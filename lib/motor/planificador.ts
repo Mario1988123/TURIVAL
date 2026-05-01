@@ -107,6 +107,13 @@ export interface OperarioDisponible {
   activo: boolean
 }
 
+export interface PausaJornada {
+  /** Hora de inicio de la pausa en 'HH:MM' (ej. '12:30'). */
+  hora_inicio: string
+  /** Duración en minutos (ej. 60 para una comida de 1h). */
+  minutos: number
+}
+
 export interface JornadaLaboral {
   /** Hora de entrada en formato 'HH:MM' (24h). Ej. '08:00'. */
   hora_inicio: string
@@ -114,10 +121,17 @@ export interface JornadaLaboral {
   hora_fin: string
   /**
    * Descanso intermedio en minutos (ej. 60 para comida 13:00-14:00).
-   * Si > 0, la jornada se parte en dos bloques iguales alrededor del
-   * punto medio. Default 0 → jornada continua. Se afinará en G5.
+   * Solo se usa para CONTAR jornada disponible. La pausa concreta
+   * (cuándo y cuánto) se define en `pausas`.
    */
   minutos_descanso_intermedio: number
+  /**
+   * Pausas concretas dentro de la jornada (script 039 horarios_operario).
+   * Cuando una tarea cruza una pausa, el motor SUMA esos minutos al reloj
+   * (la tarea termina más tarde) pero NO los imputa como trabajo.
+   * Ejemplo: tarea de 60 min empieza 12:00, pausa 12:30-13:00 → fin 13:30.
+   */
+  pausas?: PausaJornada[]
   /** Días laborables en formato ISO getDay() → 0=Dom, 1=Lun, ..., 6=Sáb. */
   dias_laborables: number[]
 }
@@ -126,6 +140,7 @@ export const JORNADA_DEFAULT: JornadaLaboral = {
   hora_inicio: '08:00',
   hora_fin: '17:00',
   minutos_descanso_intermedio: 0,
+  pausas: [],
   dias_laborables: [1, 2, 3, 4, 5],
 }
 
@@ -362,6 +377,9 @@ function normalizarDentroDeJornada(d: Date, jornada: JornadaLaboral): Date {
 /**
  * Avanza `minutosNeed` a partir de `inicio`, consumiendo SOLO jornada.
  * Si cae fin de jornada, salta al siguiente día laborable y continúa.
+ * Si una pausa del horario del operario (jornada.pausas) cae en medio
+ * del avance, salta el cursor al final de la pausa SIN consumir
+ * minutos de la tarea: la pausa "ensancha el reloj" pero no se imputa.
  * Usada para tareas con `requiere_operario=true`.
  */
 function avanzarMinutosEnJornada(inicio: Date, minutosNeed: number, jornada: JornadaLaboral): Date {
@@ -369,19 +387,56 @@ function avanzarMinutosEnJornada(inicio: Date, minutosNeed: number, jornada: Jor
 
   let cursor = normalizarDentroDeJornada(inicio, jornada)
   let restantes = minutosNeed
+  const pausas = jornada.pausas ?? []
+
+  // Si arrancamos dentro de una pausa, saltamos al final de la pausa antes de empezar.
+  cursor = saltarSiDentroDePausa(cursor, pausas)
 
   while (restantes > 0) {
     const finJ = conHora(cursor, jornada.hora_fin)
-    const minutosDelDia = minutosEntre(cursor, finJ)
-    if (restantes <= minutosDelDia) {
+    // ¿Cuándo es la próxima pausa de hoy que esté por delante del cursor?
+    const proxPausa = proximaPausaDespuesDe(cursor, pausas)
+    // Frontera del bloque actual: o fin de jornada o inicio de la próxima pausa.
+    const finBloque = (proxPausa && proxPausa.inicio < finJ) ? proxPausa.inicio : finJ
+    const minutosDelBloque = minutosEntre(cursor, finBloque)
+
+    if (restantes <= minutosDelBloque) {
       return sumarMinutos(cursor, restantes)
     }
-    restantes -= minutosDelDia
-    // Mover a inicio del siguiente día laborable
-    const siguiente = new Date(cursor.getTime() + 86_400_000)
-    cursor = siguienteInicioLaborable(siguiente, jornada)
+    restantes -= minutosDelBloque
+
+    if (proxPausa && proxPausa.inicio < finJ) {
+      // Saltamos la pausa SIN consumir minutos de la tarea
+      cursor = proxPausa.fin
+    } else {
+      // Fin de jornada → siguiente día laborable
+      const siguiente = new Date(cursor.getTime() + 86_400_000)
+      cursor = siguienteInicioLaborable(siguiente, jornada)
+    }
   }
   return cursor
+}
+
+/** Si `d` cae dentro de una pausa, devuelve el final de esa pausa; si no, `d` tal cual. */
+function saltarSiDentroDePausa(d: Date, pausas: PausaJornada[]): Date {
+  for (const p of pausas) {
+    const ini = conHora(d, p.hora_inicio)
+    const fin = sumarMinutos(ini, p.minutos)
+    if (d >= ini && d < fin) return fin
+  }
+  return d
+}
+
+/** Próxima pausa que empieza estrictamente después de `cursor` el mismo día. */
+function proximaPausaDespuesDe(cursor: Date, pausas: PausaJornada[]): { inicio: Date; fin: Date } | null {
+  let proxima: { inicio: Date; fin: Date } | null = null
+  for (const p of pausas) {
+    const ini = conHora(cursor, p.hora_inicio)
+    if (ini >= cursor && (!proxima || ini < proxima.inicio)) {
+      proxima = { inicio: ini, fin: sumarMinutos(ini, p.minutos) }
+    }
+  }
+  return proxima
 }
 
 // =================================================================

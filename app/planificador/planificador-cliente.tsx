@@ -62,7 +62,6 @@ import type { VistaPlanificador, FilaPlanificador } from '@/lib/services/planifi
 import { formatearMinutosJornada } from '@/lib/motor/planificador'
 import type { PresupuestoPendiente, PedidoConFechaSinReservar } from '@/lib/services/simulador-entrega'
 import { accionMoverTarea, accionAutogenerar } from '@/lib/actions/planificador'
-import { accionDescansoGlobal, accionDescansoGlobalActivo } from '@/lib/actions/fichajes'
 import PanelSugerencias from './panel-sugerencias'
 import PanelHistorico from './panel-historico'
 import DialogAutogenerar from './dialog-autogenerar'
@@ -250,18 +249,16 @@ export default function PlanificadorCliente({ vista, desde, dias, modo, filtros:
   const [detalleTarea, setDetalleTarea] = useState<FilaPlanificador | null>(null)
   const [enviando, setEnviando] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
-  const [descansoActivo, setDescansoActivo] = useState<boolean>(false)
   const [operariosEnPausa, setOperariosEnPausa] = useState<Set<string>>(new Set())
   const [diaAmpliado, setDiaAmpliado] = useState<Date | null>(null)
   const [indiceZoom, setIndiceZoom] = useState<IndiceZoom>(0)
   const ANCHO_DIA_PX = ZOOM_LEVELS[indiceZoom].anchoPx
 
-  // Cargar estado del descanso global y operarios en pausa al montar
+  // Cargar estado de operarios (quiénes están en pausa ahora) para resaltar
+  // sus barras en el Gantt. El "descanso global" del Planificador se eliminó:
+  // las pausas se gestionan en /fichajes (horario del operario, script 039)
+  // y el motor las descuenta del tiempo de tarea automáticamente.
   useEffect(() => {
-    accionDescansoGlobalActivo().then(res => {
-      if (res.ok && res.data) setDescansoActivo(res.data.activo)
-    }).catch(() => undefined)
-    // Cargar estado operarios (quiénes están en pausa ahora)
     import('@/lib/actions/fichajes').then(({ accionEstadoOperariosHoy }) => {
       accionEstadoOperariosHoy().then(res => {
         if (res.ok && res.data) {
@@ -439,35 +436,10 @@ export default function PlanificadorCliente({ vista, desde, dias, modo, filtros:
               hasta={vista.rango.hasta}
               onAfterApply={() => router.refresh()}
             />
-            <Button
-              variant={descansoActivo ? 'default' : 'outline'}
-              size="sm"
-              className="gap-1.5"
-              title={descansoActivo ? 'Reanudar taller (cierra descanso global)' : 'Iniciar descanso global del taller'}
-              onClick={async () => {
-                setEnviando(true)
-                try {
-                  const res = await accionDescansoGlobal(!descansoActivo)
-                  if (!res.ok) {
-                    pushToast({
-                      tipo: res.hint === 'instalar_031' ? 'warn' : 'error',
-                      texto: res.hint === 'instalar_031' ? 'Falta ejecutar SQL 031' : 'No se pudo registrar',
-                      detalle: res.error,
-                    })
-                  } else {
-                    setDescansoActivo(!descansoActivo)
-                    pushToast({
-                      tipo: 'ok',
-                      texto: descansoActivo ? 'Taller reanudado' : 'Descanso iniciado',
-                    })
-                  }
-                } finally { setEnviando(false) }
-              }}
-              disabled={enviando}
-            >
-              {descansoActivo ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-              {descansoActivo ? 'Reanudar' : 'Descanso'}
-            </Button>
+            {/* Botón "Descanso/Reanudar global" eliminado.
+                Las pausas se gestionan ahora desde /fichajes (horario del
+                operario), y el motor del planificador las suma al reloj de
+                la tarea sin imputarlas como tiempo trabajado. */}
             <Select value={String(dias)} onValueChange={cambiarDias}>
               <SelectTrigger className="w-[110px]"><SelectValue /></SelectTrigger>
               <SelectContent>
