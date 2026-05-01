@@ -52,6 +52,67 @@ import {
 } from '@/lib/motor/reorganizador'
 
 // =============================================================
+// CARGA DE JORNADA REAL DEL TALLER
+// =============================================================
+
+/**
+ * Lee horarios_operario para construir la JornadaLaboral activa del taller.
+ * Estrategia mono-empresa: lee el horario del lunes de cualquier operario
+ * activo (todos comparten el mismo en Turiaval). Si la tabla no existe o
+ * está vacía, devuelve JORNADA_DEFAULT.
+ *
+ * El campo `pausas` (jsonb del script 048) puede tener varias entradas:
+ *   [{"hora_inicio":"10:00","minutos":30}, {"hora_inicio":"14:00","minutos":60}]
+ *
+ * Cuando existe, el motor descontará automáticamente esas pausas del
+ * cálculo: la tarea termina más tarde en el reloj, pero los minutos
+ * imputados al trabajo de la pieza se mantienen.
+ */
+export async function cargarJornadaActiva(): Promise<JornadaLaboral> {
+  try {
+    const supabase = await createClient()
+    const { data } = await supabase
+      .from('horarios_operario')
+      .select('hora_entrada, hora_salida, pausa_inicio, pausa_fin, pausas, dia_semana')
+      .eq('activo', true)
+      .eq('dia_semana', 1)
+      .limit(1)
+      .maybeSingle()
+    if (!data) return JORNADA_DEFAULT
+
+    // Pausas: usamos el array jsonb si existe, si no, fallback a la pausa
+    // legacy pausa_inicio/pausa_fin (single).
+    let pausas: { hora_inicio: string; minutos: number }[] = []
+    const arr = (data as any).pausas
+    if (Array.isArray(arr) && arr.length > 0) {
+      pausas = arr.map((p: any) => ({
+        hora_inicio: String(p.hora_inicio).slice(0, 5),
+        minutos: Number(p.minutos) || 0,
+      })).filter(p => p.hora_inicio && p.minutos > 0)
+    } else if ((data as any).pausa_inicio && (data as any).pausa_fin) {
+      const ini = String((data as any).pausa_inicio).slice(0, 5)
+      const fin = String((data as any).pausa_fin).slice(0, 5)
+      const [hI, mI] = ini.split(':').map(Number)
+      const [hF, mF] = fin.split(':').map(Number)
+      const minutos = (hF * 60 + mF) - (hI * 60 + mI)
+      if (minutos > 0) pausas = [{ hora_inicio: ini, minutos }]
+    }
+
+    const minutosPausa = pausas.reduce((s, p) => s + p.minutos, 0)
+
+    return {
+      hora_inicio: String((data as any).hora_entrada).slice(0, 5),
+      hora_fin: String((data as any).hora_salida).slice(0, 5),
+      minutos_descanso_intermedio: minutosPausa,
+      pausas,
+      dias_laborables: [1, 2, 3, 4, 5],
+    }
+  } catch {
+    return JORNADA_DEFAULT
+  }
+}
+
+// =============================================================
 // TIPOS PÚBLICOS
 // =============================================================
 
@@ -455,7 +516,7 @@ export async function moverTarea(params: {
   jornada?: JornadaLaboral
 }): Promise<ResultadoMoverTarea> {
   const supabase = await createClient()
-  const jornada = params.jornada ?? JORNADA_DEFAULT
+  const jornada = params.jornada ?? await cargarJornadaActiva()
   const nuevoInicio = new Date(params.nuevo_inicio)
   if (isNaN(nuevoInicio.getTime())) {
     return { ok: false, cambios: [], solapes_generados: [], violaciones_plazo: [], error: 'fecha_inicio inválida' }
@@ -600,7 +661,7 @@ export async function aplicarAgrupacion(params: {
   jornada?: JornadaLaboral
 }): Promise<ResultadoMoverTarea> {
   const supabase = await createClient()
-  const jornada = params.jornada ?? JORNADA_DEFAULT
+  const jornada = params.jornada ?? await cargarJornadaActiva()
   const iniBase = new Date(params.inicio)
 
   const { data, error } = await supabase
@@ -791,7 +852,7 @@ export async function autogenerar(params: {
   pedido_id?: string
 }): Promise<ResultadoAutogenerarServicio> {
   const supabase = await createClient()
-  const jornada = params.jornada ?? JORNADA_DEFAULT
+  const jornada = params.jornada ?? await cargarJornadaActiva()
   // Mario bug: autogenerar a las 22:06 colocaba tareas en el pasado.
   // Usamos proximoArranqueLaborable que respeta jornada y findes.
   const desde = params.rango?.desde
@@ -947,7 +1008,7 @@ export async function proponerReorganizacion(params: {
     pedido_objetivo_id: params.pedido_id,
     todasLasTareas: universo,
     operarios,
-    jornada: params.jornada ?? JORNADA_DEFAULT,
+    jornada: params.jornada ?? await cargarJornadaActiva(),
   })
 }
 

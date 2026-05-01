@@ -306,6 +306,27 @@ export async function accionCrearOperariosFicticios(): Promise<
           .map(eid => ({ operario_id: (opRow as any).id, especialidad_id: eid }))
         if (filas.length > 0) await admin.from('operario_especialidades').insert(filas)
       }
+
+      // 4) Horario default del taller (L-V, 7:00-16:00, pausas 10:00 (30m) y 14:00 (60m))
+      if (opRow) {
+        const horariosFilas = [1, 2, 3, 4, 5].map((dia_semana) => ({
+          operario_id: (opRow as any).id,
+          dia_semana,
+          hora_entrada: '07:00',
+          hora_salida: '16:00',
+          pausa_inicio: '14:00',
+          pausa_fin: '15:00',
+          pausas: [
+            { hora_inicio: '10:00', minutos: 30 },
+            { hora_inicio: '14:00', minutos: 60 },
+          ],
+          horas_teoricas: 7.5,
+          activo: true,
+        }))
+        await admin.from('horarios_operario').insert(horariosFilas)
+          .then(({ error }) => { if (error) console.warn('[seed] horario_operario:', error.message) })
+      }
+
       creados++
     }
     revalidatePath('/configuracion/usuarios')
