@@ -46,9 +46,12 @@ export default function CrearClientePage() {
     try {
       await crearCliente(form as any)
       router.push('/dashboard/clientes')
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error creando cliente:', err)
-      setError('Error al crear el cliente. Intenta de nuevo.')
+      // Mostrar el error literal para que el admin sepa que falla
+      // (RLS, constraint, columna obligatoria, etc.).
+      const msg = err?.message || err?.error_description || err?.code || JSON.stringify(err)
+      setError(`Error al crear el cliente: ${msg}`)
     } finally {
       setLoading(false)
     }
